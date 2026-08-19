@@ -12,11 +12,12 @@ export function fmtUsd(n: number | null | undefined, opts?: { compact?: boolean;
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: dec })}`;
 }
 
-export function fmtNum(n: number | null | undefined) {
+export function fmtNum(n: number | null | undefined, opts?: { decimals?: number }) {
   if (n == null || isNaN(n)) return '—';
+  const dec = opts?.decimals ?? 0;
   if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
-  return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  return n.toLocaleString('en-US', { maximumFractionDigits: dec });
 }
 
 export function fmtPct(n: number | null | undefined, withSign = true) {

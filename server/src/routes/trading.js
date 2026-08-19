@@ -32,7 +32,7 @@ function fail(res, err, status = 500) {
 }
 
 async function resolveToken(address, chain = 'sol') {
-  // Fetch fresh price/market data + metadata to price the simulated trade.
+  // Fetch fresh market-cap data + metadata to price the simulated trade.
   const [data, dex] = await Promise.allSettled([
     getDataTokenInfo(chain, address),
     getTokenInfo(address),
@@ -40,9 +40,9 @@ async function resolveToken(address, chain = 'sol') {
   const dataInfo = data.status === 'fulfilled' ? data.value : null;
   const dexInfo = dex.status === 'fulfilled' ? dex.value : null;
 
-  const price = dataInfo?.price ?? dexInfo?.price ?? null;
-  if (!price) {
-    throw Object.assign(new Error('Could not resolve a price for this token'), { status: 422 });
+  const marketCap = dataInfo?.marketCap ?? dexInfo?.marketCap ?? null;
+  if (!marketCap || marketCap <= 0) {
+    throw Object.assign(new Error('Could not resolve a market cap for this token'), { status: 422 });
   }
 
   return {
@@ -53,8 +53,8 @@ async function resolveToken(address, chain = 'sol') {
       name: dexInfo?.name ?? dataInfo?.name ?? null,
       logo: dexInfo?.logo ?? dataInfo?.logo ?? null,
     },
-    price,
-    source: dataInfo?.price != null ? dataInfo.source : 'dexscreener',
+    marketCap,
+    source: dataInfo?.marketCap != null ? dataInfo.source : 'dexscreener',
   };
 }
 
@@ -123,7 +123,7 @@ router.post('/trade/buy', async (req, res) => {
     if (!token_address) throw Object.assign(new Error('token_address is required'), { status: 400 });
 
     const solPrice = await solPriceUsd();
-    const { token, price, source } = await resolveToken(token_address, chain || 'sol');
+    const { token, marketCap, source } = await resolveToken(token_address, chain || 'sol');
 
     const usd = req.body.usd != null ? Number(req.body.usd) : undefined;
     const sol = req.body.sol != null ? Number(req.body.sol) : undefined;
@@ -131,7 +131,7 @@ router.post('/trade/buy', async (req, res) => {
 
     const wallet = trading.getWallet(id, { solPrice });
     const result = trading.buy(id, token, {
-      price,
+      marketCap,
       sol: spendSol,
       gasSol: req.body.gas_sol != null ? Number(req.body.gas_sol) : undefined,
       solPrice,
@@ -153,12 +153,12 @@ router.post('/trade/sell', async (req, res) => {
     if (!token_address) throw Object.assign(new Error('token_address is required'), { status: 400 });
 
     const solPrice = await solPriceUsd();
-    const { token, price, source } = await resolveToken(token_address, chain || 'sol');
+    const { token, marketCap, source } = await resolveToken(token_address, chain || 'sol');
 
     const wallet = trading.getWallet(id, { solPrice });
     const result = trading.sell(id, token, {
       quantity: req.body.quantity != null ? Number(req.body.quantity) : null,
-      price,
+      marketCap,
       gasSol: req.body.gas_sol != null ? Number(req.body.gas_sol) : undefined,
       solPrice,
     });
@@ -181,15 +181,16 @@ router.get('/portfolio', async (req, res) => {
     const stats = trading.getStats(id);
 
     const mints = positions.map((p) => p.token_address);
-    const prices = await getPrices(mints); // single batched request
+    const market = await getPrices(mints); // single batched request
 
     const enriched = positions.map((p) => {
-      const price = prices[p.token_address] ?? p.avg_price_usdc;
-      const value = p.quantity * price;
+      const m = market[p.token_address];
+      const mcap = m?.marketCap ?? p.entry_market_cap;
+      const value = p.quantity * mcap;
       const pnl = value - p.cost_usdc;
       return {
         ...p,
-        current_price: price,
+        market_cap: mcap,
         value,
         pnl,
         pnl_percent: p.cost_usdc > 0 ? (pnl / p.cost_usdc) * 100 : 0,

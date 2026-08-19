@@ -14,8 +14,8 @@ const stmts = {
   setGasSol: db.prepare('UPDATE wallets SET gas_per_trade_sol = ? WHERE device_id = ?'),
   getPosition: db.prepare('SELECT * FROM positions WHERE device_id = ? AND token_address = ?'),
   upsertPosition: db.prepare(`
-    INSERT INTO positions (device_id, token_address, chain, symbol, name, logo, quantity, avg_price_usdc, cost_usdc)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO positions (device_id, token_address, chain, symbol, name, logo, quantity, avg_price_usdc, entry_market_cap, cost_usdc)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(device_id, token_address) DO UPDATE SET
       chain = excluded.chain,
       symbol = excluded.symbol,
@@ -23,6 +23,7 @@ const stmts = {
       logo = excluded.logo,
       quantity = excluded.quantity,
       avg_price_usdc = excluded.avg_price_usdc,
+      entry_market_cap = excluded.entry_market_cap,
       cost_usdc = excluded.cost_usdc,
       updated_at = datetime('now')
   `),
@@ -53,11 +54,13 @@ function ensureWallet(deviceId, { solPrice } = {}) {
 }
 
 /**
- * Simulated buy: spend `sol` (SOL budget, minus gas) at the given price.
+ * Simulated buy: spend `sol` (SOL budget, minus gas) at the given market cap.
+ * `quantity` is the fraction of the token's market cap owned
+ * (quantity = spendUsd / entryMarketCap); value = quantity * currentMarketCap.
  * `solPrice` is the current SOL/USD rate used to compute the USD spend.
  * Returns the order and updated position.
  */
-export function buy(deviceId, token, { price, sol, gasSol, solPrice }) {
+export function buy(deviceId, token, { marketCap, sol, gasSol, solPrice }) {
   const wallet = ensureWallet(deviceId);
   const gasFee = gasSol ?? wallet.gas_per_trade_sol;
 
@@ -66,30 +69,30 @@ export function buy(deviceId, token, { price, sol, gasSol, solPrice }) {
   if (spendSol > wallet.balance_sol) throw new Error('Insufficient SOL balance');
 
   const spendUsd = solPrice > 0 ? spendSol * solPrice : spendSol;
-  const quantity = price > 0 ? spendUsd / price : 0;
-  if (quantity <= 0) throw new Error('Invalid price');
+  if (!marketCap || marketCap <= 0) throw new Error('Invalid market cap');
+  const quantity = spendUsd / marketCap;
 
   const existing = get(stmts.getPosition, deviceId, token.address);
   const newCost = spendUsd;
   if (existing) {
     const totalQty = existing.quantity + quantity;
     const totalCost = existing.cost_usdc + newCost;
-    const avgPrice = totalQty > 0 ? totalCost / totalQty : price;
+    const avgEntryMc = totalQty > 0 ? totalCost / totalQty : marketCap;
     stmts.upsertPosition.run(
       deviceId, token.address, token.chain, token.symbol, token.name, token.logo,
-      totalQty, avgPrice, totalCost
+      totalQty, avgEntryMc, avgEntryMc, totalCost
     );
   } else {
     stmts.upsertPosition.run(
       deviceId, token.address, token.chain, token.symbol, token.name, token.logo,
-      quantity, price, newCost
+      quantity, marketCap, marketCap, newCost
     );
   }
 
   stmts.setBalances.run(wallet.balance_usd, wallet.balance_sol - sol, deviceId);
   const info = stmts.addOrder.run(
     deviceId, 'buy', token.address, token.chain, token.symbol, token.name, token.logo,
-    quantity, price, spendUsd, gasFee * solPrice, null
+    quantity, marketCap, spendUsd, gasFee * solPrice, null
   );
 
   return {
@@ -97,7 +100,7 @@ export function buy(deviceId, token, { price, sol, gasSol, solPrice }) {
     side: 'buy',
     token,
     quantity,
-    price,
+    market_cap: marketCap,
     total_usdc: spendUsd,
     gas_sol: gasFee,
     gas_usdc: gasFee * solPrice,
@@ -107,10 +110,10 @@ export function buy(deviceId, token, { price, sol, gasSol, solPrice }) {
 }
 
 /**
- * Simulated sell: sell `quantity` (or all if null) of a held position.
- * Proceeds land in the SOL budget.
+ * Simulated sell: sell `quantity` (share of market cap) or all if null.
+ * Proceeds land in the SOL budget. Value = quantity * currentMarketCap.
  */
-export function sell(deviceId, token, { quantity, price, gasSol, solPrice }) {
+export function sell(deviceId, token, { marketCap, quantity, gasSol, solPrice }) {
   const wallet = ensureWallet(deviceId);
   const position = get(stmts.getPosition, deviceId, token.address);
   if (!position || position.quantity <= 0) throw new Error('No position to sell');
@@ -119,7 +122,7 @@ export function sell(deviceId, token, { quantity, price, gasSol, solPrice }) {
   if (qty <= 0) throw new Error('Invalid quantity');
 
   const gasFee = gasSol ?? wallet.gas_per_trade_sol;
-  const proceedsUsd = qty * price;
+  const proceedsUsd = qty * marketCap;
   const proceedsSol = solPrice > 0 ? proceedsUsd / solPrice : proceedsUsd;
   if (proceedsSol - gasFee < 0) throw new Error('Proceeds are lower than the gas fee');
 
@@ -129,7 +132,7 @@ export function sell(deviceId, token, { quantity, price, gasSol, solPrice }) {
   } else {
     stmts.upsertPosition.run(
       deviceId, token.address, position.chain, position.symbol, position.name, position.logo,
-      remaining, position.avg_price_usdc, position.cost_usdc * (remaining / position.quantity)
+      remaining, position.avg_price_usdc, position.entry_market_cap, position.cost_usdc * (remaining / position.quantity)
     );
   }
 
@@ -138,7 +141,7 @@ export function sell(deviceId, token, { quantity, price, gasSol, solPrice }) {
   const costBasis = qty * position.avg_price_usdc;
   const info = stmts.addOrder.run(
     deviceId, 'sell', token.address, token.chain, token.symbol, token.name, token.logo,
-    qty, price, proceedsUsd, gasFee * solPrice, costBasis
+    qty, marketCap, proceedsUsd, gasFee * solPrice, costBasis
   );
 
   return {
@@ -146,7 +149,7 @@ export function sell(deviceId, token, { quantity, price, gasSol, solPrice }) {
     side: 'sell',
     token,
     quantity: qty,
-    price,
+    market_cap: marketCap,
     total_usdc: proceedsUsd,
     total_sol: proceedsSol,
     gas_sol: gasFee,

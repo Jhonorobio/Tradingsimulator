@@ -50,7 +50,9 @@ export default function TokenScreen() {
     }
   }, [address, chain]);
 
-  // "Resto" de la info (nombre, liquidez, volumen, holders, DEX…): cada 10s.
+  // "Resto" de la info (nombre, liquidez, volumen, holders, DEX…): cada 3s.
+  // No depende del proxy GMGN: si el token está en trenches usa el store en
+  // memoria; si no, getTokenInfo tiene cache de 15s en el server.
   const loadDetail = useCallback(async () => {
     if (!address) return;
     try {
@@ -61,6 +63,20 @@ export default function TokenScreen() {
       // mantén el último detalle conocido
     }
   }, [address, chain]);
+
+  // Posición del token + balance SOL en vivo (portfolio): cada 2s.
+  const loadPosition = useCallback(async () => {
+    if (!address) return;
+    try {
+      const pf = await getPortfolio();
+      setSolPrice(pf.sol_price ?? 0);
+      setSolBalance(pf.wallet.balance_sol);
+      const pos = pf.positions.find((p) => p.token_address === address);
+      setPosition(pos ?? null);
+    } catch {
+      // mantén la última posición conocida
+    }
+  }, [address]);
 
   // Precio + marketcap vía GMGN proxy (con fallback Dexscreener): cada 2s.
   const loadLive = useCallback(async () => {
@@ -107,13 +123,15 @@ export default function TokenScreen() {
     load();
     const liveTimer = setInterval(loadLive, 2000);
     const mcapTimer = setInterval(loadMcap, 1000);
-    const detailTimer = setInterval(loadDetail, 10_000);
+    const detailTimer = setInterval(loadDetail, 3000);
+    const posTimer = setInterval(loadPosition, 2000);
     return () => {
       clearInterval(liveTimer);
       clearInterval(mcapTimer);
       clearInterval(detailTimer);
+      clearInterval(posTimer);
     };
-  }, [load, loadLive, loadMcap, loadDetail]);
+  }, [load, loadLive, loadMcap, loadDetail, loadPosition]);
 
   const doBuy = async () => {
     if (!address) return;
@@ -207,7 +225,7 @@ export default function TokenScreen() {
               <View>
                 <ThemedText type="smallBold">Tu posición</ThemedText>
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  {fmtNum(position.quantity)} tokens
+                  {fmtUsd(position.entry_market_cap, { compact: true })} al entrar · MC actual {fmtUsd(position.market_cap ?? 0, { compact: true })}
                 </ThemedText>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
@@ -216,7 +234,7 @@ export default function TokenScreen() {
               </View>
             </View>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Costo: {fmtUsd(position.cost_usdc)} · Promedio: {fmtUsd(position.avg_price_usdc, { decimals: 8 })} · P&L: {fmtUsd(position.pnl)} ({position.pnl_percent.toFixed(2)}%)
+              Costo: {fmtUsd(position.cost_usdc)} · P&L: {fmtUsd(position.pnl)} ({position.pnl_percent.toFixed(2)}%)
             </ThemedText>
           </Card>
         )}
@@ -227,7 +245,7 @@ export default function TokenScreen() {
               {result.side === 'buy' ? 'Compra ejecutada' : 'Venta ejecutada'}
             </ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {fmtNum(result.quantity)} tokens @ {fmtUsd(result.price, { decimals: 8 })} = {fmtUsd(result.total_usdc)} · gas {fmtNum(result.gas_sol)} SOL
+              {fmtUsd(result.total_usdc)} al MC {fmtUsd(result.market_cap, { compact: true })} · gas {fmtNum(result.gas_sol, { decimals: 4 })} SOL
               {result.pnl_usdc != null ? ` · P&L ${fmtUsd(result.pnl_usdc)}` : ''}
             </ThemedText>
             <ThemedText type="smallBold">SOL: {fmtNum(result.balance_sol)} · USD: {fmtUsd(result.balance_usd)}</ThemedText>
@@ -243,7 +261,7 @@ export default function TokenScreen() {
           <Card>
             <ThemedText type="smallBold">Comprar {symbol} (presupuesto SOL)</ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Balance SOL: {fmtNum(solBalance)} ({fmtUsd(solBalance * solPrice)})
+              Balance SOL: {fmtNum(solBalance, { decimals: 4 })} ({fmtUsd(solBalance * solPrice)})
             </ThemedText>
             <TextInput
               value={amount}
@@ -253,9 +271,9 @@ export default function TokenScreen() {
               keyboardType="decimal-pad"
               style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
             />
-            {detail.price && Number(amount) > 0 && solPrice > 0 ? (
+            {detail.marketCap && Number(amount) > 0 && solPrice > 0 ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                ≈ {fmtNum((Number(amount) / solPrice) - 0.001)} SOL gastados · ≈ {fmtNum((Number(amount) - 0.001 * solPrice) / detail.price)} {symbol} · gas {fmtNum(0.001)} SOL
+                ≈ {fmtNum((Number(amount) / solPrice) - 0.001, { decimals: 4 })} SOL gastados · ≈ {fmtNum((Number(amount) / detail.marketCap) * 100, { decimals: 6 })}% del MC · gas {fmtNum(0.001, { decimals: 4 })} SOL
               </ThemedText>
             ) : null}
             <Pressable onPress={doBuy} disabled={submitting} style={({ pressed }) => [styles.buyBtn, { backgroundColor: theme.positive }, pressed && { opacity: 0.8 }]}>
@@ -282,9 +300,9 @@ export default function TokenScreen() {
                 </Pressable>
               ))}
             </View>
-            {detail.price ? (
+            {position && detail.marketCap ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Venderás ≈ {fmtNum((position?.quantity ?? 0) * (pct / 100))} {symbol} por ≈ {fmtNum(((position?.quantity ?? 0) * (pct / 100) * detail.price) / (solPrice || 1))} SOL (menos gas)
+                Venderás {pct}% de tu posición por ≈ {fmtNum(((position.quantity * (pct / 100)) * detail.marketCap) / (solPrice || 1))} SOL (menos gas)
               </ThemedText>
             ) : null}
             <Pressable onPress={doSell} disabled={submitting} style={({ pressed }) => [styles.buyBtn, { backgroundColor: theme.negative }, pressed && { opacity: 0.8 }]}>

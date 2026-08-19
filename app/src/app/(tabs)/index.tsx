@@ -50,8 +50,12 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     load();
-    const timer = setInterval(loadSolPrice, 3000);
-    return () => clearInterval(timer);
+    const solTimer = setInterval(loadSolPrice, 3000);
+    const pfTimer = setInterval(load, 2000);
+    return () => {
+      clearInterval(solTimer);
+      clearInterval(pfTimer);
+    };
   }, [load, loadSolPrice]);
 
   const doConvert = async (direction: 'usd_to_sol' | 'sol_to_usd') => {
@@ -128,7 +132,7 @@ export default function DashboardScreen() {
                 Balance SOL
               </ThemedText>
               <ThemedText type="smallBold" style={{ color: theme.text }}>
-                {fmtNum(summary.balance_sol)} SOL ≈ {fmtUsd(solValueUsd)}
+                {fmtNum(summary.balance_sol, { decimals: 4 })} SOL ≈ {fmtUsd(solValueUsd)}
               </ThemedText>
             </View>
             <View style={styles.summaryRow}>
@@ -196,7 +200,7 @@ export default function DashboardScreen() {
                   <View style={styles.posIdentity}>
                     <ThemedText type="smallBold">{p.symbol || p.name}</ThemedText>
                     <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                      {fmtNum(p.quantity)} · avg {fmtUsd(p.avg_price_usdc, { decimals: 6 })}
+                      Entrada {fmtUsd(p.entry_market_cap, { compact: true })} · MC {fmtUsd(p.market_cap ?? 0, { compact: true })}
                     </ThemedText>
                   </View>
                   <View style={styles.posValue}>

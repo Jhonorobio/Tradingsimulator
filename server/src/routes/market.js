@@ -132,7 +132,8 @@ router.get('/prices', async (req, res) => {
     const mints = [].concat(cleanValue(raw)).flatMap((v) => String(v).split(',')).map((s) => s.trim()).filter(Boolean);
     const all = [...new Set([...mints, SOL_MINT])];
     if (!all.length) return fail(res, new Error('addresses is required'), 400);
-    const prices = await getPrices(all);
+    const data = await getPrices(all);
+    const prices = Object.fromEntries(Object.entries(data).map(([m, v]) => [m, v?.price ?? null]));
     res.json({ prices, fetched_at: new Date().toISOString() });
   } catch (err) {
     fail(res, err);

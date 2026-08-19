@@ -31,7 +31,8 @@ db.exec(`
     name          TEXT,
     logo          TEXT,
     quantity      REAL NOT NULL,
-    avg_price_usdc REAL NOT NULL,
+    avg_price_usdc REAL NOT NULL DEFAULT 0,
+    entry_market_cap REAL NOT NULL DEFAULT 0,
     cost_usdc     REAL NOT NULL,
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
@@ -100,5 +101,17 @@ if (!walletCols.includes('balance_sol')) {
     INSERT INTO wallets (device_id, name, balance_usd, balance_sol, gas_per_trade_sol, created_at)
       SELECT device_id, name, balance_usdc, 0, 0.001, created_at FROM wallets_old;
     DROP TABLE wallets_old;
+  `);
+}
+
+// Migration: valuation engine changed from price-based to marketcap-based.
+// Add `entry_market_cap` to positions and reset test trade data (old positions
+// were priced with the old engine and can't be converted).
+const posCols = db.prepare('PRAGMA table_info(positions)').all().map((c) => c.name);
+if (!posCols.includes('entry_market_cap')) {
+  db.exec(`
+    ALTER TABLE positions ADD COLUMN entry_market_cap REAL NOT NULL DEFAULT 0;
+    DELETE FROM positions;
+    DELETE FROM orders;
   `);
 }

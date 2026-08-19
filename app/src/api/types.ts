@@ -19,8 +19,9 @@ export interface Position {
   logo: string | null;
   quantity: number;
   avg_price_usdc: number;
+  entry_market_cap: number;
   cost_usdc: number;
-  current_price: number;
+  market_cap: number | null;
   value: number;
   pnl: number;
   pnl_percent: number;
@@ -159,7 +160,7 @@ export interface TradeResult {
   side: 'buy' | 'sell';
   token: { address: string; chain: string; symbol: string | null; name: string | null; logo: string | null };
   quantity: number;
-  price: number;
+  market_cap: number;
   total_usdc: number;
   gas_sol: number;
   gas_usdc: number;

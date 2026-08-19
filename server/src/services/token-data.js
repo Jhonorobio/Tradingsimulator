@@ -53,11 +53,11 @@ export async function getLiveTokenInfo(chain, address) {
 }
 
 /**
- * Batch USD prices for many mints. Each mint is resolved via GMGN proxy first
- * (dedicated 2nd key), falling back to Dexscreener batches. Dexscreener results
- * are cached 15s.
+ * Batch market data for many mints. Each mint is resolved via GMGN proxy first
+ * (dedicated 2nd key, one request that yields both price and market cap),
+ * falling back to Dexscreener batches. Dexscreener results are cached 15s.
  * @param {string[]} mints
- * @returns {Promise<Record<string, number|null>>}
+ * @returns {Promise<Record<string, { price: number|null, marketCap: number|null } | null>>}
  */
 export async function getPrices(mints) {
   const ids = [...new Set(mints.filter(Boolean))];
@@ -67,14 +67,14 @@ export async function getPrices(mints) {
 
   const resolved = await Promise.all(
     ids.map(async (m) => {
-      const info = await withCache(cacheKey('token-price', m), 15, () =>
+      const info = await withCache(cacheKey('token-price', m), 2, () =>
         getProxyTokenInfo('sol', m)
       );
       return { m, info };
     })
   );
   for (const { m, info } of resolved) {
-    if (info?.price != null) out[m] = info.price;
+    if (info?.price != null) out[m] = { price: info.price, marketCap: info.marketCap ?? null };
     else missing.push(m);
   }
 
@@ -82,7 +82,9 @@ export async function getPrices(mints) {
     const dexInfos = await getDexTokensInfo(missing); // order-preserving
     missing.forEach((m, i) => {
       const dex = dexInfos[i];
-      out[m] = dex?.price != null ? Number(dex.price) : null;
+      out[m] = dex?.price != null
+        ? { price: Number(dex.price), marketCap: dex.marketCap != null ? Number(dex.marketCap) : null }
+        : null;
     });
   }
   return out;
@@ -95,5 +97,5 @@ export async function getPrices(mints) {
  */
 export async function getPrice(mint) {
   const prices = await getPrices([mint]);
-  return prices[mint] ?? null;
+  return prices[mint]?.price ?? null;
 }
