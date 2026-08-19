@@ -6,6 +6,8 @@ const DEVICE_ID_KEY = 'trading-sim/device-id';
 
 /** Derive the backend host from the Metro bundler host when available. */
 function deriveDefaultUrl() {
+  const explicit = process.env.EXPO_PUBLIC_API_URL;
+  if (explicit) return explicit.replace(/\/+$/, '');
   const hostUri = Constants.expoConfig?.hostUri;
   if (hostUri) {
     const host = hostUri.split(':')[0];

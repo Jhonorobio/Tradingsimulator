@@ -1,7 +1,21 @@
 import { spawn } from 'node:child_process';
 import { platform } from 'node:os';
+import { createRequire } from 'node:module';
 
-const GMGN_BIN = 'gmgn-cli';
+const require = createRequire(import.meta.url);
+
+// Resolve the CLI from node_modules when present (Railway/CI deploy gmgn-cli as
+// a project dependency), falling back to whatever is on PATH.
+function resolveBin() {
+  if (process.env.GMGN_BIN) return process.env.GMGN_BIN;
+  try {
+    return require.resolve('gmgn-cli', { paths: [process.cwd()] });
+  } catch {
+    return 'gmgn-cli';
+  }
+}
+
+const GMGN_BIN = resolveBin();
 const TIMEOUT_MS = 90_000;
 
 /**

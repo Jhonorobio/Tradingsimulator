@@ -7,7 +7,8 @@
   "main": "src/index.js",
   "scripts": {
     "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "postinstall": "node scripts/patch-gmgn-signer.js"
   },
   "engines": {
     "node": ">=22.5.0"
@@ -16,6 +17,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "gmgn-cli": "^1.5.7",
     "https-proxy-agent": "^7.0.6"
   }
 }

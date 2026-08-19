@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import path from 'node:path';
 import marketRoutes from './routes/market.js';
 import tradingRoutes from './routes/trading.js';
 import notificationRoutes from './routes/notifications.js';
@@ -30,7 +29,7 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`Trading Simulator server on http://localhost:${PORT}`);
-  console.log(`SQLite db: ${path.join(process.cwd(), 'data', 'trading.db')}`);
+  console.log(`SQLite db: ${process.env.DATA_DIR || 'data/'}`);
 });
 
 // push notification watcher
