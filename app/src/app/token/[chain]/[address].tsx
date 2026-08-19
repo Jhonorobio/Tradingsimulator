@@ -8,7 +8,7 @@ import { Card } from '@/components/card';
 import { TokenAvatar } from '@/components/token-avatar';
 import { PriceChange } from '@/components/price-change';
 import { useTheme } from '@/hooks/use-theme';
-import { getTokenDetail } from '@/api/market';
+import { getTokenDetail, getLiveTokenPrice, getTokenMarketCap } from '@/api/market';
 import { buy, getPortfolio, sell } from '@/api/trading';
 import { ApiError } from '@/api/client';
 import type { Position, TokenDetail, TradeResult } from '@/api/types';
@@ -22,6 +22,8 @@ export default function TokenScreen() {
 
   const [detail, setDetail] = useState<TokenDetail | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
+  const [solPrice, setSolPrice] = useState<number>(0);
+  const [solBalance, setSolBalance] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('buy');
@@ -36,6 +38,8 @@ export default function TokenScreen() {
     try {
       const [d, pf] = await Promise.all([getTokenDetail(chain || 'sol', address), getPortfolio()]);
       setDetail(d);
+      setSolPrice(pf.sol_price ?? 0);
+      setSolBalance(pf.wallet.balance_sol);
       const pos = pf.positions.find((p) => p.token_address === address);
       setPosition(pos ?? null);
       setError(null);
@@ -46,18 +50,80 @@ export default function TokenScreen() {
     }
   }, [address, chain]);
 
+  // "Resto" de la info (nombre, liquidez, volumen, holders, DEX…): cada 10s.
+  const loadDetail = useCallback(async () => {
+    if (!address) return;
+    try {
+      const d = await getTokenDetail(chain || 'sol', address);
+      setDetail(d);
+      setError(null);
+    } catch {
+      // mantén el último detalle conocido
+    }
+  }, [address, chain]);
+
+  // Precio + marketcap vía GMGN proxy (con fallback Dexscreener): cada 2s.
+  const loadLive = useCallback(async () => {
+    if (!address) return;
+    try {
+      const live = await getLiveTokenPrice(chain || 'sol', address);
+      setDetail((prev) => {
+        if (!prev) return prev;
+        const oldPc = prev.priceChange;
+        const priceChange = oldPc
+          ? { ...oldPc, h24: live.priceChange24h ?? oldPc.h24 }
+          : live.priceChange24h != null
+            ? { m5: 0, h1: 0, h6: 0, h24: live.priceChange24h }
+            : null;
+        return {
+          ...prev,
+          price: live.price ?? prev.price,
+          marketCap: live.marketCap ?? prev.marketCap,
+          supply: live.supply ?? prev.supply,
+          liquidity: live.liquidity ?? prev.liquidity,
+          priceChange,
+        };
+      });
+    } catch {
+      // mantén el último precio conocido
+    }
+  }, [address, chain]);
+
+  // Market cap vía GMGN proxy (2ª key): cada 1s. Si el proxy falla, el server
+  // hace fallback a Dexscreener y devuelve source: 'dexscreener'.
+  const loadMcap = useCallback(async () => {
+    if (!address) return;
+    try {
+      const mcap = await getTokenMarketCap(chain || 'sol', address);
+      if (mcap.marketCap != null) {
+        setDetail((prev) => (prev ? { ...prev, marketCap: mcap.marketCap } : prev));
+      }
+    } catch {
+      // mantén el último marketcap conocido
+    }
+  }, [address, chain]);
+
   useEffect(() => {
     load();
-  }, [load]);
+    const liveTimer = setInterval(loadLive, 2000);
+    const mcapTimer = setInterval(loadMcap, 1000);
+    const detailTimer = setInterval(loadDetail, 10_000);
+    return () => {
+      clearInterval(liveTimer);
+      clearInterval(mcapTimer);
+      clearInterval(detailTimer);
+    };
+  }, [load, loadLive, loadMcap, loadDetail]);
 
   const doBuy = async () => {
     if (!address) return;
-    const usdc = Number(amount);
-    if (!usdc || usdc <= 0) return Alert.alert('Error', 'Introduce un monto en USDC');
+    const usd = Number(amount);
+    if (!usd || usd <= 0) return Alert.alert('Error', 'Introduce un monto en USD');
     setSubmitting(true);
     try {
-      const res = await buy(address, usdc, chain || 'sol');
+      const res = await buy(address, usd, chain || 'sol');
       setResult(res);
+      setSolBalance(res.balance_sol);
       setAmount('');
       await load();
     } catch (err) {
@@ -122,30 +188,17 @@ export default function TokenScreen() {
           <View style={styles.priceRow}>
             <View>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Precio (Jupiter)
+                Market Cap
               </ThemedText>
               <ThemedText type="subtitle" style={{ color: theme.text }}>
-                {fmtUsd(detail.price, { decimals: 8 })}
+                {fmtUsd(detail.marketCap, { compact: true })}
               </ThemedText>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Change 24h
-              </ThemedText>
-              <PriceChange value={detail.priceChange?.h24} />
             </View>
           </View>
           <View style={styles.metrics}>
-            <Metric label="Market Cap" value={fmtUsd(detail.marketCap, { compact: true })} />
             <Metric label="Liquidez" value={fmtUsd(detail.liquidity, { compact: true })} />
-            <Metric label="Vol 24h" value={fmtUsd(detail.volume24h, { compact: true })} />
-            <Metric label="Supply" value={fmtNum(detail.supply)} />
-            <Metric label="Cambios" value={`5m ${(detail.priceChange?.m5 ?? 0).toFixed(1)}% · 1h ${(detail.priceChange?.h1 ?? 0).toFixed(1)}%`} wide />
             {detail.dex ? <Metric label="DEX" value={detail.dex} /> : null}
           </View>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Market cap calculado con Jupiter: price × circulating supply. Info del token vía Dexscreener.
-          </ThemedText>
         </Card>
 
         {position && (
@@ -174,10 +227,10 @@ export default function TokenScreen() {
               {result.side === 'buy' ? 'Compra ejecutada' : 'Venta ejecutada'}
             </ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {fmtNum(result.quantity)} tokens @ {fmtUsd(result.price, { decimals: 8 })} = {fmtUsd(result.total_usdc)} · gas {fmtUsd(result.gas_usdc)}
+              {fmtNum(result.quantity)} tokens @ {fmtUsd(result.price, { decimals: 8 })} = {fmtUsd(result.total_usdc)} · gas {fmtNum(result.gas_sol)} SOL
               {result.pnl_usdc != null ? ` · P&L ${fmtUsd(result.pnl_usdc)}` : ''}
             </ThemedText>
-            <ThemedText type="smallBold">Nuevo balance: {fmtUsd(result.balance_usdc)}</ThemedText>
+            <ThemedText type="smallBold">SOL: {fmtNum(result.balance_sol)} · USD: {fmtUsd(result.balance_usd)}</ThemedText>
           </Card>
         )}
 
@@ -188,18 +241,21 @@ export default function TokenScreen() {
 
         {tab === 'buy' ? (
           <Card>
-            <ThemedText type="smallBold">Comprar {symbol} con USDC</ThemedText>
+            <ThemedText type="smallBold">Comprar {symbol} (presupuesto SOL)</ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Balance SOL: {fmtNum(solBalance)} ({fmtUsd(solBalance * solPrice)})
+            </ThemedText>
             <TextInput
               value={amount}
               onChangeText={setAmount}
-              placeholder="Monto en USDC (ej. 100)"
+              placeholder="Monto en USD (ej. 50)"
               placeholderTextColor={theme.textSecondary}
               keyboardType="decimal-pad"
               style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
             />
-            {detail.price && Number(amount) > 0 ? (
+            {detail.price && Number(amount) > 0 && solPrice > 0 ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                ≈ {fmtNum(Number(amount) / detail.price)} {symbol} · gas estimado {fmtUsd(0.25)}
+                ≈ {fmtNum((Number(amount) / solPrice) - 0.001)} SOL gastados · ≈ {fmtNum((Number(amount) - 0.001 * solPrice) / detail.price)} {symbol} · gas {fmtNum(0.001)} SOL
               </ThemedText>
             ) : null}
             <Pressable onPress={doBuy} disabled={submitting} style={({ pressed }) => [styles.buyBtn, { backgroundColor: theme.positive }, pressed && { opacity: 0.8 }]}>
@@ -228,7 +284,7 @@ export default function TokenScreen() {
             </View>
             {detail.price ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Venderás ≈ {fmtNum((position?.quantity ?? 0) * (pct / 100))} {symbol} por ≈ {fmtUsd((position?.quantity ?? 0) * (pct / 100) * detail.price)} (menos gas)
+                Venderás ≈ {fmtNum((position?.quantity ?? 0) * (pct / 100))} {symbol} por ≈ {fmtNum(((position?.quantity ?? 0) * (pct / 100) * detail.price) / (solPrice || 1))} SOL (menos gas)
               </ThemedText>
             ) : null}
             <Pressable onPress={doSell} disabled={submitting} style={({ pressed }) => [styles.buyBtn, { backgroundColor: theme.negative }, pressed && { opacity: 0.8 }]}>

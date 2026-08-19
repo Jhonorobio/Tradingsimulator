@@ -14,11 +14,12 @@ db.exec(`
   PRAGMA foreign_keys = ON;
 
   CREATE TABLE IF NOT EXISTS wallets (
-    device_id      TEXT PRIMARY KEY,
-    name           TEXT,
-    balance_usdc   REAL NOT NULL DEFAULT 10000,
-    gas_per_trade  REAL NOT NULL DEFAULT 0.25,
-    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    device_id        TEXT PRIMARY KEY,
+    name             TEXT,
+    balance_usd      REAL NOT NULL DEFAULT 0,
+    balance_sol      REAL NOT NULL DEFAULT 0,
+    gas_per_trade_sol REAL NOT NULL DEFAULT 0.001,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE TABLE IF NOT EXISTS positions (
@@ -68,6 +69,12 @@ db.exec(`
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS trenches_filters (
+    device_id     TEXT PRIMARY KEY,
+    filters       TEXT NOT NULL,
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS notified_tokens (
     subscription_id INTEGER NOT NULL,
     token_address   TEXT NOT NULL,
@@ -75,3 +82,23 @@ db.exec(`
     PRIMARY KEY (subscription_id, token_address)
   );
 `);
+
+// Migration: old wallets table had balance_usdc + gas_per_trade (USD).
+// Rebuild it into the USD/SOL split schema keeping any existing balance in USD.
+const walletCols = db.prepare('PRAGMA table_info(wallets)').all().map((c) => c.name);
+if (!walletCols.includes('balance_sol')) {
+  db.exec(`
+    ALTER TABLE wallets RENAME TO wallets_old;
+    CREATE TABLE wallets (
+      device_id        TEXT PRIMARY KEY,
+      name             TEXT,
+      balance_usd      REAL NOT NULL DEFAULT 0,
+      balance_sol      REAL NOT NULL DEFAULT 0,
+      gas_per_trade_sol REAL NOT NULL DEFAULT 0.001,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    INSERT INTO wallets (device_id, name, balance_usd, balance_sol, gas_per_trade_sol, created_at)
+      SELECT device_id, name, balance_usdc, 0, 0.001, created_at FROM wallets_old;
+    DROP TABLE wallets_old;
+  `);
+}

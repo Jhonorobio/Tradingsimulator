@@ -3,8 +3,9 @@
 export interface Wallet {
   device_id: string;
   name: string | null;
-  balance_usdc: number;
-  gas_per_trade: number;
+  balance_usd: number;
+  balance_sol: number;
+  gas_per_trade_sol: number;
   created_at: string;
 }
 
@@ -53,7 +54,9 @@ export interface Stats {
 }
 
 export interface PortfolioSummary {
-  balance: number;
+  balance_usd: number;
+  balance_sol: number;
+  sol_value_usd: number;
   invested: number;
   total_value: number;
   unrealized_pnl: number;
@@ -62,6 +65,7 @@ export interface PortfolioSummary {
 
 export interface PortfolioResponse {
   wallet: Wallet;
+  sol_price: number;
   stats: Stats;
   positions: Position[];
   summary: PortfolioSummary;
@@ -147,7 +151,7 @@ export interface TokenDetail {
   holders: number | null;
   dex: string | null;
   dexPairs: number;
-  sources: { dex: boolean; jupiter: boolean };
+  sources: { dex: boolean; gmgn: boolean; trenches: boolean };
 }
 
 export interface TradeResult {
@@ -157,10 +161,13 @@ export interface TradeResult {
   quantity: number;
   price: number;
   total_usdc: number;
+  gas_sol: number;
   gas_usdc: number;
   cost_usdc?: number;
+  total_sol?: number;
   pnl_usdc?: number;
-  balance_usdc: number;
+  balance_usd: number;
+  balance_sol: number;
   price_source: string;
 }
 
@@ -176,16 +183,6 @@ export interface PushSubscription {
   min_volume_24h: number | null;
   max_rug_ratio: number | null;
   created_at: string;
-}
-
-export interface KlineItem {
-  time: number;
-  open: string;
-  close: string;
-  high: string;
-  low: string;
-  volume: string;
-  amount: string;
 }
 
 export interface GmgnStatus {

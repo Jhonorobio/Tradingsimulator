@@ -1,9 +1,21 @@
 import { Router } from 'express';
 import * as trading from '../services/trading.js';
-import { getMarketData, getPrices } from '../services/jupiter.js';
+import { getTokenInfo as getDataTokenInfo, getPrices, SOL_MINT } from '../services/token-data.js';
 import { getTokenInfo } from '../services/dexscreener.js';
 
 const router = Router();
+
+const SOL_PRICE_FALLBACK = 150;
+
+async function solPriceUsd() {
+  try {
+    const info = await getDataTokenInfo('sol', SOL_MINT);
+    if (info?.price) return Number(info.price);
+  } catch {
+    // fall through to fallback
+  }
+  return SOL_PRICE_FALLBACK;
+}
 
 function deviceId(req) {
   const id = req.headers['x-device-id'] || req.params.deviceId;
@@ -21,12 +33,14 @@ function fail(res, err, status = 500) {
 
 async function resolveToken(address, chain = 'sol') {
   // Fetch fresh price/market data + metadata to price the simulated trade.
-  const [jup, dex] = await Promise.allSettled([getMarketData(address), getTokenInfo(address)]);
-  const jupInfo = jup.status === 'fulfilled' ? jup.value : null;
+  const [data, dex] = await Promise.allSettled([
+    getDataTokenInfo(chain, address),
+    getTokenInfo(address),
+  ]);
+  const dataInfo = data.status === 'fulfilled' ? data.value : null;
   const dexInfo = dex.status === 'fulfilled' ? dex.value : null;
 
-  // Pump.fun bonding-curve tokens have no Jupiter pool yet, so fall back to Dexscreener.
-  const price = jupInfo?.price ?? dexInfo?.price ?? null;
+  const price = dataInfo?.price ?? dexInfo?.price ?? null;
   if (!price) {
     throw Object.assign(new Error('Could not resolve a price for this token'), { status: 422 });
   }
@@ -35,14 +49,12 @@ async function resolveToken(address, chain = 'sol') {
     token: {
       address,
       chain,
-      symbol: dexInfo?.symbol ?? jupInfo?.symbol ?? null,
-      name: dexInfo?.name ?? jupInfo?.name ?? null,
-      logo: dexInfo?.logo ?? null,
+      symbol: dexInfo?.symbol ?? dataInfo?.symbol ?? null,
+      name: dexInfo?.name ?? dataInfo?.name ?? null,
+      logo: dexInfo?.logo ?? dataInfo?.logo ?? null,
     },
     price,
-    source: jupInfo?.price != null ? 'jupiter' : 'dexscreener',
-    jup: jupInfo,
-    dex: dexInfo,
+    source: dataInfo?.price != null ? dataInfo.source : 'dexscreener',
   };
 }
 
@@ -50,11 +62,12 @@ async function resolveToken(address, chain = 'sol') {
  * GET /api/wallet
  * Header: X-Device-Id
  */
-router.get('/wallet', (req, res) => {
+router.get('/wallet', async (req, res) => {
   try {
     const id = deviceId(req);
-    const wallet = trading.getWallet(id);
-    res.json({ wallet });
+    const solPrice = await solPriceUsd();
+    const wallet = trading.getWallet(id, { solPrice });
+    res.json({ wallet, sol_price: solPrice });
   } catch (err) {
     fail(res, err);
   }
@@ -62,16 +75,37 @@ router.get('/wallet', (req, res) => {
 
 /**
  * POST /api/wallet/reset
- * Body: { budget?, gas? }
+ * Body: { budget?, gas_sol? } — budget is USD, converted to the SOL budget at SOL price.
  */
-router.post('/wallet/reset', (req, res) => {
+router.post('/wallet/reset', async (req, res) => {
   try {
     const id = deviceId(req);
+    const solPrice = await solPriceUsd();
     const wallet = trading.resetWallet(id, {
       budget: Number(req.body.budget) || 10000,
-      gas: req.body.gas != null ? Number(req.body.gas) : undefined,
+      gasSol: req.body.gas_sol != null ? Number(req.body.gas_sol) : undefined,
+      solPrice,
     });
-    res.json({ wallet });
+    res.json({ wallet, sol_price: solPrice });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * POST /api/wallet/convert
+ * Body: { direction: 'usd_to_sol' | 'sol_to_usd', amount }
+ */
+router.post('/wallet/convert', async (req, res) => {
+  try {
+    const id = deviceId(req);
+    const solPrice = await solPriceUsd();
+    const wallet = trading.convert(id, {
+      direction: req.body.direction,
+      amount: Number(req.body.amount),
+      solPrice,
+    });
+    res.json({ wallet, sol_price: solPrice });
   } catch (err) {
     fail(res, err);
   }
@@ -79,7 +113,8 @@ router.post('/wallet/reset', (req, res) => {
 
 /**
  * POST /api/trade/buy
- * Body: { token_address, chain?, usdc?, gas? }
+ * Body: { token_address, chain?, usd?, sol?, gas_sol? } — `usd` is the USD amount
+ * to spend (converted to SOL at the current rate); `sol` is a raw SOL amount.
  */
 router.post('/trade/buy', async (req, res) => {
   try {
@@ -87,15 +122,21 @@ router.post('/trade/buy', async (req, res) => {
     const { token_address, chain } = req.body;
     if (!token_address) throw Object.assign(new Error('token_address is required'), { status: 400 });
 
+    const solPrice = await solPriceUsd();
     const { token, price, source } = await resolveToken(token_address, chain || 'sol');
 
-    const wallet = trading.getWallet(id);
+    const usd = req.body.usd != null ? Number(req.body.usd) : undefined;
+    const sol = req.body.sol != null ? Number(req.body.sol) : undefined;
+    const spendSol = usd != null && Number.isFinite(usd) && usd > 0 ? usd / solPrice : sol;
+
+    const wallet = trading.getWallet(id, { solPrice });
     const result = trading.buy(id, token, {
       price,
-      usdc: Number(req.body.usdc),
-      gas: req.body.gas != null ? Number(req.body.gas) : undefined,
+      sol: spendSol,
+      gasSol: req.body.gas_sol != null ? Number(req.body.gas_sol) : undefined,
+      solPrice,
     });
-    res.json({ ...result, price_source: source });
+    res.json({ ...result, price_source: source, sol_price: solPrice });
   } catch (err) {
     fail(res, err);
   }
@@ -103,7 +144,7 @@ router.post('/trade/buy', async (req, res) => {
 
 /**
  * POST /api/trade/sell
- * Body: { token_address, chain?, quantity?, gas? } — quantity omitted = sell all
+ * Body: { token_address, chain?, quantity?, gas_sol? } — quantity omitted = sell all
  */
 router.post('/trade/sell', async (req, res) => {
   try {
@@ -111,14 +152,17 @@ router.post('/trade/sell', async (req, res) => {
     const { token_address, chain } = req.body;
     if (!token_address) throw Object.assign(new Error('token_address is required'), { status: 400 });
 
+    const solPrice = await solPriceUsd();
     const { token, price, source } = await resolveToken(token_address, chain || 'sol');
 
+    const wallet = trading.getWallet(id, { solPrice });
     const result = trading.sell(id, token, {
       quantity: req.body.quantity != null ? Number(req.body.quantity) : null,
       price,
-      gas: req.body.gas != null ? Number(req.body.gas) : undefined,
+      gasSol: req.body.gas_sol != null ? Number(req.body.gas_sol) : undefined,
+      solPrice,
     });
-    res.json({ ...result, price_source: source });
+    res.json({ ...result, price_source: source, sol_price: solPrice });
   } catch (err) {
     fail(res, err);
   }
@@ -131,7 +175,8 @@ router.post('/trade/sell', async (req, res) => {
 router.get('/portfolio', async (req, res) => {
   try {
     const id = deviceId(req);
-    const wallet = trading.getWallet(id);
+    const solPrice = await solPriceUsd();
+    const wallet = trading.getWallet(id, { solPrice });
     const positions = trading.getPositions(id);
     const stats = trading.getStats(id);
 
@@ -154,14 +199,18 @@ router.get('/portfolio', async (req, res) => {
     const invested = positions.reduce((s, p) => s + p.cost_usdc, 0);
     const totalValue = enriched.reduce((s, p) => s + p.value, 0);
     const unrealizedPnl = totalValue - invested;
-    const totalEquity = wallet.balance_usdc + totalValue;
+    const solValueUsd = wallet.balance_sol * solPrice;
+    const totalEquity = wallet.balance_usd + solValueUsd + totalValue;
 
     res.json({
       wallet,
+      sol_price: solPrice,
       stats,
       positions: enriched,
       summary: {
-        balance: wallet.balance_usdc,
+        balance_usd: wallet.balance_usd,
+        balance_sol: wallet.balance_sol,
+        sol_value_usd: solValueUsd,
         invested,
         total_value: totalValue,
         unrealized_pnl: unrealizedPnl,

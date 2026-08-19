@@ -1,5 +1,4 @@
 import { Pressable, StyleSheet, View } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/themed-text';
 import { TokenAvatar } from '@/components/token-avatar';
@@ -23,12 +22,9 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
       onPress={() => router.push(`/token/${chain}/${token.address}`)}
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]}>
       <View style={styles.mainRow}>
-        {/* Avatar with pill badge */}
+        {/* Avatar */}
         <View style={[styles.avatarWrap, { borderColor: GREEN }]}>
-          <TokenAvatar logo={token.logo} symbol={token.symbol} size={48} borderRadius={11} />
-          <View style={[styles.badge, { borderColor: GREEN }]}>
-            <MaterialCommunityIcons name="pill" size={10} color="#ffffff" />
-          </View>
+          <TokenAvatar logo={token.logo} symbol={token.symbol} size={54} borderRadius={13} />
         </View>
 
         {/* Two clean rows to the right of the avatar */}
@@ -86,9 +82,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   avatarWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
+    width: 59,
+    height: 59,
+    borderRadius: 13,
     borderWidth: 1.5,
     position: 'relative',
     flexShrink: 0,
@@ -97,15 +93,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: -4,
     right: -4,
-    width: 17,
-    height: 17,
-    borderRadius: 8.5,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#111111',
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  contentCol: { flex: 1, gap: 6 },
+  contentCol: { flex: 1, gap: 7 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -124,8 +120,8 @@ const styles = StyleSheet.create({
     gap: 5,
     flexShrink: 0,
   },
-  symbolText: { fontSize: 16, fontWeight: '700' },
-  nameText: { fontSize: 13, maxWidth: 150 },
+  symbolText: { fontSize: 17, fontWeight: '700' },
+  nameText: { fontSize: 13, maxWidth: 160 },
   ageText: { fontSize: 13, fontWeight: '700' },
   valueLabel: { fontSize: 11 },
   valueText: { fontSize: 13 },

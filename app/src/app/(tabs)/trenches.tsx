@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -18,7 +18,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { TokenRow } from '@/components/token-row';
 import { useTheme } from '@/hooks/use-theme';
-import { getTrenches, type TrenchesParams } from '@/api/market';
+import { getTrenches, getSavedTrenchesFilters, saveTrenchesFilters, type TrenchesParams } from '@/api/market';
 import { ApiError } from '@/api/client';
 import type { TrenchesItem } from '@/api/types';
 
@@ -78,6 +78,31 @@ function emptyFilters(): Filters {
   const o: Filters = {};
   for (const f of FILTER_FIELDS) o[f.key] = { min: '', max: '' };
   return o;
+}
+
+function normalizeFilters(raw: unknown): Record<TabKey, Filters> {
+  const fallback: Record<TabKey, Filters> = {
+    new_creation: emptyFilters(),
+    near_completion: emptyFilters(),
+    completed: emptyFilters(),
+  };
+  if (!raw || typeof raw !== 'object') return fallback;
+  const obj = raw as Record<string, unknown>;
+  for (const tab of TABS) {
+    const tabRaw = obj[tab.key];
+    if (!tabRaw || typeof tabRaw !== 'object') continue;
+    for (const f of FILTER_FIELDS) {
+      const v = (tabRaw as Record<string, unknown>)[f.key];
+      if (v && typeof v === 'object') {
+        const rv = v as { min?: unknown; max?: unknown };
+        fallback[tab.key][f.key] = {
+          min: typeof rv.min === 'string' ? rv.min : '',
+          max: typeof rv.max === 'string' ? rv.max : '',
+        };
+      }
+    }
+  }
+  return fallback;
 }
 
 function capFirst(s: string) {
@@ -166,6 +191,7 @@ export default function TrenchesScreen() {
     completed: [],
   });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const openFilters = useCallback(() => {
@@ -178,43 +204,100 @@ export default function TrenchesScreen() {
   const resetDraft = useCallback(() => setDraft(emptyFilters()), []);
 
   const confirmFilters = useCallback(() => {
-    setFilters((prev) => ({ ...prev, [activeTab]: draft }));
+    setFilters((prev) => {
+      const next = { ...prev, [activeTab]: draft };
+      saveTrenchesFilters(next).catch(() => {});
+      return next;
+    });
     setFiltersVisible(false);
   }, [activeTab, draft]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSavedTrenchesFilters()
+      .then((res) => {
+        if (cancelled || !res.filters) return;
+        setFilters(normalizeFilters(res.filters));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setDraftValue = useCallback((key: string, side: 'min' | 'max', value: string) => {
     setDraft((prev) => ({ ...prev, [key]: { ...prev[key], [side]: value } }));
   }, []);
 
-  const params = useMemo<TrenchesParams>(() => {
-    const p: Record<string, unknown> = { chain: 'sol', limit: 50, types: [activeTab] };
-    const vals = filters[activeTab];
-    for (const f of FILTER_FIELDS) {
-      const v = vals?.[f.key];
-      const minV = parseParam(v?.min, f);
-      const maxV = parseParam(v?.max, f);
-      if (minV !== undefined) p[`min${capFirst(f.key)}`] = minV;
-      if (maxV !== undefined) p[`max${capFirst(f.key)}`] = maxV;
-    }
-    return p as unknown as TrenchesParams;
-  }, [activeTab, filters]);
+  const buildParams = useCallback(
+    (tab: TabKey): TrenchesParams => {
+      const p: Record<string, unknown> = { chain: 'sol', limit: 50, types: [tab] };
+      const vals = filters[tab];
+      for (const f of FILTER_FIELDS) {
+        const v = vals?.[f.key];
+        const minV = parseParam(v?.min, f);
+        const maxV = parseParam(v?.max, f);
+        if (minV !== undefined) p[`min${capFirst(f.key)}`] = minV;
+        if (maxV !== undefined) p[`max${capFirst(f.key)}`] = maxV;
+      }
+      return p as unknown as TrenchesParams;
+    },
+    [filters],
+  );
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await getTrenches(params);
-      setData((prev) => ({ ...prev, [activeTab]: result[activeTab] ?? [] }));
-      setError(null);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al cargar Trenches');
-    } finally {
-      setLoading(false);
+  const pollingRef = useRef(false);
+
+  const fetchTab = useCallback(
+    async (tab: TabKey, opts: { silent?: boolean } = {}) => {
+      const { silent = false } = opts;
+      if (!silent) setLoading(true);
+      try {
+        const result = await getTrenches(buildParams(tab));
+        setData((prev) => ({ ...prev, [tab]: result[tab] ?? [] }));
+        setError(null);
+      } catch (err) {
+        if (!silent) setError(err instanceof ApiError ? err.message : 'Error al cargar Trenches');
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [buildParams],
+  );
+
+  const initialLoad = useCallback(async () => {
+    for (const tab of TABS) {
+      await fetchTab(tab.key);
     }
-  }, [params, activeTab]);
+  }, [fetchTab]);
+
+  const loadCycleIndex = useRef(0);
+
+  const pollNext = useCallback(async () => {
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+    try {
+      const tab = TABS[loadCycleIndex.current % TABS.length].key;
+      loadCycleIndex.current += 1;
+      await fetchTab(tab, { silent: true });
+    } finally {
+      pollingRef.current = false;
+    }
+  }, [fetchTab]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    initialLoad();
+  }, [initialLoad]);
+
+  useEffect(() => {
+    const id = setInterval(pollNext, 1000);
+    return () => clearInterval(id);
+  }, [pollNext]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await initialLoad();
+    setRefreshing(false);
+  }, [initialLoad]);
 
   const activeTokens = data[activeTab] ?? [];
 
@@ -274,8 +357,8 @@ export default function TrenchesScreen() {
           contentContainerStyle={styles.list}
           refreshControl={
             <RefreshControl
-              refreshing={loading}
-              onRefresh={load}
+              refreshing={refreshing || loading}
+              onRefresh={onRefresh}
               tintColor={theme.textSecondary}
             />
           }

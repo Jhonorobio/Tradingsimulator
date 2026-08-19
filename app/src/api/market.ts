@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { GmgnStatus, KlineItem, TokenDetail, TrenchesResponse } from './types';
+import type { GmgnStatus, TokenDetail, TrenchesResponse } from './types';
 
 export interface TrenchesParams {
   chain?: string;
@@ -89,15 +89,43 @@ export function getTrenches(params: TrenchesParams) {
   return api.get<TrenchesResponse>(`/api/market/trenches?${qs.toString()}`);
 }
 
+export function getSavedTrenchesFilters() {
+  return api.get<{ filters: unknown }>('/api/market/trenches/filters');
+}
+
+export function saveTrenchesFilters(filters: unknown) {
+  return api.put<{ ok: boolean }>('/api/market/trenches/filters', { filters });
+}
+
 export function getTokenDetail(chain: string, address: string) {
   return api.get<TokenDetail>(`/api/market/token/${chain}/${address}`);
 }
 
-export function getKline(chain: string, address: string, resolution = '5m', from?: number, to?: number) {
-  const qs = new URLSearchParams({ chain, address, resolution });
-  if (from) qs.set('from', String(from));
-  if (to) qs.set('to', String(to));
-  return api.get<{ list: KlineItem[] }>(`/api/market/kline?${qs.toString()}`);
+export function getLiveTokenPrice(chain: string, address: string) {
+  return api.get<{
+    price: number | null;
+    marketCap: number | null;
+    supply: number | null;
+    liquidity: number | null;
+    priceChange24h: number | null;
+  }>(`/api/market/token/${chain}/${address}/live`);
+}
+
+export function getTokenMarketCap(chain: string, address: string) {
+  return api.get<{ marketCap: number | null; source: 'gmgn' | 'dexscreener' }>(
+    `/api/market/token/${chain}/${address}/mcap`
+  );
+}
+
+export const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+export function getSolPrice() {
+  return api.get<{ sol_price: number | null; source: string | null }>('/api/market/sol-price');
+}
+
+export function getPrices(addresses: string[] = []) {
+  const qs = new URLSearchParams({ addresses: addresses.join(',') });
+  return api.get<{ prices: Record<string, number | null> }>(`/api/market/prices?${qs.toString()}`);
 }
 
 export function getGmgnStatus() {

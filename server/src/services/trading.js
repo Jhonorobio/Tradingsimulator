@@ -6,12 +6,12 @@ const get = (stmt, ...params) => stmt.get(...params);
 const stmts = {
   getWallet: db.prepare('SELECT * FROM wallets WHERE device_id = ?'),
   upsertWallet: db.prepare(`
-    INSERT INTO wallets (device_id, name, balance_usdc, gas_per_trade)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO wallets (device_id, name, balance_usd, balance_sol, gas_per_trade_sol)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(device_id) DO UPDATE SET name = excluded.name
   `),
-  setBalance: db.prepare('UPDATE wallets SET balance_usdc = ? WHERE device_id = ?'),
-  setGas: db.prepare('UPDATE wallets SET gas_per_trade = ? WHERE device_id = ?'),
+  setBalances: db.prepare('UPDATE wallets SET balance_usd = ?, balance_sol = ? WHERE device_id = ?'),
+  setGasSol: db.prepare('UPDATE wallets SET gas_per_trade_sol = ? WHERE device_id = ?'),
   getPosition: db.prepare('SELECT * FROM positions WHERE device_id = ? AND token_address = ?'),
   upsertPosition: db.prepare(`
     INSERT INTO positions (device_id, token_address, chain, symbol, name, logo, quantity, avg_price_usdc, cost_usdc)
@@ -39,32 +39,38 @@ const stmts = {
   countOrders: db.prepare('SELECT COUNT(*) AS n FROM orders WHERE device_id = ?'),
 };
 
-function ensureWallet(deviceId, { budget, gas } = {}) {
+const DEFAULT_BUDGET_USD = 10000;
+const DEFAULT_GAS_SOL = 0.001;
+
+function ensureWallet(deviceId, { solPrice } = {}) {
   let wallet = get(stmts.getWallet, deviceId);
   if (!wallet) {
-    stmts.upsertWallet.run(deviceId, null, budget ?? 10000, gas ?? 0.25);
+    const sol = solPrice > 0 ? DEFAULT_BUDGET_USD / solPrice : 0;
+    stmts.upsertWallet.run(deviceId, null, 0, sol, DEFAULT_GAS_SOL);
     wallet = get(stmts.getWallet, deviceId);
   }
   return wallet;
 }
 
 /**
- * Simulated buy: spend `usdc` (minus gas) at the given price.
+ * Simulated buy: spend `sol` (SOL budget, minus gas) at the given price.
+ * `solPrice` is the current SOL/USD rate used to compute the USD spend.
  * Returns the order and updated position.
  */
-export function buy(deviceId, token, { price, usdc, gas }) {
-  const wallet = ensureWallet(deviceId, {});
-  const gasFee = gas ?? wallet.gas_per_trade;
+export function buy(deviceId, token, { price, sol, gasSol, solPrice }) {
+  const wallet = ensureWallet(deviceId);
+  const gasFee = gasSol ?? wallet.gas_per_trade_sol;
 
-  const spend = usdc - gasFee;
-  if (spend <= 0) throw new Error('Amount must cover the gas fee');
-  if (spend > wallet.balance_usdc) throw new Error('Insufficient simulated balance');
+  const spendSol = sol - gasFee;
+  if (spendSol <= 0) throw new Error('Amount must cover the gas fee');
+  if (spendSol > wallet.balance_sol) throw new Error('Insufficient SOL balance');
 
-  const quantity = price > 0 ? spend / price : 0;
+  const spendUsd = solPrice > 0 ? spendSol * solPrice : spendSol;
+  const quantity = price > 0 ? spendUsd / price : 0;
   if (quantity <= 0) throw new Error('Invalid price');
 
   const existing = get(stmts.getPosition, deviceId, token.address);
-  const newCost = spend;
+  const newCost = spendUsd;
   if (existing) {
     const totalQty = existing.quantity + quantity;
     const totalCost = existing.cost_usdc + newCost;
@@ -80,10 +86,10 @@ export function buy(deviceId, token, { price, usdc, gas }) {
     );
   }
 
-  stmts.setBalance.run(wallet.balance_usdc - spend - gasFee, deviceId);
+  stmts.setBalances.run(wallet.balance_usd, wallet.balance_sol - sol, deviceId);
   const info = stmts.addOrder.run(
     deviceId, 'buy', token.address, token.chain, token.symbol, token.name, token.logo,
-    quantity, price, spend, gasFee, null
+    quantity, price, spendUsd, gasFee * solPrice, null
   );
 
   return {
@@ -92,26 +98,30 @@ export function buy(deviceId, token, { price, usdc, gas }) {
     token,
     quantity,
     price,
-    total_usdc: spend,
-    gas_usdc: gasFee,
-    balance_usdc: wallet.balance_usdc - spend - gasFee,
+    total_usdc: spendUsd,
+    gas_sol: gasFee,
+    gas_usdc: gasFee * solPrice,
+    balance_usd: wallet.balance_usd,
+    balance_sol: wallet.balance_sol - sol,
   };
 }
 
 /**
  * Simulated sell: sell `quantity` (or all if null) of a held position.
+ * Proceeds land in the SOL budget.
  */
-export function sell(deviceId, token, { quantity, price, gas }) {
-  const wallet = ensureWallet(deviceId, {});
+export function sell(deviceId, token, { quantity, price, gasSol, solPrice }) {
+  const wallet = ensureWallet(deviceId);
   const position = get(stmts.getPosition, deviceId, token.address);
   if (!position || position.quantity <= 0) throw new Error('No position to sell');
 
   const qty = quantity == null ? position.quantity : Math.min(quantity, position.quantity);
   if (qty <= 0) throw new Error('Invalid quantity');
 
-  const gasFee = gas ?? wallet.gas_per_trade;
-  const proceeds = qty * price;
-  if (proceeds - gasFee < 0) throw new Error('Proceeds are lower than the gas fee');
+  const gasFee = gasSol ?? wallet.gas_per_trade_sol;
+  const proceedsUsd = qty * price;
+  const proceedsSol = solPrice > 0 ? proceedsUsd / solPrice : proceedsUsd;
+  if (proceedsSol - gasFee < 0) throw new Error('Proceeds are lower than the gas fee');
 
   const remaining = position.quantity - qty;
   if (remaining < 1e-12) {
@@ -123,12 +133,12 @@ export function sell(deviceId, token, { quantity, price, gas }) {
     );
   }
 
-  const newBalance = wallet.balance_usdc + proceeds - gasFee;
-  stmts.setBalance.run(newBalance, deviceId);
+  const newSolBalance = wallet.balance_sol + proceedsSol - gasFee;
+  stmts.setBalances.run(wallet.balance_usd, newSolBalance, deviceId);
   const costBasis = qty * position.avg_price_usdc;
   const info = stmts.addOrder.run(
     deviceId, 'sell', token.address, token.chain, token.symbol, token.name, token.logo,
-    qty, price, proceeds, gasFee, costBasis
+    qty, price, proceedsUsd, gasFee * solPrice, costBasis
   );
 
   return {
@@ -137,29 +147,59 @@ export function sell(deviceId, token, { quantity, price, gas }) {
     token,
     quantity: qty,
     price,
-    total_usdc: proceeds,
-    gas_usdc: gasFee,
+    total_usdc: proceedsUsd,
+    total_sol: proceedsSol,
+    gas_sol: gasFee,
+    gas_usdc: gasFee * solPrice,
     cost_usdc: costBasis,
-    pnl_usdc: proceeds - costBasis - gasFee,
-    balance_usdc: newBalance,
+    pnl_usdc: proceedsUsd - costBasis - gasFee * solPrice,
+    balance_usd: wallet.balance_usd,
+    balance_sol: newSolBalance,
     position_remaining: remaining,
   };
 }
 
-export function getWallet(deviceId) {
-  return ensureWallet(deviceId, {});
-}
+/**
+ * Convert between the USD budget and the SOL budget at `solPrice`.
+ * direction: 'usd_to_sol' | 'sol_to_usd'.
+ */
+export function convert(deviceId, { direction, amount, solPrice }) {
+  const wallet = ensureWallet(deviceId);
+  const amt = Number(amount);
+  if (!amt || amt <= 0) throw new Error('Invalid amount');
+  if (!solPrice || solPrice <= 0) throw new Error('Could not resolve SOL price');
 
-export function updateGas(deviceId, gas) {
-  const wallet = ensureWallet(deviceId, {});
-  stmts.setGas.run(gas, deviceId);
+  if (direction === 'usd_to_sol') {
+    if (amt > wallet.balance_usd) throw new Error('Insufficient USD balance');
+    const sol = amt / solPrice;
+    stmts.setBalances.run(wallet.balance_usd - amt, wallet.balance_sol + sol, deviceId);
+  } else if (direction === 'sol_to_usd') {
+    if (amt > wallet.balance_sol) throw new Error('Insufficient SOL balance');
+    const usd = amt * solPrice;
+    stmts.setBalances.run(wallet.balance_usd + usd, wallet.balance_sol - amt, deviceId);
+  } else {
+    throw new Error("direction must be 'usd_to_sol' or 'sol_to_usd'");
+  }
+
   return get(stmts.getWallet, deviceId);
 }
 
-export function resetWallet(deviceId, { budget, gas }) {
-  const wallet = ensureWallet(deviceId, {});
-  stmts.setBalance.run(budget ?? 10000, deviceId);
-  if (gas != null) stmts.setGas.run(gas, deviceId);
+export function getWallet(deviceId, { solPrice } = {}) {
+  return ensureWallet(deviceId, { solPrice });
+}
+
+export function updateGas(deviceId, gasSol) {
+  const wallet = ensureWallet(deviceId);
+  stmts.setGasSol.run(gasSol, deviceId);
+  return get(stmts.getWallet, deviceId);
+}
+
+export function resetWallet(deviceId, { budget, gasSol, solPrice }) {
+  const wallet = ensureWallet(deviceId, { solPrice });
+  const budgetUsd = budget ?? DEFAULT_BUDGET_USD;
+  const sol = solPrice > 0 ? budgetUsd / solPrice : 0;
+  stmts.setBalances.run(0, sol, deviceId);
+  if (gasSol != null) stmts.setGasSol.run(gasSol, deviceId);
   return get(stmts.getWallet, deviceId);
 }
 

@@ -58,6 +58,23 @@ export async function getTokenInfo(address) {
 }
 
 /**
+ * Searches tokens by name / symbol / mint via Dexscreener's search endpoint.
+ * @returns {Array<{address,name,symbol,logo,chain,price,market_cap,liquidity,volume24h,priceChange,created_timestamp}>}
+ */
+export async function searchTokens(query, limit = 20) {
+  const json = await fetchJson(`${BASE_URL}/search?q=${encodeURIComponent(query)}`);
+  const pairs = json?.pairs ?? [];
+  const seen = new Map();
+  for (const pair of pairs) {
+    const addr = pair.baseToken?.address;
+    if (!addr || seen.has(addr)) continue;
+    seen.set(addr, mapPair(pair));
+    if (seen.size >= limit) break;
+  }
+  return [...seen.values()];
+}
+
+/**
  * Batch fetch for many addresses at once (max 30 per request).
  */
 export async function getTokensInfo(addresses) {

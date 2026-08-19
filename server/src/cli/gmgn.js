@@ -40,7 +40,7 @@ function extractJson(output) {
 
 /**
  * Runs `gmgn-cli market <sub> ...` and returns parsed JSON.
- * @param {string} sub - subcommand (trenches | trending | kline | search | signal | hot-searches)
+ * @param {string} sub - subcommand (trenches | search | signal | hot-searches)
  * @param {string[]} args - raw CLI args (dash flags)
  */
 export function runMarket(sub, args = [], { timeout = TIMEOUT_MS } = {}) {

@@ -1,5 +1,6 @@
 import { runMarket } from './gmgn.js';
 import { cacheKey, withCache } from '../services/cache.js';
+import { upsertTrenches } from '../services/trenches-store.js';
 
 export const CHAINS = new Set(['sol', 'bsc', 'base', 'eth', 'robinhood', 'arc', 'stable']);
 export const TRENCH_TYPES = ['new_creation', 'near_completion', 'completed'];
@@ -89,14 +90,59 @@ export function buildTrenchesArgs(p) {
 
 export async function fetchTrenches(params) {
   const args = buildTrenchesArgs(params);
-  return withCache(cacheKey('trenches', args.join(' ')), 60, async () => {
-    const json = await runMarket('trenches', args);
-    const data = json?.data ?? json ?? {};
-    return {
-      new_creation: data.new_creation ?? [],
-      // CLI v1.5.2 returns `near_completion` directly (older versions used `pump`).
-      near_completion: data.near_completion ?? data.pump ?? [],
-      completed: data.completed ?? [],
-    };
+  const ttl = Number(process.env.TRENCHES_CACHE_TTL) || 60;
+
+  // GMGN rate-limit cooldown. The ban is per-IP, so once we get a 429 we
+  // refuse to call gmgn-cli again until the reported reset time. Otherwise
+  // each retry during the ban extends it by +5s (up to 5 min) — the exact
+  // loop that kept the IP banned.
+  if (Date.now() < ipCooldownUntil) {
+    const err = new Error(
+      `GMGN rate limited; retry after ${new Date(ipCooldownUntil).toISOString()}`
+    );
+    err.status = 429;
+    throw err;
+  }
+
+  return withCache(cacheKey('trenches', args.join(' ')), ttl, async () => {
+    try {
+      const json = await runMarket('trenches', args);
+      const data = json?.data ?? json ?? {};
+      const result = {
+        new_creation: data.new_creation ?? [],
+        // CLI v1.5.2 returns `near_completion` directly (older versions used `pump`).
+        near_completion: data.near_completion ?? data.pump ?? [],
+        completed: data.completed ?? [],
+      };
+      upsertTrenches(result);
+      return result;
+    } catch (err) {
+      const resetMs = parseRateLimitReset(err?.message);
+      if (resetMs) {
+        // The system clock runs ahead of GMGN (GMGN_TIME_OFFSET), so the
+        // reported reset time must be shifted forward or the cooldown expires
+        // too early and the retry lands during the ban, extending it.
+        const offsetMs = (Number(process.env.GMGN_TIME_OFFSET) || 0) * 1000;
+        ipCooldownUntil = Math.max(ipCooldownUntil, resetMs + offsetMs + 10_000);
+      } else if (String(err?.message).includes('429') || String(err?.message).includes('RATE_LIMIT')) {
+        // No reset timestamp in the message; assume the default ~5 min ban.
+        ipCooldownUntil = Math.max(ipCooldownUntil, Date.now() + 300_000);
+      }
+      throw err;
+    }
   });
+}
+
+let ipCooldownUntil = 0;
+
+/**
+ * Parses `Rate limit resets at 2026-08-19 14:15:25 GMT-05:00` out of the
+ * gmgn-cli error message and returns the reset time in ms since epoch.
+ */
+function parseRateLimitReset(msg) {
+  const m = /resets at (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) GMT([+-]\d{2}:\d{2})/.exec(msg || '');
+  if (!m) return null;
+  const tz = m[3].replace(':', '');
+  const ts = Date.parse(`${m[1]}T${m[2]}${tz}`);
+  return Number.isFinite(ts) ? ts : null;
 }

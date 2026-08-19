@@ -18,7 +18,7 @@ import { getGmgnStatus } from '@/api/market';
 import { ApiError } from '@/api/client';
 import type { PushSubscription, Wallet } from '@/api/types';
 import { registerForPushNotificationsAsync, notificationsAvailable } from '@/utils/notifications';
-import { fmtUsd, shortAddress } from '@/utils/format';
+import { fmtNum, fmtUsd, shortAddress } from '@/utils/format';
 
 export default function SettingsScreen() {
   const theme = useTheme();
@@ -27,7 +27,7 @@ export default function SettingsScreen() {
   const [urlInput, setUrlInput] = useState(serverUrl);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [budget, setBudget] = useState('10000');
-  const [gas, setGas] = useState('0.25');
+  const [gas, setGas] = useState('0.001');
   const [gmgnOk, setGmgnOk] = useState<boolean | null>(null);
 
   // notification config
@@ -52,8 +52,8 @@ export default function SettingsScreen() {
         getGmgnStatus().catch(() => ({ ok: false })),
       ]);
       setWallet(w.wallet);
-      setBudget(String(w.wallet.balance_usdc));
-      setGas(String(w.wallet.gas_per_trade));
+      setBudget(String(w.wallet.balance_usd || w.wallet.balance_sol * 150 || 10000));
+      setGas(String(w.wallet.gas_per_trade_sol));
       setSubscriptions(subs.subscriptions);
       setGmgnOk(status.ok);
       setNotifEnabled(subs.subscriptions.some((s) => s.enabled));
@@ -79,7 +79,7 @@ export default function SettingsScreen() {
     try {
       const res = await resetWallet(b, g);
       setWallet(res.wallet);
-      Alert.alert('Listo', `Presupuesto reiniciado a ${fmtUsd(res.wallet.balance_usdc)}`);
+      Alert.alert('Listo', `Presupuesto reiniciado: ${fmtNum(res.wallet.balance_sol)} SOL (≈ ${fmtUsd(res.wallet.balance_sol * res.sol_price)})`);
       loadAll();
     } catch (err) {
       Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo reiniciar');
@@ -168,15 +168,15 @@ export default function SettingsScreen() {
           <Card>
             <ThemedText type="smallBold">Presupuesto simulado</ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Balance actual: {wallet ? fmtUsd(wallet.balance_usdc) : '—'} · Gas por trade: {wallet ? fmtUsd(wallet.gas_per_trade) : '—'}
+              USD: {wallet ? fmtUsd(wallet.balance_usd) : '—'} · SOL: {wallet ? fmtNum(wallet.balance_sol) : '—'} · Gas: {wallet ? fmtNum(wallet.gas_per_trade_sol) : '—'} SOL
             </ThemedText>
             <View style={styles.row}>
               <View style={{ flex: 1 }}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>Balance (USDC)</ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>Budget (USD)</ThemedText>
                 <TextInput value={budget} onChangeText={setBudget} keyboardType="decimal-pad" style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]} />
               </View>
               <View style={{ flex: 1 }}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>Gas (USDC)</ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>Gas (SOL)</ThemedText>
                 <TextInput value={gas} onChangeText={setGas} keyboardType="decimal-pad" style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]} />
               </View>
             </View>
