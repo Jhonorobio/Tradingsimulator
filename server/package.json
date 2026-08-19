@@ -1,0 +1,20 @@
+{
+  "name": "trading-simulator-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend for meme trading simulator: gmgn-cli wrapper, Jupiter/Dexscreener proxy, simulated trading engine and push notifications.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}
