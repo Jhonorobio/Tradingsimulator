@@ -18,7 +18,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { TokenRow } from '@/components/token-row';
 import { useTheme } from '@/hooks/use-theme';
-import { getTrenches, getSavedTrenchesFilters, saveTrenchesFilters, type TrenchesParams } from '@/api/market';
+import { getTrenches, getSavedTrenchesFilters, saveTrenchesFilters } from '@/api/market';
 import { ApiError } from '@/api/client';
 import type { TrenchesItem } from '@/api/types';
 
@@ -103,26 +103,6 @@ function normalizeFilters(raw: unknown): Record<TabKey, Filters> {
     }
   }
   return fallback;
-}
-
-function capFirst(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function parseParam(raw: string | undefined, f: FilterField): number | string | undefined {
-  if (raw === undefined || raw === '') return undefined;
-  const n = Number(raw);
-  if (isNaN(n)) return undefined;
-  switch (f.scale) {
-    case 'percent':
-      return n / 100;
-    case 'thousand':
-      return n * 1000;
-    case 'minute':
-      return `${n}m`;
-    default:
-      return n;
-  }
 }
 
 function RangeField({
@@ -229,22 +209,6 @@ export default function TrenchesScreen() {
     setDraft((prev) => ({ ...prev, [key]: { ...prev[key], [side]: value } }));
   }, []);
 
-  const buildParams = useCallback(
-    (tab: TabKey): TrenchesParams => {
-      const p: Record<string, unknown> = { chain: 'sol', limit: 50, types: [tab] };
-      const vals = filters[tab];
-      for (const f of FILTER_FIELDS) {
-        const v = vals?.[f.key];
-        const minV = parseParam(v?.min, f);
-        const maxV = parseParam(v?.max, f);
-        if (minV !== undefined) p[`min${capFirst(f.key)}`] = minV;
-        if (maxV !== undefined) p[`max${capFirst(f.key)}`] = maxV;
-      }
-      return p as unknown as TrenchesParams;
-    },
-    [filters],
-  );
-
   const pollingRef = useRef(false);
 
   const fetchTab = useCallback(
@@ -252,7 +216,7 @@ export default function TrenchesScreen() {
       const { silent = false } = opts;
       if (!silent) setLoading(true);
       try {
-        const result = await getTrenches(buildParams(tab));
+        const result = await getTrenches(tab);
         setData((prev) => ({ ...prev, [tab]: result[tab] ?? [] }));
         setError(null);
       } catch (err) {
@@ -261,7 +225,7 @@ export default function TrenchesScreen() {
         if (!silent) setLoading(false);
       }
     },
-    [buildParams],
+    [],
   );
 
   const initialLoad = useCallback(async () => {

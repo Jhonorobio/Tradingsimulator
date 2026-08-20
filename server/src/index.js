@@ -5,6 +5,7 @@ import marketRoutes from './routes/market.js';
 import tradingRoutes from './routes/trading.js';
 import notificationRoutes from './routes/notifications.js';
 import { startPoller } from './services/poller.js';
+import { startTrenchesRefresher } from './services/trenches-refresher.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -37,3 +38,9 @@ startPoller(process.env.NOTIFY_INTERVAL_MIN || 5, {
   onError: (err) => console.error('[poller]', err?.message),
 });
 console.log('Push poller started (interval in minutes: ' + (process.env.NOTIFY_INTERVAL_MIN || 5) + ')');
+
+// background Trenches refresher keeps the app's default tabs warm (app polls ~1s)
+startTrenchesRefresher(process.env.TRENCHES_REFRESH_SEC || 3, {
+  onError: (err) => console.error('[trenches-refresher]', err?.message),
+});
+console.log('Trenches refresher started (interval in seconds: ' + (process.env.TRENCHES_REFRESH_SEC || 3) + ')');

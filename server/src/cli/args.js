@@ -88,9 +88,11 @@ export function buildTrenchesArgs(p) {
   return args;
 }
 
-export async function fetchTrenches(params) {
+export async function fetchTrenches(params, opts = {}) {
   const args = buildTrenchesArgs(params);
-  const ttl = Number(process.env.TRENCHES_CACHE_TTL) || 60;
+  // force=true bypasses the TTL so a background refresher can warm the cache
+  // (still dedupes concurrent calls and still writes back to disk).
+  const ttl = opts.force ? 0 : (Number(process.env.TRENCHES_CACHE_TTL) || 60);
 
   // GMGN rate-limit cooldown. The ban is per-IP, so once we get a 429 we
   // refuse to call gmgn-cli again until the reported reset time. Otherwise

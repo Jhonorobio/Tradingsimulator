@@ -7,6 +7,7 @@ import { findToken } from '../services/trenches-store.js';
 import { getProxyMarketCap } from '../services/gmgn-proxy.js';
 import { getTokenInfo, getLiveTokenInfo, getPrices, SOL_MINT } from '../services/token-data.js';
 import { cacheKey, withCache } from '../services/cache.js';
+import { buildParamsFromConfig, TRENCH_TABS } from '../services/trenches-filters.js';
 
 const router = Router();
 
@@ -27,12 +28,21 @@ function cleanValue(v) {
 
 /**
  * GET /api/market/trenches
- * Query: chain, types[], filterPreset, sortBy, direction, limit, plus range flags.
+ * Query: tab=new_creation|near_completion|completed
+ * Applies the device's saved filter config (PUT /api/market/trenches/filters);
+ * the app never sends GMGN params. Returns that tab's token list.
  */
 router.get('/trenches', async (req, res) => {
   try {
-    const result = await fetchTrenches(req.query);
-    res.json({ ...result, fetched_at: new Date().toISOString() });
+    const id = deviceId(req);
+    const tab = TRENCH_TABS.includes(req.query.tab) ? req.query.tab : 'new_creation';
+    let config = null;
+    if (id) {
+      const row = db.prepare('SELECT filters FROM trenches_filters WHERE device_id = ?').get(id);
+      config = row ? JSON.parse(row.filters) : null;
+    }
+    const result = await fetchTrenches(buildParamsFromConfig(config, tab));
+    res.json({ ...result, tab, fetched_at: new Date().toISOString() });
   } catch (err) {
     fail(res, err, err?.status || 500);
   }
