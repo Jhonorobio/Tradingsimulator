@@ -1,7 +1,7 @@
 import { fetchTrenches } from '../cli/args.js';
 import { db } from '../db.js';
 import { buildParamsFromConfig, TRENCH_TABS } from './trenches-filters.js';
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { proxyEgressIp } from './proxy-tunnel.js';
 
 /**
  * Background refresher for the Trenches views. Runs WORKERS parallel workers
@@ -38,18 +38,7 @@ export async function startTrenchesRefresher(intervalSeconds, { onError = () => 
   const WORKERS = Math.max(distinct.length, 1);
   const restMs = Math.max(0.1, (Number(intervalSeconds) || (WORKERS > 1 ? 0.5 : 2)) * 1000);
 
-  const connectionFor = (tab) => {
-    if (pins[tab]) return pins[tab];
-    if (positionalProxies.length) {
-      const idx = TRENCH_TABS.indexOf(tab);
-      const proxy = idx >= 0 ? positionalProxies[idx % positionalProxies.length] : positionalProxies[0];
-      const apiKey = positionalKeys.length
-        ? positionalKeys[idx % positionalKeys.length]
-        : process.env.GMGN_API_KEY;
-      return { proxy, apiKey };
-    }
-    return null;
-  };
+  const connectionFor = (tab) => connectionForTab(tab, pins, positionalProxies, positionalKeys);
 
   const rebuild = () => {
     const rows = db.prepare('SELECT filters FROM trenches_filters').all();
@@ -94,7 +83,9 @@ export async function startTrenchesRefresher(intervalSeconds, { onError = () => 
       if (item) {
         const connection = connectionFor(item.tab);
         try {
-          await fetchTrenches(item.params, { force: true, ...(connection || {}) });
+          // No force: respects TRENCHES_CACHE_TTL, so it only hits GMGN when
+          // the cache is stale (no duplicate calls while the app is polling).
+          await fetchTrenches(item.params, { ...(connection || {}) });
         } catch (err) {
           onError(err);
         }
@@ -137,27 +128,33 @@ function parsePins() {
 }
 
 /**
- * Resolves the real egress IP of each proxy and de-duplicates, so a pool is
+ * Resolves the connection (proxy + apiKey) a trenches tab should use.
+ * Order: explicit TRENCHES_PINS entry → positional TRENCHES_PROXIES/KEYS list
+ * → null (meaning direct HTTPS with GMGN_API_KEY / gmgn-cli from the server IP).
+ * Exported so HTTP routes honor per-IP routing even on a cold cache.
+ */
+export function connectionForTab(tab, pins = parsePins(), positionalProxies = [], positionalKeys = []) {
+  if (pins[tab]) return pins[tab];
+  if (positionalProxies.length) {
+    const idx = TRENCH_TABS.indexOf(tab);
+    const proxy = idx >= 0 ? positionalProxies[idx % positionalProxies.length] : positionalProxies[0];
+    const apiKey = positionalKeys.length
+      ? positionalKeys[idx % positionalKeys.length]
+      : process.env.GMGN_API_KEY;
+    return { proxy, apiKey };
+  }
+  return null;
+}
+
+/**
+ * Resolves the real egress IP of each proxy (via a raw CONNECT tunnel — the
+ * only method these proxies route correctly) and de-duplicates, so a pool is
  * only sized by genuinely independent IPs. Returns one entry per distinct IP.
  */
 async function resolveDistinctProxies(urls) {
-  const agents = new Map();
-  const ipOf = async (url) => {
-    const agent = agents.get(url) ?? new HttpsProxyAgent(url);
-    agents.set(url, agent);
-    try {
-      const res = await fetch('https://api64.ipify.org?format=json', {
-        agent,
-        signal: AbortSignal.timeout(10_000),
-      });
-      const json = await res.json();
-      return typeof json?.ip === 'string' ? json.ip : null;
-    } catch {
-      return null;
-    }
-  };
-
-  const results = await Promise.allSettled(urls.map(async (url) => ({ url, ip: await ipOf(url) })));
+  const results = await Promise.allSettled(
+    urls.map(async (url) => ({ url, ip: await proxyEgressIp(url) }))
+  );
   const seen = new Set();
   const out = [];
   for (const r of results) {

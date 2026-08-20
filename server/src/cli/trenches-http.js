@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { tunnelRequest } from '../services/proxy-tunnel.js';
 
 const API_HOST = 'https://openapi.gmgn.ai';
 const USER_AGENT = 'gmgn-cli/1.5.2';
@@ -124,46 +124,59 @@ function buildErrorMessage({ method, path, status, apiCode, apiError, apiMessage
 }
 
 /**
- * Fetches the trenches views directly from GMGN OpenAPI using the same
- * connection method the dashboard/token-detail path uses: an HTTPS proxy
- * (HttpsProxyAgent) + a dedicated API key (X-APIKEY). No CLI spawn, no undici
- * ProxyAgent — so every category can be pinned to its own proxy+key and the
- * per-IP/per-key rate limit is never exhausted.
+ * Fetches the trenches views directly from GMGN OpenAPI over HTTPS. Optional
+ * HTTP proxy (raw CONNECT tunnel — NOT https-proxy-agent, which silently falls
+ * back to the local egress IP) + X-APIKEY. Without a proxy the request goes
+ * directly from the server's own IP (still authenticated with the key).
  * @param {string[]} args - output of buildTrenchesArgs(params)
- * @param {{ proxy: string, apiKey: string }} connection
+ * @param {{ proxy?: string, apiKey: string }} connection
  */
 export async function fetchTrenchesHttp(args, connection) {
-  const { proxy, apiKey } = connection;
-  if (!proxy || !apiKey) throw new Error('fetchTrenchesHttp requires proxy and apiKey');
+  const { proxy = '', apiKey } = connection;
+  if (!apiKey) throw new Error('fetchTrenchesHttp requires apiKey');
 
   const body = buildBodyFromArgs(args);
-  const timestamp = Math.floor(Date.now() / 1000);
+  const timestamp = Math.floor(Date.now() / 1000) - (Number(process.env.GMGN_TIME_OFFSET) || 0);
   const client_id = crypto.randomUUID();
   const url = `${API_HOST}/v1/trenches?chain=${chainArg(args)}&timestamp=${timestamp}&client_id=${client_id}`;
-  const agent = new HttpsProxyAgent(proxy);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let res;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      body: JSON.stringify(body),
-      signal: controller.signal,
-      agent,
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': USER_AGENT,
-        'X-APIKEY': apiKey,
-        Accept: 'application/json',
-      },
-    });
+    if (proxy) {
+      res = await tunnelRequest(url, {
+        proxy,
+        method: 'POST',
+        body: JSON.stringify(body),
+        timeoutMs: TIMEOUT_MS,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT,
+          'X-APIKEY': apiKey,
+          Accept: 'application/json',
+        },
+      });
+    } else {
+      res = await fetch(url, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT,
+          'X-APIKEY': apiKey,
+          Accept: 'application/json',
+        },
+      });
+    }
   } catch (err) {
     throw new Error(`POST /v1/trenches fetch failed: ${err.message}`);
   } finally {
     clearTimeout(timer);
   }
 
-  const resetUnix = parseInt(res.headers.get('x-ratelimit-reset') || '', 10);
+  const resetUnixRaw = res.headers?.get ? res.headers.get('x-ratelimit-reset') : res.headers?.['x-ratelimit-reset'];
+  const resetUnix = parseInt(resetUnixRaw || '', 10);
   const resetAtUnix = Number.isFinite(resetUnix) && resetUnix > 0 ? resetUnix : undefined;
 
   const text = await res.text().catch(() => '');

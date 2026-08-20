@@ -8,6 +8,7 @@ import { getProxyMarketCap } from '../services/gmgn-proxy.js';
 import { getTokenInfo, getLiveTokenInfo, getPrices, SOL_MINT } from '../services/token-data.js';
 import { cacheKey, withCache } from '../services/cache.js';
 import { buildParamsFromConfig, TRENCH_TABS } from '../services/trenches-filters.js';
+import { connectionForTab } from '../services/trenches-refresher.js';
 
 const router = Router();
 
@@ -41,7 +42,9 @@ router.get('/trenches', async (req, res) => {
       const row = db.prepare('SELECT filters FROM trenches_filters WHERE device_id = ?').get(id);
       config = row ? JSON.parse(row.filters) : null;
     }
-    const result = await fetchTrenches(buildParamsFromConfig(config, tab));
+    const result = await fetchTrenches(buildParamsFromConfig(config, tab), {
+      ...(connectionForTab(tab) || {}),
+    });
     res.json({ ...result, tab, fetched_at: new Date().toISOString() });
   } catch (err) {
     fail(res, err, err?.status || 500);

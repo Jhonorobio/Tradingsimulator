@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { tunnelRequest } from './proxy-tunnel.js';
 
 const PROXY_URL = (process.env.GMGN_PROXY_URL || '').replace(/\/+$/, '');
 const PROXY_KEY = process.env.GMGN_PROXY_KEY || '';
@@ -82,21 +82,14 @@ async function drain() {
   }
 }
 
-let proxyAgent;
-function getProxyAgent() {
-  if (!PROXY_URL) return undefined;
-  if (!proxyAgent) proxyAgent = new HttpsProxyAgent(PROXY_URL);
-  return proxyAgent;
-}
-
 function pct(current, ref) {
   if (current == null || !ref || Number(ref) <= 0) return 0;
   return ((Number(current) - Number(ref)) / Number(ref)) * 100;
 }
 
 /**
- * Single HTTP call to GMGN token info through the proxy. No throttling here —
- * pacing is handled by the shared batch queue.
+ * Single HTTP call to GMGN token info through the proxy (raw CONNECT tunnel).
+ * No throttling here — pacing is handled by the shared batch queue.
  * @param {string} chain
  * @param {string} address
  */
@@ -106,19 +99,16 @@ async function rawProxyTokenInfo(chain, address) {
     const timestamp = Math.floor(Date.now() / 1000) - TIME_OFFSET_SEC;
     const client_id = crypto.randomUUID();
     const url = `${API_HOST}/v1/token/info?chain=${encodeURIComponent(chain)}&address=${encodeURIComponent(address)}&timestamp=${timestamp}&client_id=${client_id}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5_000);
-    const res = await fetch(url, {
-      signal: controller.signal,
-      agent: getProxyAgent(),
+    const res = await tunnelRequest(url, {
+      proxy: PROXY_URL,
+      timeoutMs: 5_000,
       headers: {
         Accept: 'application/json',
         'X-APIKEY': PROXY_KEY,
         'User-Agent': USER_AGENT,
       },
     });
-    clearTimeout(timer);
-    if (!res.ok) return null;
+    if (res.status !== 200) return null;
     const json = await res.json().catch(() => null);
     if (json?.code !== 0 || !json?.data) return null;
     const d = json.data;

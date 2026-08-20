@@ -123,9 +123,14 @@ export async function fetchTrenches(params, opts = {}) {
 
   return withCache(cacheKey('trenches', args.join(' ')), ttl, async () => {
     try {
-      const useHttp = Boolean(opts.proxy && opts.apiKey);
+      // Dedicated trenches key (GMGN_API_KEY) → fetch directly over HTTPS
+      // (openapi.gmgn.ai), bypassing gmgn-cli and any proxy. Falls back to the
+      // pinned proxy+key when one is passed, then to gmgn-cli when no key is
+      // configured at all.
+      const apiKey = opts.apiKey || process.env.GMGN_API_KEY || '';
+      const useHttp = Boolean(apiKey);
       const json = useHttp
-        ? await fetchTrenchesHttp(args, { proxy: opts.proxy, apiKey: opts.apiKey })
+        ? await fetchTrenchesHttp(args, { proxy: opts.proxy || '', apiKey })
         : await runMarket('trenches', args);
       const data = json?.data ?? json ?? {};
       const result = {
@@ -143,7 +148,10 @@ export async function fetchTrenches(params, opts = {}) {
         if (resetMs) {
           pairCooldowns.set(connKey, Math.max(pairCooldowns.get(connKey) || 0, resetMs + offsetMs + 10_000));
         } else if (String(err?.message).includes('429')) {
-          pairCooldowns.set(connKey, Math.max(pairCooldowns.get(connKey) || 0, Date.now() + 300_000));
+          // Soft rate limits (HTTP path) don't carry a reset time; wait a short
+          // window so the IP isn't hammered, but don't wedge a category for 5
+          // minutes over a transient limit. Real bans report a reset time above.
+          pairCooldowns.set(connKey, Math.max(pairCooldowns.get(connKey) || 0, Date.now() + 60_000));
         }
       } else if (resetMs) {
         // The system clock runs ahead of GMGN (GMGN_TIME_OFFSET), so the
