@@ -1,14 +1,21 @@
 import { spawn } from 'node:child_process';
 import { platform } from 'node:os';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 
 // Resolve the CLI from node_modules when present (Railway/CI deploy gmgn-cli as
-// a project dependency), falling back to whatever is on PATH.
+// a project dependency), falling back to whatever is on PATH. On Windows the
+// .cmd shim is required — spawning dist/index.js through cmd.exe silently
+// produces empty output (cmd can't run a bare .js file).
 function resolveBin() {
   if (process.env.GMGN_BIN) return process.env.GMGN_BIN;
   try {
+    const pkg = require.resolve('gmgn-cli/package.json', { paths: [process.cwd()] });
+    if (platform() === 'win32') {
+      return path.join(path.dirname(pkg), '..', '.bin', 'gmgn-cli.cmd');
+    }
     return require.resolve('gmgn-cli', { paths: [process.cwd()] });
   } catch {
     return 'gmgn-cli';

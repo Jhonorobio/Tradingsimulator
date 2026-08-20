@@ -11,7 +11,7 @@
     "postinstall": "node scripts/patch-gmgn-signer.js"
   },
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.13.0"
   },
   "dependencies": {
     "cors": "^2.8.5",
