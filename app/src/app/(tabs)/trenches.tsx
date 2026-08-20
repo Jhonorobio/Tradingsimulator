@@ -5,7 +5,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -171,7 +170,6 @@ export default function TrenchesScreen() {
     completed: [],
   });
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const openFilters = useCallback(() => {
@@ -255,12 +253,6 @@ export default function TrenchesScreen() {
     return () => clearInterval(id);
   }, [pollNext]);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await initialLoad();
-    setRefreshing(false);
-  }, [initialLoad]);
-
   const activeTokens = data[activeTab] ?? [];
 
   return (
@@ -317,13 +309,6 @@ export default function TrenchesScreen() {
           keyExtractor={(item, i) => `t-${item.address}-${i}`}
           renderItem={({ item }) => <TokenRow token={item} chain="sol" />}
           contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing || loading}
-              onRefresh={onRefresh}
-              tintColor={theme.textSecondary}
-            />
-          }
           ListHeaderComponent={loading ? (
             <View style={styles.skelCard}>
               <View style={[styles.skelBar, { width: '45%' }]} />

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
+import { Ionicons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -133,6 +135,12 @@ export default function TokenScreen() {
     };
   }, [load, loadLive, loadMcap, loadDetail, loadPosition]);
 
+  const openGmgn = useCallback(async () => {
+    if (!address) return;
+    const url = `https://gmgn.ai/${chain || 'sol'}/token/${address}`;
+    await WebBrowser.openBrowserAsync(url).catch(() => {});
+  }, [address, chain]);
+
   const doBuy = async () => {
     if (!address) return;
     const usd = Number(amount);
@@ -200,6 +208,13 @@ export default function TokenScreen() {
               {detail.name ?? ''} · {shortAddress(detail.address)}
             </ThemedText>
           </View>
+          <Pressable
+            onPress={openGmgn}
+            hitSlop={6}
+            style={({ pressed }) => [styles.gmgnBtn, { borderColor: theme.accent }, pressed && { opacity: 0.7 }]}>
+            <Ionicons name="open-outline" size={14} color={theme.accent} />
+            <ThemedText type="smallBold" style={{ color: theme.accent, fontSize: 12 }}>GMGN</ThemedText>
+          </Pressable>
         </View>
 
         <Card style={styles.priceCard}>
@@ -353,6 +368,15 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   centerText: { textAlign: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  gmgnBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
   priceCard: { gap: 12 },
   priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
