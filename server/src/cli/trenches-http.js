@@ -1,9 +1,26 @@
 import crypto from 'node:crypto';
-import { tunnelRequest } from '../services/proxy-tunnel.js';
 
 const API_HOST = 'https://openapi.gmgn.ai';
 const USER_AGENT = 'gmgn-cli/1.5.2';
 const TIMEOUT_MS = 90_000;
+
+// Undici ProxyAgent pool — one dispatcher per proxy URL for connection reuse.
+// Each proxy gets its own egress IP, so separate dispatchers = separate IP pools.
+const dispatchers = new Map();
+
+async function getDispatcher(proxyUrl) {
+  if (!proxyUrl) return null;
+  if (dispatchers.has(proxyUrl)) return dispatchers.get(proxyUrl);
+  const { ProxyAgent } = await import('undici');
+  const dispatcher = new ProxyAgent(proxyUrl, {
+    connect: {
+      timeout: 10_000,
+      tls: { rejectUnauthorized: false },
+    },
+  });
+  dispatchers.set(proxyUrl, dispatcher);
+  return dispatcher;
+}
 
 const QUOTE_ADDRESS_TYPES = {
   sol: [4, 5, 3, 1, 13, 0],
@@ -125,9 +142,8 @@ function buildErrorMessage({ method, path, status, apiCode, apiError, apiMessage
 
 /**
  * Fetches the trenches views directly from GMGN OpenAPI over HTTPS. Optional
- * HTTP proxy (raw CONNECT tunnel — NOT https-proxy-agent, which silently falls
- * back to the local egress IP) + X-APIKEY. Without a proxy the request goes
- * directly from the server's own IP (still authenticated with the key).
+ * HTTP proxy (Undici ProxyAgent with connection pooling) + X-APIKEY.
+ * Without a proxy the request goes directly from the server's own IP.
  * @param {string[]} args - output of buildTrenchesArgs(params)
  * @param {{ proxy?: string, apiKey: string }} connection
  */
@@ -139,40 +155,49 @@ export async function fetchTrenchesHttp(args, connection) {
   const timestamp = Math.floor(Date.now() / 1000) - (Number(process.env.GMGN_TIME_OFFSET) || 0);
   const client_id = crypto.randomUUID();
   const url = `${API_HOST}/v1/trenches?chain=${chainArg(args)}&timestamp=${timestamp}&client_id=${client_id}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const headers = {
+    'Content-Type': 'application/json',
+    'User-Agent': USER_AGENT,
+    'X-APIKEY': apiKey,
+    Accept: 'application/json',
+  };
+
   let res;
   try {
     if (proxy) {
-      res = await tunnelRequest(url, {
-        proxy,
+      const dispatcher = await getDispatcher(proxy);
+      const { request } = await import('undici');
+      const undiciRes = await request(url, {
+        dispatcher,
         method: 'POST',
         body: JSON.stringify(body),
-        timeoutMs: TIMEOUT_MS,
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': USER_AGENT,
-          'X-APIKEY': apiKey,
-          Accept: 'application/json',
-        },
+        headers,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
       });
+      // Adapt undici response to match fetch-like interface
+      res = {
+        status: undiciRes.statusCode,
+        headers: {
+          get: (name) => undiciRes.headers[name.toLowerCase()],
+        },
+        text: () => undiciRes.body.text(),
+      };
     } else {
-      res = await fetch(url, {
-        method: 'POST',
-        body: JSON.stringify(body),
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': USER_AGENT,
-          'X-APIKEY': apiKey,
-          Accept: 'application/json',
-        },
-      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          body: JSON.stringify(body),
+          signal: controller.signal,
+          headers,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
     }
   } catch (err) {
     throw new Error(`POST /v1/trenches fetch failed: ${err.message}`);
-  } finally {
-    clearTimeout(timer);
   }
 
   const resetUnixRaw = res.headers?.get ? res.headers.get('x-ratelimit-reset') : res.headers?.['x-ratelimit-reset'];
@@ -199,7 +224,10 @@ export async function fetchTrenchesHttp(args, connection) {
         resetAtUnix,
       })
     );
-    if (res.status === 429) e.status = 429;
+    if (res.status === 429) {
+      e.status = 429;
+      e.resetAtUnix = resetAtUnix;
+    }
     throw e;
   }
 

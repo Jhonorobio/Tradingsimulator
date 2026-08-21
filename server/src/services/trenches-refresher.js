@@ -3,10 +3,10 @@ import { trenchesFilters } from '../stores.js';
 import { buildParamsFromConfig, TRENCH_TABS } from './trenches-filters.js';
 import { proxyEgressIp } from './proxy-tunnel.js';
 
-// Rate-limit: trenches route has weight 3 on a 20-token/s leaky bucket.
-// 3 tokens per request → max ~6.67 req/s → 150 ms minimum between GMGN calls.
-// We add a 20 ms safety margin.
-const MIN_INTERVAL_MS = 170;
+// Rate-limit: GMGN allows 1 req/s per API key with 20 weight max.
+// Trenches route has weight 20 per request → max 1 req/s per key.
+// Each proxy has its own key, so each worker can do 1 req/s independently.
+const MIN_INTERVAL_MS = 1050;
 
 /**
  * Background refresher for the Trenches views. Runs one dedicated worker per
@@ -101,6 +101,12 @@ async function tabWorker(tab, connection, rebuildQueue, delay, onError) {
       await fetchTrenches(item.params, { ...(connection || {}), force: true });
     } catch (err) {
       onError(err);
+      // If rate-limited, wait until reset time before retrying
+      if (err.status === 429 && err.resetAtUnix) {
+        const waitMs = Math.max(0, err.resetAtUnix * 1000 - Date.now()) + 1000;
+        console.log(`[${tab}] Rate limited, waiting ${Math.round(waitMs / 1000)}s until reset`);
+        await delay(waitMs);
+      }
     }
     const elapsed = Date.now() - start;
 
@@ -131,6 +137,12 @@ async function sharedWorker(rebuildQueue, connectionFor, delay, onError) {
       await fetchTrenches(item.params, { ...(connection || {}), force: true });
     } catch (err) {
       onError(err);
+      // If rate-limited, wait until reset time before retrying
+      if (err.status === 429 && err.resetAtUnix) {
+        const waitMs = Math.max(0, err.resetAtUnix * 1000 - Date.now()) + 1000;
+        console.log(`[shared] Rate limited on ${item.tab}, waiting ${Math.round(waitMs / 1000)}s until reset`);
+        await delay(waitMs);
+      }
     }
     const elapsed = Date.now() - start;
 

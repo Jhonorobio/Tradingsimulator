@@ -18,7 +18,9 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "gmgn-cli": "^1.5.7",
+    "got": "^15.1.0",
     "https-proxy-agent": "^7.0.6",
-    "socks": "^2.8.9"
+    "socks": "^2.8.9",
+    "socks-proxy-agent": "^10.1.0"
   }
 }
