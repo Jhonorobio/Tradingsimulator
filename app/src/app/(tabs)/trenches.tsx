@@ -230,15 +230,13 @@ export default function TrenchesScreen() {
     }
   }, [fetchTab]);
 
-  const loadCycleIndex = useRef(0);
-
   const pollNext = useCallback(async () => {
     if (pollingRef.current) return;
     pollingRef.current = true;
     try {
-      const tab = TABS[loadCycleIndex.current % TABS.length].key;
-      loadCycleIndex.current += 1;
-      await fetchTab(tab, { silent: true });
+      await Promise.all(
+        TABS.map((tab) => fetchTab(tab.key, { silent: true })),
+      );
     } finally {
       pollingRef.current = false;
     }

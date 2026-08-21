@@ -25,18 +25,16 @@ function normalizeDex(info) {
 }
 
 /**
- * Full token info: GMGN proxy first (dedicated 2nd key), Dexscreener fallback.
- * Cached 15s on disk. Returns a unified shape (see gmgn-proxy.js) or null.
+ * Full token info: GMGN direct first, Dexscreener fallback.
+ * No disk cache — the client controls poll frequency (3s).
  * @param {string} chain
  * @param {string} address
  */
 export async function getTokenInfo(chain, address) {
-  return withCache(cacheKey('token', chain, address), 15, async () => {
-    const proxy = await getProxyTokenInfo(chain, address);
-    if (proxy?.price != null) return proxy;
-    const dex = await getDexTokenInfo(address);
-    return normalizeDex(dex);
-  });
+  const proxy = await getProxyTokenInfo(chain, address);
+  if (proxy?.price != null) return proxy;
+  const dex = await getDexTokenInfo(address);
+  return normalizeDex(dex);
 }
 
 /**
@@ -67,7 +65,7 @@ export async function getPrices(mints) {
 
   const resolved = await Promise.all(
     ids.map(async (m) => {
-      const info = await withCache(cacheKey('token-price', m), 2, () =>
+      const info = await withCache(cacheKey('token-price', m), 1, () =>
         getProxyTokenInfo('sol', m)
       );
       return { m, info };

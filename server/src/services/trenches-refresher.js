@@ -1,25 +1,29 @@
 import { fetchTrenches } from '../cli/args.js';
-import { db } from '../db.js';
+import { trenchesFilters } from '../stores.js';
 import { buildParamsFromConfig, TRENCH_TABS } from './trenches-filters.js';
 import { proxyEgressIp } from './proxy-tunnel.js';
 
+// Rate-limit: trenches route has weight 3 on a 20-token/s leaky bucket.
+// 3 tokens per request → max ~6.67 req/s → 150 ms minimum between GMGN calls.
+// We add a 20 ms safety margin.
+const MIN_INTERVAL_MS = 170;
+
 /**
- * Background refresher for the Trenches views. Runs WORKERS parallel workers
- * that pull every category in rotation.
+ * Background refresher for the Trenches views. Runs one dedicated worker per
+ * tab (new_creation / near_completion / completed). Each worker fetches that
+ * tab's params on its own adaptive loop: it measures the actual GMGN response
+ * time and sleeps only as long as needed to stay within the rate limit.
  *
- * Each category can be pinned to its own proxy+key with TRENCHES_PINS (JSON,
- * keyed by tab: new_creation / near_completion / completed). Pinned categories
- * are fetched DIRECTLY from the GMGN OpenAPI (https-proxy-agent + X-APIKEY —
- * the same connection method the dashboard/token detail uses). Unpinned tabs
- * fall back to the positional TRENCHES_PROXIES/TRENCHES_KEYS lists, or to
- * gmgn-cli when nothing is configured.
+ * Each tab can be pinned to its own proxy+key with TRENCHES_PINS (JSON, keyed
+ * by tab). With separate proxies per tab, each tab has its own 20-token/s
+ * bucket — they never compete for rate-limit capacity.
  *
  * At startup we resolve each proxy's real egress IP and de-duplicate: only
- * truly distinct IPs get a parallel worker. If all configured proxies share a
- * single egress IP (e.g. one corporate gateway), we safely run ONE worker so
- * the shared IP is never rate-limited, while still honoring each tab's own pin.
+ * genuinely distinct IPs get a parallel worker. If all configured proxies
+ * share one egress IP, we fall back to one safe worker that round-robins
+ * across tabs.
  */
-export async function startTrenchesRefresher(intervalSeconds, { onError = () => {} } = {}) {
+export async function startTrenchesRefresher(_intervalSeconds, { onError = () => {} } = {}) {
   const pins = parsePins();
   const positionalProxies = (process.env.TRENCHES_PROXIES || '')
     .split(',')
@@ -32,25 +36,15 @@ export async function startTrenchesRefresher(intervalSeconds, { onError = () => 
 
   const allProxyUrls = [...new Set([...Object.values(pins).map((c) => c.proxy), ...positionalProxies])];
   const distinct = allProxyUrls.length ? await resolveDistinctProxies(allProxyUrls) : [];
-
-  // One worker per genuinely independent egress IP; single-IP setups collapse
-  // to one safe worker.
   const WORKERS = Math.max(distinct.length, 1);
-  const restMs = Math.max(0.1, (Number(intervalSeconds) || (WORKERS > 1 ? 0.5 : 2)) * 1000);
 
   const connectionFor = (tab) => connectionForTab(tab, pins, positionalProxies, positionalKeys);
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  const rebuild = () => {
-    const rows = db.prepare('SELECT filters FROM trenches_filters').all();
-    const configs = rows.map((r) => {
-      try {
-        return JSON.parse(r.filters);
-      } catch {
-        return null;
-      }
-    });
-    // default (no filters saved) view is always refreshed too
-    configs.push(null);
+  const rebuildQueue = () => {
+    const all = trenchesFilters.getAll();
+    const configs = Object.values(all).map((entry) => entry?.filters ?? null).filter(Boolean);
+    // Only refresh user-saved filter configs per tab (no default/null view)
 
     const seen = new Set();
     const queue = [];
@@ -66,44 +60,83 @@ export async function startTrenchesRefresher(intervalSeconds, { onError = () => 
     return queue;
   };
 
-  let cursor = 0;
-  const next = () => {
-    const queue = rebuild();
-    if (!queue.length) return null;
-    const item = queue[cursor % queue.length];
-    cursor += 1;
-    return item;
-  };
-
-  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  const worker = async () => {
-    while (true) {
-      const item = next();
-      if (item) {
-        const connection = connectionFor(item.tab);
-        try {
-          // No force: respects TRENCHES_CACHE_TTL, so it only hits GMGN when
-          // the cache is stale (no duplicate calls while the app is polling).
-          await fetchTrenches(item.params, { ...(connection || {}) });
-        } catch (err) {
-          onError(err);
-        }
-      }
-      await delay(restMs);
+  // When we have as many distinct IPs as tabs → dedicated worker per tab.
+  // Each worker only processes its own tab's params combos.
+  if (WORKERS >= TRENCH_TABS.length) {
+    for (const tab of TRENCH_TABS) {
+      const connection = connectionFor(tab);
+      setTimeout(() => tabWorker(tab, connection, rebuildQueue, delay, onError), 0);
     }
-  };
-
-  for (let i = 0; i < WORKERS; i++) {
-    setTimeout(() => worker(), i * 50); // slight stagger so workers cover different tabs first
+  } else {
+    // Fewer IPs than tabs → single worker round-robins across all tabs.
+    // Still adapts to response time per call.
+    setTimeout(() => sharedWorker(rebuildQueue, connectionFor, delay, onError), 0);
   }
 
   return {
     workers: WORKERS,
     egressIps: distinct.map((d) => d.ip),
-    restMs,
     pins: Object.keys(pins),
+    mode: WORKERS >= TRENCH_TABS.length ? 'dedicated' : 'shared',
   };
+}
+
+/**
+ * Dedicated worker for a single tab. Fetches that tab's params combo in
+ * round-robin, tracking response time and adapting the sleep to stay within
+ * the rate limit without wasting time.
+ */
+async function tabWorker(tab, connection, rebuildQueue, delay, onError) {
+  let cursor = 0;
+
+  while (true) {
+    const queue = rebuildQueue().filter((item) => item.tab === tab);
+    if (!queue.length) { await delay(1000); continue; }
+
+    const item = queue[cursor % queue.length];
+    cursor += 1;
+
+    const start = Date.now();
+    try {
+      await fetchTrenches(item.params, { ...(connection || {}), force: true });
+    } catch (err) {
+      onError(err);
+    }
+    const elapsed = Date.now() - start;
+
+    // Adaptive sleep: if the call took less than MIN_INTERVAL_MS, wait the
+    // remainder. If it took longer (slow network / timeout), fire immediately.
+    const sleepMs = Math.max(0, MIN_INTERVAL_MS - elapsed);
+    await delay(sleepMs);
+  }
+}
+
+/**
+ * Shared worker when fewer distinct IPs than tabs. Round-robins across ALL
+ * tabs, still adapting to response time per call.
+ */
+async function sharedWorker(rebuildQueue, connectionFor, delay, onError) {
+  let cursor = 0;
+
+  while (true) {
+    const queue = rebuildQueue();
+    if (!queue.length) { await delay(1000); continue; }
+
+    const item = queue[cursor % queue.length];
+    cursor += 1;
+
+    const connection = connectionFor(item.tab);
+    const start = Date.now();
+    try {
+      await fetchTrenches(item.params, { ...(connection || {}), force: true });
+    } catch (err) {
+      onError(err);
+    }
+    const elapsed = Date.now() - start;
+
+    const sleepMs = Math.max(0, MIN_INTERVAL_MS - elapsed);
+    await delay(sleepMs);
+  }
 }
 
 /** Parses TRENCHES_PINS (JSON keyed by tab) into { tab: { proxy, apiKey } }. */
@@ -131,7 +164,6 @@ function parsePins() {
  * Resolves the connection (proxy + apiKey) a trenches tab should use.
  * Order: explicit TRENCHES_PINS entry → positional TRENCHES_PROXIES/KEYS list
  * → null (meaning direct HTTPS with GMGN_API_KEY / gmgn-cli from the server IP).
- * Exported so HTTP routes honor per-IP routing even on a cold cache.
  */
 export function connectionForTab(tab, pins = parsePins(), positionalProxies = [], positionalKeys = []) {
   if (pins[tab]) return pins[tab];

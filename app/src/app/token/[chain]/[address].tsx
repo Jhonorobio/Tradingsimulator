@@ -10,7 +10,7 @@ import { Card } from '@/components/card';
 import { TokenAvatar } from '@/components/token-avatar';
 import { PriceChange } from '@/components/price-change';
 import { useTheme } from '@/hooks/use-theme';
-import { getTokenDetail, getLiveTokenPrice, getTokenMarketCap } from '@/api/market';
+import { getTokenDetail } from '@/api/market';
 import { buy, getPortfolio, sell } from '@/api/trading';
 import { ApiError } from '@/api/client';
 import type { Position, TokenDetail, TradeResult } from '@/api/types';
@@ -26,7 +26,6 @@ export default function TokenScreen() {
   const [position, setPosition] = useState<Position | null>(null);
   const [solPrice, setSolPrice] = useState<number>(0);
   const [solBalance, setSolBalance] = useState<number>(0);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('buy');
   const [amount, setAmount] = useState('');
@@ -34,27 +33,7 @@ export default function TokenScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<TradeResult | null>(null);
 
-  const load = useCallback(async () => {
-    if (!address) return;
-    setLoading(true);
-    try {
-      const [d, pf] = await Promise.all([getTokenDetail(chain || 'sol', address), getPortfolio()]);
-      setDetail(d);
-      setSolPrice(pf.sol_price ?? 0);
-      setSolBalance(pf.wallet.balance_sol);
-      const pos = pf.positions.find((p) => p.token_address === address);
-      setPosition(pos ?? null);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al cargar el token');
-    } finally {
-      setLoading(false);
-    }
-  }, [address, chain]);
-
-  // "Resto" de la info (nombre, liquidez, volumen, holders, DEX…): cada 3s.
-  // No depende del proxy GMGN: si el token está en trenches usa el store en
-  // memoria; si no, getTokenInfo tiene cache de 15s en el server.
+  // Token detail: cada 1s. Fetch directo al server.
   const loadDetail = useCallback(async () => {
     if (!address) return;
     try {
@@ -62,7 +41,7 @@ export default function TokenScreen() {
       setDetail(d);
       setError(null);
     } catch {
-      // mantén el último detalle conocido
+      if (!detail) setError('No se pudo cargar el token');
     }
   }, [address, chain]);
 
@@ -80,60 +59,16 @@ export default function TokenScreen() {
     }
   }, [address]);
 
-  // Precio + marketcap vía GMGN proxy (con fallback Dexscreener): cada 2s.
-  const loadLive = useCallback(async () => {
-    if (!address) return;
-    try {
-      const live = await getLiveTokenPrice(chain || 'sol', address);
-      setDetail((prev) => {
-        if (!prev) return prev;
-        const oldPc = prev.priceChange;
-        const priceChange = oldPc
-          ? { ...oldPc, h24: live.priceChange24h ?? oldPc.h24 }
-          : live.priceChange24h != null
-            ? { m5: 0, h1: 0, h6: 0, h24: live.priceChange24h }
-            : null;
-        return {
-          ...prev,
-          price: live.price ?? prev.price,
-          marketCap: live.marketCap ?? prev.marketCap,
-          supply: live.supply ?? prev.supply,
-          liquidity: live.liquidity ?? prev.liquidity,
-          priceChange,
-        };
-      });
-    } catch {
-      // mantén el último precio conocido
-    }
-  }, [address, chain]);
-
-  // Market cap vía GMGN proxy (2ª key): cada 1s. Si el proxy falla, el server
-  // hace fallback a Dexscreener y devuelve source: 'dexscreener'.
-  const loadMcap = useCallback(async () => {
-    if (!address) return;
-    try {
-      const mcap = await getTokenMarketCap(chain || 'sol', address);
-      if (mcap.marketCap != null) {
-        setDetail((prev) => (prev ? { ...prev, marketCap: mcap.marketCap } : prev));
-      }
-    } catch {
-      // mantén el último marketcap conocido
-    }
-  }, [address, chain]);
-
   useEffect(() => {
-    load();
-    const liveTimer = setInterval(loadLive, 2000);
-    const mcapTimer = setInterval(loadMcap, 1000);
-    const detailTimer = setInterval(loadDetail, 3000);
+    loadDetail();
+    loadPosition();
+    const detailTimer = setInterval(loadDetail, 1000);
     const posTimer = setInterval(loadPosition, 2000);
     return () => {
-      clearInterval(liveTimer);
-      clearInterval(mcapTimer);
       clearInterval(detailTimer);
       clearInterval(posTimer);
     };
-  }, [load, loadLive, loadMcap, loadDetail, loadPosition]);
+  }, [loadDetail, loadPosition]);
 
   const openGmgn = useCallback(async () => {
     if (!address) return;
@@ -151,7 +86,8 @@ export default function TokenScreen() {
       setResult(res);
       setSolBalance(res.balance_sol);
       setAmount('');
-      await load();
+      await loadDetail();
+      await loadPosition();
     } catch (err) {
       Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo comprar');
     } finally {
@@ -166,7 +102,8 @@ export default function TokenScreen() {
     try {
       const res = await sell(address, chain || 'sol', qty);
       setResult(res);
-      await load();
+      await loadDetail();
+      await loadPosition();
     } catch (err) {
       Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo vender');
     } finally {
@@ -174,20 +111,12 @@ export default function TokenScreen() {
     }
   };
 
-  if (loading && !detail) {
-    return (
-      <ThemedView style={styles.center}>
-        <ThemedText type="subtitle">Cargando…</ThemedText>
-      </ThemedView>
-    );
-  }
-
   if (error && !detail) {
     return (
       <ThemedView style={styles.center}>
         <ThemedText type="subtitle">Sin datos</ThemedText>
         <ThemedText style={styles.centerText}>{error}</ThemedText>
-        <Pressable onPress={load}>
+        <Pressable onPress={loadDetail}>
           <ThemedText type="linkPrimary">Reintentar</ThemedText>
         </Pressable>
       </ThemedView>

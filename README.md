@@ -108,6 +108,12 @@ El repo es un monorepo (`app/` + `server/`). En Railway:
 > GMGN cae a Dexscreener (detalle, mcap, posiciones) y Trenches dependería de ese proxy para
 > autenticar. Ajustá `GMGN_PROXY_URL` según haga falta.
 
+> **Pins por categoría (Trenches)**: cada tab de Trenches (`new_creation`, `near_completion`,
+> `completed`) puede tener su propio proxy+key vía `TRENCHES_PINS` (JSON). Los proxys pueden ser
+> `http://host:port` (HTTP CONNECT) o `socks5://host:port` (SOCKS5). El server abre un túnel crudo
+> (raw CONNECT / SOCKS5 handshake) hacia `openapi.gmgn.ai` — no usa `HttpsProxyAgent`, que caía en
+> la IP de salida local y no pasaba el bloqueo por IP de GMGN.
+
 > **Fix SDK 57 + Expo Go (crash al cargar)**: `react-native-worklets` 0.10.1 (traído por `@expo/ui`) provoca un SIGSEGV en Expo Go al arrancar (issue expo/expo#48390). El proyecto incluye `app/metro.config.js` que hace stub de `react-native-worklets` (la app no lo usa directamente). Si lo actualizas/borras, vuelve a añadir el stub o baja `react-native-worklets` a 0.10.0.
 
 Flujo de trading: `Trenches → token → comprar/vender` con presupuesto simulado y gas por operación.

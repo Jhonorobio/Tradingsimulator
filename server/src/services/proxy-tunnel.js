@@ -1,25 +1,52 @@
 import net from 'node:net';
 import tls from 'node:tls';
 import zlib from 'node:zlib';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { SocksClient } = require('socks');
 
 /**
- * Manual HTTP CONNECT tunnel. HttpsProxyAgent/undici don't route these proxies
- * correctly (they fall back to the local egress IP), but a raw CONNECT tunnel
- * goes through the proxy's REAL IP — which is what matters to bypass GMGN's
- * per-IP blocking. Playwright confirmed the same result; this is the
- * dependency-free equivalent.
+ * Manual HTTPS tunnel through an HTTP-CONNECT or SOCKS5 proxy. Proxy agents
+ * don't route these proxies correctly (they fall back to the local egress IP),
+ * but a raw tunnel goes through the proxy's REAL IP — which is what matters to
+ * bypass GMGN's per-IP blocking.
+ *
+ * Proxy URL scheme selects the method:
+ *   http://host:port        → HTTP CONNECT
+ *   socks5://host:port      → SOCKS5 (with optional user:pass@ host auth)
+ * A bare host:port defaults to HTTP CONNECT.
  *
  * Usage: tunnelRequest('https://openapi.gmgn.ai/v1/...', { proxy, method, headers, body })
  */
 
 function parseProxy(proxyUrl) {
-  const m = /^(?:https?:\/\/)?([^:/]+)(?::(\d+))?$/.exec(proxyUrl);
+  const isSocks = /^socks5h?:\/\//i.test(proxyUrl);
+  const stripped = String(proxyUrl).replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '');
+  let rest = stripped;
+  let username = '';
+  let password = '';
+  const at = stripped.lastIndexOf('@');
+  if (at !== -1) {
+    const auth = stripped.slice(0, at);
+    rest = stripped.slice(at + 1);
+    const colon = auth.indexOf(':');
+    username = colon === -1 ? decodeURIComponent(auth) : decodeURIComponent(auth.slice(0, colon));
+    password = colon === -1 ? '' : decodeURIComponent(auth.slice(colon + 1));
+  }
+  const m = /^([^:/]+)(?::(\d+))?$/.exec(rest);
   if (!m) throw new Error(`Invalid proxy URL: ${proxyUrl}`);
-  return { host: m[1], port: m[2] ? Number(m[2]) : 8080 };
+  return {
+    scheme: isSocks ? 'socks5' : 'http',
+    host: m[1],
+    port: m[2] ? Number(m[2]) : isSocks ? 1080 : 8080,
+    username,
+    password,
+  };
 }
 
 /** Opens an HTTP CONNECT tunnel through the proxy and returns a TLS socket to the target. */
-function openTunnel(proxy, targetHost, targetPort, timeoutMs) {
+function openHttpConnectTunnel(proxy, targetHost, targetPort, timeoutMs) {
   const { host, port } = parseProxy(proxy);
   return new Promise((resolve, reject) => {
     const socket = net.connect(port, host);
@@ -32,6 +59,7 @@ function openTunnel(proxy, targetHost, targetPort, timeoutMs) {
     socket.on('connect', () => {
       socket.write(`CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n\r\n`);
     });
+    socket.on('close', () => reject(new Error('proxy CONNECT closed before response')));
     let buf = Buffer.alloc(0);
     socket.on('data', (chunk) => {
       buf = Buffer.concat([buf, chunk]);
@@ -39,7 +67,7 @@ function openTunnel(proxy, targetHost, targetPort, timeoutMs) {
       if (idx === -1) return;
       const head = buf.slice(0, idx).toString();
       socket.removeAllListeners('data');
-      socket.setTimeout(0);
+      socket.setTimeout(0).removeAllListeners('close');
       if (!/^HTTP\/1\.[01] 200/.test(head)) {
         socket.destroy();
         return reject(new Error(`proxy CONNECT rejected: ${head.split('\r\n')[0]}`));
@@ -52,6 +80,36 @@ function openTunnel(proxy, targetHost, targetPort, timeoutMs) {
       });
     });
   });
+}
+
+/** Resolves a SOCKS5 connection through the proxy and returns a TLS socket to the target. */
+function openSocks5Tunnel(proxy, targetHost, targetPort, timeoutMs) {
+  const { host, port, username, password } = parseProxy(proxy);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('socks5 connect timed out')), timeoutMs);
+    SocksClient.createConnection({
+      proxy: { host, port, type: 5, userId: username, password },
+      command: 'connect',
+      destination: { host: targetHost, port: targetPort },
+      timeout: Math.min(timeoutMs, 30_000),
+    })
+      .then(({ socket }) => {
+        clearTimeout(timer);
+        const tlsSocket = tls.connect({ socket, servername: targetHost });
+        tlsSocket.on('error', (err) => reject(new Error(`tls handshake failed: ${err.message}`)));
+        tlsSocket.on('secureConnect', () => resolve(tlsSocket));
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(new Error(`socks5 connect failed: ${err.message}`));
+      });
+  });
+}
+
+/** Opens a tunnel (HTTP CONNECT or SOCKS5) and returns a TLS socket to the target. */
+function openTunnel(proxy, targetHost, targetPort, timeoutMs) {
+  if (parseProxy(proxy).scheme === 'socks5') return openSocks5Tunnel(proxy, targetHost, targetPort, timeoutMs);
+  return openHttpConnectTunnel(proxy, targetHost, targetPort, timeoutMs);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { db } from '../db.js';
+import { pushSubscriptions, notifiedTokens } from '../stores.js';
 import { fetchTrenches } from '../cli/args.js';
 import { sendPush } from './push.js';
 
@@ -16,11 +16,7 @@ function fmtNum(n) {
 
 function deriveParams(sub) {
   const p = { chain: sub.chain };
-  try {
-    p.types = JSON.parse(sub.types);
-  } catch {
-    p.types = ['new_creation'];
-  }
+  p.types = sub.types || ['new_creation'];
   if (sub.filter_preset) p.filterPreset = sub.filter_preset;
   if (sub.min_smart_degen != null) p.minSmartDegen = sub.min_smart_degen;
   if (sub.min_volume_24h != null) p.minVolume24h = sub.min_volume_24h;
@@ -33,7 +29,7 @@ function deriveParams(sub) {
  * notifications for tokens that haven't been notified for that subscription yet.
  */
 export async function pollOnce({ onError = () => {} } = {}) {
-  const subs = db.prepare('SELECT * FROM push_subscriptions WHERE enabled = 1').all();
+  const subs = pushSubscriptions.filter((s) => s.enabled === 1 || s.enabled === true);
   if (!subs.length) return { checked: 0, notified: 0 };
 
   let notified = 0;
@@ -46,22 +42,15 @@ export async function pollOnce({ onError = () => {} } = {}) {
         ...(result.completed ?? []).map((t) => ({ ...t, _type: 'completed' })),
       ];
 
-      const markNotified = db.prepare(
-        'INSERT OR IGNORE INTO notified_tokens (subscription_id, token_address) VALUES (?, ?)'
-      );
-      const isNotified = db.prepare(
-        'SELECT 1 FROM notified_tokens WHERE subscription_id = ? AND token_address = ?'
-      );
-
-      const alreadyNotified = new Set(
-        db.prepare('SELECT token_address FROM notified_tokens WHERE subscription_id = ?').all(sub.id)
-          .map((r) => r.token_address)
-      );
+      const alreadyNotified = new Set(notifiedTokens.get(String(sub.id)) || []);
 
       for (const t of tokens) {
         if (!t.address || alreadyNotified.has(t.address)) continue;
         alreadyNotified.add(t.address);
-        markNotified.run(sub.id, t.address);
+
+        const list = notifiedTokens.get(String(sub.id)) || [];
+        list.push(t.address);
+        notifiedTokens.set(String(sub.id), list);
 
         const title = `${t.symbol || t.name || 'Token'} — ${t._type.replace('_', ' ')}`;
         const body = [
@@ -100,7 +89,6 @@ export function startPoller(intervalMinutes, { onError = () => {} } = {}) {
   };
   const timer = setInterval(run, intervalMs);
   timer.unref?.();
-  // first run shortly after boot
   setTimeout(run, 10_000).unref?.();
   return timer;
 }

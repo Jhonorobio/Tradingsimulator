@@ -93,7 +93,7 @@ export async function fetchTrenches(params, opts = {}) {
   const args = buildTrenchesArgs(params);
   // force=true bypasses the TTL so a background refresher can warm the cache
   // (still dedupes concurrent calls and still writes back to disk).
-  const ttl = opts.force ? 0 : (Number(process.env.TRENCHES_CACHE_TTL) || 60);
+  const ttl = opts.force ? 0 : (opts.ttl ?? (Number(process.env.TRENCHES_CACHE_TTL) || 60));
 
   // Dedicated per-connection cooldown. Trenches can be pinned to one proxy+
   // key per category (TRENCHES_PROXIES/TRENCHES_KEYS); a rate limit on one

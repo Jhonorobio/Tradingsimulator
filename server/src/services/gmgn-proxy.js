@@ -7,7 +7,7 @@ const TIME_OFFSET_SEC = Number(process.env.GMGN_TIME_OFFSET) || 0;
 const API_HOST = 'https://openapi.gmgn.ai';
 const USER_AGENT = 'gmgn-cli/1.5.2';
 
-// Global batch for the GMGN proxy (2nd key). `token info` has weight 1
+// Global batch for the GMGN token info API. `token info` has weight 1
 // (~20 req/s sustained); we cap at 18 requests per 1s window so bursts from
 // the detail page, dashboard and position batches never hit the limit. All
 // callers share this single queue.
@@ -71,7 +71,7 @@ async function drain() {
       windowCount += take;
       await Promise.allSettled(
         batch.map((item) =>
-          rawProxyTokenInfo(item.chain, item.address).then(item.resolve, item.reject)
+          rawTokenInfo(item.chain, item.address).then(item.resolve, item.reject)
         )
       );
     }
@@ -88,26 +88,34 @@ function pct(current, ref) {
 }
 
 /**
- * Single HTTP call to GMGN token info through the proxy (raw CONNECT tunnel).
- * No throttling here — pacing is handled by the shared batch queue.
+ * Single HTTP call to GMGN token info. Uses proxy tunnel when GMGN_PROXY_URL
+ * is set, otherwise makes a direct fetch call. No throttling here — pacing
+ * is handled by the shared batch queue.
  * @param {string} chain
  * @param {string} address
  */
-async function rawProxyTokenInfo(chain, address) {
-  if (!PROXY_URL || !PROXY_KEY || !address) return null;
+async function rawTokenInfo(chain, address) {
+  if (!address) return null;
+  const apiKey = PROXY_KEY || process.env.GMGN_API_KEY || '';
+  if (!apiKey) return null;
+
   try {
     const timestamp = Math.floor(Date.now() / 1000) - TIME_OFFSET_SEC;
     const client_id = crypto.randomUUID();
     const url = `${API_HOST}/v1/token/info?chain=${encodeURIComponent(chain)}&address=${encodeURIComponent(address)}&timestamp=${timestamp}&client_id=${client_id}`;
-    const res = await tunnelRequest(url, {
-      proxy: PROXY_URL,
-      timeoutMs: 5_000,
-      headers: {
-        Accept: 'application/json',
-        'X-APIKEY': PROXY_KEY,
-        'User-Agent': USER_AGENT,
-      },
-    });
+    const headers = {
+      Accept: 'application/json',
+      'X-APIKEY': apiKey,
+      'User-Agent': USER_AGENT,
+    };
+
+    let res;
+    if (PROXY_URL) {
+      res = await tunnelRequest(url, { proxy: PROXY_URL, timeoutMs: 5_000, headers });
+    } else {
+      res = await fetch(url, { headers, signal: AbortSignal.timeout(5_000) });
+    }
+
     if (res.status !== 200) return null;
     const json = await res.json().catch(() => null);
     if (json?.code !== 0 || !json?.data) return null;
@@ -147,10 +155,11 @@ async function rawProxyTokenInfo(chain, address) {
 }
 
 /**
- * Fetches full token info from GMGN through the dedicated proxy + 2nd API key,
- * via the shared global batch queue. GMGN does not return a market cap
- * directly, so it is computed as `price.price * circulating_supply`. Returns
- * `null` on any failure so callers can fall back to Dexscreener.
+ * Fetches full token info from GMGN via the shared global batch queue.
+ * Uses proxy tunnel when GMGN_PROXY_URL is set, otherwise direct HTTPS.
+ * GMGN does not return a market cap directly, so it is computed as
+ * `price.price * circulating_supply`. Returns `null` on any failure so
+ * callers can fall back to Dexscreener.
  *
  * Deduped: concurrent calls for the same token share a single in-flight
  * request, and results are reused for RESULT_TTL_MS (800ms), so the detail

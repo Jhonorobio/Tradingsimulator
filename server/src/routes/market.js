@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { runMarket, runConfigCheck } from '../cli/gmgn.js';
 import { fetchTrenches } from '../cli/args.js';
-import { db } from '../db.js';
+import { trenchesFilters } from '../stores.js';
 import { getTokenInfo as getDexTokenInfo, searchTokens as dexSearch } from '../services/dexscreener.js';
 import { findToken } from '../services/trenches-store.js';
 import { getProxyMarketCap } from '../services/gmgn-proxy.js';
@@ -39,11 +39,12 @@ router.get('/trenches', async (req, res) => {
     const tab = TRENCH_TABS.includes(req.query.tab) ? req.query.tab : 'new_creation';
     let config = null;
     if (id) {
-      const row = db.prepare('SELECT filters FROM trenches_filters WHERE device_id = ?').get(id);
-      config = row ? JSON.parse(row.filters) : null;
+      const entry = trenchesFilters.get(id);
+      config = entry?.filters ?? null;
     }
     const result = await fetchTrenches(buildParamsFromConfig(config, tab), {
       ...(connectionForTab(tab) || {}),
+      ttl: 2,
     });
     res.json({ ...result, tab, fetched_at: new Date().toISOString() });
   } catch (err) {
@@ -59,8 +60,8 @@ router.get('/trenches/filters', (req, res) => {
   const id = deviceId(req);
   if (!id) return fail(res, new Error('X-Device-Id header is required'), 400);
   try {
-    const row = db.prepare('SELECT filters FROM trenches_filters WHERE device_id = ?').get(id);
-    res.json({ filters: row ? JSON.parse(row.filters) : null });
+    const entry = trenchesFilters.get(id);
+    res.json({ filters: entry?.filters ?? null });
   } catch (err) {
     fail(res, err);
   }
@@ -76,12 +77,7 @@ router.put('/trenches/filters', (req, res) => {
   try {
     const raw = req.body?.filters;
     if (raw == null) return fail(res, new Error('filters is required'), 400);
-    const json = JSON.stringify(raw);
-    db.prepare(
-      `INSERT INTO trenches_filters (device_id, filters, updated_at)
-       VALUES (?, ?, datetime('now'))
-       ON CONFLICT(device_id) DO UPDATE SET filters = excluded.filters, updated_at = excluded.updated_at`
-    ).run(id, json);
+    trenchesFilters.set(id, { filters: raw, updated_at: new Date().toISOString() });
     res.json({ ok: true });
   } catch (err) {
     fail(res, err);

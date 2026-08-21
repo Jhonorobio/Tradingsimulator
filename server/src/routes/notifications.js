@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db } from '../db.js';
+import { pushSubscriptions, notifiedTokens } from '../stores.js';
 import { isValidPushToken } from '../services/push.js';
 
 const router = Router();
@@ -46,15 +46,20 @@ router.post('/subscribe', (req, res) => {
     const minVolume24h = req.body.min_volume_24h != null ? Math.max(0, Number(req.body.min_volume_24h)) : null;
     const maxRugRatio = req.body.max_rug_ratio != null ? Number(req.body.max_rug_ratio) : null;
 
-    const info = db.prepare(`
-      INSERT INTO push_subscriptions
-        (device_id, push_token, enabled, chain, types, filter_preset, min_smart_degen, min_volume_24h, max_rug_ratio)
-      VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
-    `).run(id, push_token, chain, JSON.stringify(rawTypes), filterPreset, minSmartDegen, minVolume24h, maxRugRatio);
-
-    res.json({
-      subscription: db.prepare('SELECT * FROM push_subscriptions WHERE id = ?').get(info.lastInsertRowid),
+    const subscription = pushSubscriptions.add({
+      device_id: id,
+      push_token,
+      enabled: 1,
+      chain,
+      types: rawTypes,
+      filter_preset: filterPreset,
+      min_smart_degen: minSmartDegen,
+      min_volume_24h: minVolume24h,
+      max_rug_ratio: maxRugRatio,
+      created_at: new Date().toISOString(),
     });
+
+    res.json({ subscription });
   } catch (err) {
     fail(res, err);
   }
@@ -67,10 +72,9 @@ router.post('/subscribe', (req, res) => {
 router.get('/subscriptions', (req, res) => {
   try {
     const id = deviceId(req);
-    const list = db.prepare(
-      'SELECT * FROM push_subscriptions WHERE device_id = ? ORDER BY id DESC'
-    ).all(id);
-    res.json({ subscriptions: list.map((s) => ({ ...s, types: JSON.parse(s.types) })) });
+    const list = pushSubscriptions.filter((s) => s.device_id === id);
+    list.sort((a, b) => (b.id || 0) - (a.id || 0));
+    res.json({ subscriptions: list });
   } catch (err) {
     fail(res, err);
   }
@@ -84,13 +88,14 @@ router.patch('/subscriptions/:id', (req, res) => {
   try {
     const id = deviceId(req);
     const subId = Number(req.params.id);
-    const current = db.prepare('SELECT * FROM push_subscriptions WHERE id = ? AND device_id = ?').get(subId, id);
-    if (!current) throw Object.assign(new Error('Subscription not found'), { status: 404 });
+    const current = pushSubscriptions.getById(subId);
+    if (!current || current.device_id !== id) {
+      throw Object.assign(new Error('Subscription not found'), { status: 404 });
+    }
 
     const enabled = req.body.enabled != null ? (req.body.enabled ? 1 : 0) : current.enabled;
-    db.prepare('UPDATE push_subscriptions SET enabled = ? WHERE id = ?').run(enabled, subId);
-    const updated = db.prepare('SELECT * FROM push_subscriptions WHERE id = ?').get(subId);
-    res.json({ subscription: { ...updated, types: JSON.parse(updated.types) } });
+    const updated = pushSubscriptions.update((s) => s.id === subId, { enabled });
+    res.json({ subscription: updated });
   } catch (err) {
     fail(res, err);
   }
@@ -103,9 +108,12 @@ router.delete('/subscriptions/:id', (req, res) => {
   try {
     const id = deviceId(req);
     const subId = Number(req.params.id);
-    const info = db.prepare('DELETE FROM push_subscriptions WHERE id = ? AND device_id = ?').run(subId, id);
-    if (!info.changes) throw Object.assign(new Error('Subscription not found'), { status: 404 });
-    db.prepare('DELETE FROM notified_tokens WHERE subscription_id = ?').run(subId);
+    const current = pushSubscriptions.getById(subId);
+    if (!current || current.device_id !== id) {
+      throw Object.assign(new Error('Subscription not found'), { status: 404 });
+    }
+    pushSubscriptions.delete((s) => s.id === subId);
+    notifiedTokens.delete(String(subId));
     res.json({ ok: true });
   } catch (err) {
     fail(res, err);

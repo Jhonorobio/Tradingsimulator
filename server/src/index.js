@@ -30,7 +30,7 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`Trading Simulator server on http://localhost:${PORT}`);
-  console.log(`SQLite db: ${process.env.DATA_DIR || 'data/'}`);
+  console.log(`Data dir: ${process.env.DATA_DIR || 'data/'}`);
 });
 
 // push notification watcher
