@@ -190,3 +190,24 @@ export interface GmgnStatus {
   ok: boolean;
   message: string;
 }
+
+export interface ProxyConfig {
+  url: string;
+  apiKey: string;
+}
+
+export interface ProxyStatus {
+  tab: string;
+  url: string;
+  egressIp: string | null;
+  working: boolean;
+  lastCheck: string | null;
+  error: string | null;
+}
+
+export interface ProxyTestResult {
+  ok: boolean;
+  egressIp: string | null;
+  latencyMs: number;
+  error?: string;
+}

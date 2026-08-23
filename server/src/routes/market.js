@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { runMarket, runConfigCheck } from '../cli/gmgn.js';
 import { fetchTrenches } from '../cli/args.js';
-import { trenchesFilters } from '../stores.js';
+import { trenchesFilters, proxyConfigs } from '../stores.js';
 import { getTokenInfo as getDexTokenInfo, searchTokens as dexSearch } from '../services/dexscreener.js';
 import { findToken } from '../services/trenches-store.js';
 import { getProxyMarketCap } from '../services/gmgn-proxy.js';
@@ -9,6 +9,7 @@ import { getTokenInfo, getLiveTokenInfo, getPrices, SOL_MINT } from '../services
 import { cacheKey, withCache } from '../services/cache.js';
 import { buildParamsFromConfig, TRENCH_TABS } from '../services/trenches-filters.js';
 import { connectionForTab } from '../services/trenches-refresher.js';
+import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-health.js';
 
 const router = Router();
 
@@ -26,6 +27,59 @@ function cleanValue(v) {
   if (Array.isArray(v)) return v.map(cleanValue);
   return typeof v === 'string' ? v.trim() : v;
 }
+
+const VALID_TABS = ['new_creation', 'near_completion', 'completed', 'token_info'];
+
+/**
+ * GET /api/market/proxies — returns saved proxy configs for all 3 tabs.
+ */
+router.get('/proxies', (_req, res) => {
+  const configs = {};
+  for (const tab of VALID_TABS) {
+    const entry = proxyConfigs.get(tab);
+    configs[tab] = entry ? { url: entry.url || '', apiKey: entry.apiKey || '' } : { url: '', apiKey: '' };
+  }
+  res.json(configs);
+});
+
+/**
+ * PUT /api/market/proxies — save proxy config for a tab.
+ * Body: { tab, url, apiKey }
+ */
+router.put('/proxies', (req, res) => {
+  const { tab, url, apiKey } = req.body || {};
+  if (!VALID_TABS.includes(tab)) return fail(res, new Error('Invalid tab'), 400);
+  if (!url || !apiKey) return fail(res, new Error('url and apiKey are required'), 400);
+  proxyConfigs.set(tab, { url: String(url).trim(), apiKey: String(apiKey).trim() });
+  res.json({ ok: true });
+});
+
+/**
+ * POST /api/market/proxies/test — test a proxy without saving it.
+ * Body: { url, apiKey }
+ */
+router.post('/proxies/test', async (req, res) => {
+  const { url, apiKey } = req.body || {};
+  if (!url || !apiKey) return fail(res, new Error('url and apiKey are required'), 400);
+  try {
+    const result = await testProxy(String(url).trim(), String(apiKey).trim());
+    res.json(result);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * GET /api/market/proxies/status — health status of all configured proxies.
+ */
+router.get('/proxies/status', async (_req, res) => {
+  try {
+    const statuses = await checkAllProxies(proxyConfigs);
+    res.json({ statuses });
+  } catch (err) {
+    fail(res, err);
+  }
+});
 
 /**
  * GET /api/market/trenches

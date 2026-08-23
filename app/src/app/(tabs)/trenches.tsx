@@ -17,6 +17,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { TokenRow } from '@/components/token-row';
 import { useTheme } from '@/hooks/use-theme';
+import { useSettings } from '@/store/settings';
 import { getTrenches, getSavedTrenchesFilters, saveTrenchesFilters } from '@/api/market';
 import { ApiError } from '@/api/client';
 import type { TrenchesItem } from '@/api/types';
@@ -154,6 +155,7 @@ function RangeField({
 
 export default function TrenchesScreen() {
   const theme = useTheme();
+  const { proxyStatuses, loadProxyStatuses } = useSettings();
   const [activeTab, setActiveTab] = useState<TabKey>('new_creation');
 
   const [filters, setFilters] = useState<Record<TabKey, Filters>>({
@@ -226,25 +228,32 @@ export default function TrenchesScreen() {
 
   const initialLoad = useCallback(async () => {
     for (const tab of TABS) {
+      const status = proxyStatuses.find((s) => s.tab === tab.key);
+      if (!status?.working) continue;
       await fetchTab(tab.key);
     }
-  }, [fetchTab]);
+  }, [fetchTab, proxyStatuses]);
 
   const pollNext = useCallback(async () => {
     if (pollingRef.current) return;
     pollingRef.current = true;
     try {
       await Promise.all(
-        TABS.map((tab) => fetchTab(tab.key, { silent: true })),
+        TABS.map((tab) => {
+          const status = proxyStatuses.find((s) => s.tab === tab.key);
+          if (!status?.working) return Promise.resolve();
+          return fetchTab(tab.key, { silent: true });
+        }),
       );
     } finally {
       pollingRef.current = false;
     }
-  }, [fetchTab]);
+  }, [fetchTab, proxyStatuses]);
 
   useEffect(() => {
     initialLoad();
-  }, [initialLoad]);
+    loadProxyStatuses();
+  }, [initialLoad, loadProxyStatuses]);
 
   useEffect(() => {
     const id = setInterval(pollNext, 1000);
@@ -258,24 +267,31 @@ export default function TrenchesScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         {/* Tabs (top) */}
         <View style={styles.tabBar}>
-          {TABS.map((tab) => (
-            <Pressable
-              key={tab.key}
-              onPress={() => setActiveTab(tab.key)}
-              style={styles.tab}>
-              <ThemedText
-                type="smallBold"
-                style={[
-                  styles.tabLabel,
-                  { color: activeTab === tab.key ? theme.text : theme.textSecondary },
-                ]}>
-                {tab.label}
-              </ThemedText>
-              {activeTab === tab.key && (
-                <View style={[styles.tabUnderline, { backgroundColor: theme.text }]} />
-              )}
-            </Pressable>
-          ))}
+          {TABS.map((tab) => {
+            const tabStatus = proxyStatuses.find((s) => s.tab === tab.key);
+            const isTabOk = tabStatus?.working ?? false;
+            return (
+              <Pressable
+                key={tab.key}
+                onPress={() => setActiveTab(tab.key)}
+                style={styles.tab}>
+                <View style={styles.tabLabelRow}>
+                  <View style={[styles.tabDot, { backgroundColor: isTabOk ? theme.positive : theme.negative }]} />
+                  <ThemedText
+                    type="smallBold"
+                    style={[
+                      styles.tabLabel,
+                      { color: activeTab === tab.key ? theme.text : theme.textSecondary },
+                    ]}>
+                    {tab.label}
+                  </ThemedText>
+                </View>
+                {activeTab === tab.key && (
+                  <View style={[styles.tabUnderline, { backgroundColor: theme.text }]} />
+                )}
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* Action bar: pause · % · funnel */}
@@ -302,30 +318,50 @@ export default function TrenchesScreen() {
           </ThemedText>
         ) : null}
 
-        <FlatList
-          data={activeTokens}
-          keyExtractor={(item, i) => `t-${item.address}-${i}`}
-          renderItem={({ item }) => <TokenRow token={item} chain="sol" />}
-          contentContainerStyle={styles.list}
-          ListHeaderComponent={loading ? (
-            <View style={styles.skelCard}>
-              <View style={[styles.skelBar, { width: '45%' }]} />
-              <View style={{ marginTop: 6 }}>
-                <View style={[styles.skelBar, { width: '70%' }]} />
-                <View style={[styles.skelBar, { width: '30%', marginTop: 6 }]} />
-              </View>
-            </View>
-          ) : null}
-          ListEmptyComponent={
-            !loading && !error ? (
+        {(() => {
+          const activeStatus = proxyStatuses.find((s) => s.tab === activeTab);
+          const isProxyOk = activeStatus?.working ?? false;
+          if (!isProxyOk) {
+            return (
               <View style={styles.emptyCard}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  Sin resultados con estos filtros.
+                <ThemedText type="smallBold" style={{ color: theme.negative, marginBottom: 4 }}>
+                  Proxy no configurado
+                </ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>
+                  {activeStatus?.error === 'Not configured'
+                    ? `Configura el proxy para "${TABS.find((t) => t.key === activeTab)?.label}" en Settings → Proxies GMGN.`
+                    : `Proxy de "${TABS.find((t) => t.key === activeTab)?.label}" no funciona. Verifica la configuración en Settings → Proxies.`}
                 </ThemedText>
               </View>
-            ) : null
+            );
           }
-        />
+          return (
+            <FlatList
+              data={activeTokens}
+              keyExtractor={(item, i) => `t-${item.address}-${i}`}
+              renderItem={({ item }) => <TokenRow token={item} chain="sol" />}
+              contentContainerStyle={styles.list}
+              ListHeaderComponent={loading ? (
+                <View style={styles.skelCard}>
+                  <View style={[styles.skelBar, { width: '45%' }]} />
+                  <View style={{ marginTop: 6 }}>
+                    <View style={[styles.skelBar, { width: '70%' }]} />
+                    <View style={[styles.skelBar, { width: '30%', marginTop: 6 }]} />
+                  </View>
+                </View>
+              ) : null}
+              ListEmptyComponent={
+                !loading && !error ? (
+                  <View style={styles.emptyCard}>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                      Sin resultados con estos filtros.
+                    </ThemedText>
+                  </View>
+                ) : null
+              }
+            />
+          );
+        })()}
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
@@ -413,6 +449,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     position: 'relative',
   },
+  tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  tabDot: { width: 6, height: 6, borderRadius: 3 },
   tabLabel: { fontSize: 14 },
   tabUnderline: {
     position: 'absolute',

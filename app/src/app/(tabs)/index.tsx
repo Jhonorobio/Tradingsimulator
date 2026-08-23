@@ -9,6 +9,7 @@ import { Card } from '@/components/card';
 import { TokenAvatar } from '@/components/token-avatar';
 import { PriceChange } from '@/components/price-change';
 import { useTheme } from '@/hooks/use-theme';
+import { useSettings } from '@/store/settings';
 import { convertWallet, getPortfolio } from '@/api/trading';
 import { getSolPrice } from '@/api/market';
 import { ApiError } from '@/api/client';
@@ -18,6 +19,7 @@ import { fmtNum, fmtUsd } from '@/utils/format';
 export default function DashboardScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { proxyStatuses, loadProxyStatuses } = useSettings();
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [solPrice, setSolPrice] = useState<number>(0);
   const [convAmount, setConvAmount] = useState('');
@@ -50,13 +52,14 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     load();
+    loadProxyStatuses();
     const solTimer = setInterval(loadSolPrice, 3000);
     const pfTimer = setInterval(load, 2000);
     return () => {
       clearInterval(solTimer);
       clearInterval(pfTimer);
     };
-  }, [load, loadSolPrice]);
+  }, [load, loadSolPrice, loadProxyStatuses]);
 
   const doConvert = async (direction: 'usd_to_sol' | 'sol_to_usd') => {
     const amt = Number(convAmount);
@@ -107,6 +110,14 @@ export default function DashboardScreen() {
           contentContainerStyle={styles.scroll}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={theme.textSecondary} />}>
           <ThemedText type="subtitle">Dashboard</ThemedText>
+
+          {proxyStatuses.length > 0 && proxyStatuses.some((s) => !s.working) && (
+            <Card style={{ borderColor: theme.warn, backgroundColor: `${theme.warn}15` }}>
+              <ThemedText type="small" style={{ color: theme.warn }}>
+                Algunos datos de mercado pueden estar desactualizados. Configura los proxies en Settings → Proxies GMGN.
+              </ThemedText>
+            </Card>
+          )}
 
           <Card style={styles.balanceCard}>
             <View style={styles.balanceHeader}>

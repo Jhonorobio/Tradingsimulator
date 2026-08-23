@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { GmgnStatus, TokenDetail, TrenchesResponse } from './types';
+import type { GmgnStatus, ProxyConfig, ProxyStatus, ProxyTestResult, TokenDetail, TrenchesResponse } from './types';
 
 /** The server owns the GMGN filter config; the app only asks for a tab. */
 export function getTrenches(tab: string) {
@@ -53,4 +53,20 @@ export function searchToken(query: string, chain?: string) {
   const qs = new URLSearchParams({ query });
   if (chain) qs.set('chain', chain);
   return api.get<{ coins: any[]; wallets: any[] }>(`/api/market/search?${qs.toString()}`);
+}
+
+export function getProxies() {
+  return api.get<Record<string, ProxyConfig>>('/api/market/proxies');
+}
+
+export function saveProxy(tab: string, url: string, apiKey: string) {
+  return api.put<{ ok: boolean }>('/api/market/proxies', { tab, url, apiKey });
+}
+
+export function testProxy(url: string, apiKey: string) {
+  return api.post<ProxyTestResult>('/api/market/proxies/test', { url, apiKey });
+}
+
+export function getProxiesStatus() {
+  return api.get<{ statuses: ProxyStatus[] }>('/api/market/proxies/status');
 }

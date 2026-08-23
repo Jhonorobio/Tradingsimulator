@@ -1,5 +1,5 @@
 import { fetchTrenches } from '../cli/args.js';
-import { trenchesFilters } from '../stores.js';
+import { trenchesFilters, proxyConfigs } from '../stores.js';
 import { buildParamsFromConfig, TRENCH_TABS } from './trenches-filters.js';
 import { proxyEgressIp } from './proxy-tunnel.js';
 
@@ -24,28 +24,12 @@ const MIN_INTERVAL_MS = 1050;
  * across tabs.
  */
 export async function startTrenchesRefresher(_intervalSeconds, { onError = () => {} } = {}) {
-  const pins = parsePins();
-  const positionalProxies = (process.env.TRENCHES_PROXIES || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const positionalKeys = (process.env.TRENCHES_KEYS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const allProxyUrls = [...new Set([...Object.values(pins).map((c) => c.proxy), ...positionalProxies])];
-  const distinct = allProxyUrls.length ? await resolveDistinctProxies(allProxyUrls) : [];
-  const WORKERS = Math.max(distinct.length, 1);
-
-  const connectionFor = (tab) => connectionForTab(tab, pins, positionalProxies, positionalKeys);
+  const connectionFor = (tab) => connectionForTab(tab);
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const rebuildQueue = () => {
     const all = trenchesFilters.getAll();
     const configs = Object.values(all).map((entry) => entry?.filters ?? null).filter(Boolean);
-    // Only refresh user-saved filter configs per tab (no default/null view)
-
     const seen = new Set();
     const queue = [];
     for (const config of configs) {
@@ -60,23 +44,29 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
     return queue;
   };
 
-  // When we have as many distinct IPs as tabs → dedicated worker per tab.
-  // Each worker only processes its own tab's params combos.
+  // Resolve distinct proxy IPs from the store
+  const allProxyUrls = [];
+  for (const tab of TRENCH_TABS) {
+    const conn = connectionFor(tab);
+    if (conn?.proxy) allProxyUrls.push(conn.proxy);
+  }
+  const uniqueUrls = [...new Set(allProxyUrls)];
+  const distinct = uniqueUrls.length ? await resolveDistinctProxies(uniqueUrls) : [];
+  const WORKERS = Math.max(distinct.length, 1);
+
   if (WORKERS >= TRENCH_TABS.length) {
     for (const tab of TRENCH_TABS) {
       const connection = connectionFor(tab);
       setTimeout(() => tabWorker(tab, connection, rebuildQueue, delay, onError), 0);
     }
   } else {
-    // Fewer IPs than tabs → single worker round-robins across all tabs.
-    // Still adapts to response time per call.
     setTimeout(() => sharedWorker(rebuildQueue, connectionFor, delay, onError), 0);
   }
 
   return {
     workers: WORKERS,
     egressIps: distinct.map((d) => d.ip),
-    pins: Object.keys(pins),
+    pins: TRENCH_TABS.filter((tab) => connectionFor(tab)?.proxy),
     mode: WORKERS >= TRENCH_TABS.length ? 'dedicated' : 'shared',
   };
 }
@@ -151,42 +141,14 @@ async function sharedWorker(rebuildQueue, connectionFor, delay, onError) {
   }
 }
 
-/** Parses TRENCHES_PINS (JSON keyed by tab) into { tab: { proxy, apiKey } }. */
-function parsePins() {
-  const raw = process.env.TRENCHES_PINS;
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    const out = {};
-    for (const tab of TRENCH_TABS) {
-      const c = parsed?.[tab];
-      if (!c || typeof c !== 'object') continue;
-      const proxy = String(c.proxy ?? c.url ?? '').trim();
-      if (!proxy) continue;
-      const apiKey = String(c.apiKey ?? c.key ?? '').trim() || process.env.GMGN_API_KEY || '';
-      if (apiKey) out[tab] = { proxy, apiKey };
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
 /**
  * Resolves the connection (proxy + apiKey) a trenches tab should use.
- * Order: explicit TRENCHES_PINS entry → positional TRENCHES_PROXIES/KEYS list
- * → null (meaning direct HTTPS with GMGN_API_KEY / gmgn-cli from the server IP).
+ * Reads exclusively from the proxyConfigs store (configured from the app).
+ * Returns null when no proxy is configured for the tab.
  */
-export function connectionForTab(tab, pins = parsePins(), positionalProxies = [], positionalKeys = []) {
-  if (pins[tab]) return pins[tab];
-  if (positionalProxies.length) {
-    const idx = TRENCH_TABS.indexOf(tab);
-    const proxy = idx >= 0 ? positionalProxies[idx % positionalProxies.length] : positionalProxies[0];
-    const apiKey = positionalKeys.length
-      ? positionalKeys[idx % positionalKeys.length]
-      : process.env.GMGN_API_KEY;
-    return { proxy, apiKey };
-  }
+export function connectionForTab(tab) {
+  const stored = proxyConfigs.get(tab);
+  if (stored?.url && stored?.apiKey) return { proxy: stored.url, apiKey: stored.apiKey };
   return null;
 }
 

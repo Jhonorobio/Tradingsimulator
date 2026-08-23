@@ -10,6 +10,7 @@ import { Card } from '@/components/card';
 import { TokenAvatar } from '@/components/token-avatar';
 import { PriceChange } from '@/components/price-change';
 import { useTheme } from '@/hooks/use-theme';
+import { useSettings } from '@/store/settings';
 import { getTokenDetail } from '@/api/market';
 import { buy, getPortfolio, sell } from '@/api/trading';
 import { ApiError } from '@/api/client';
@@ -21,6 +22,7 @@ type Tab = 'buy' | 'sell';
 export default function TokenScreen() {
   const { chain, address } = useLocalSearchParams<{ chain: string; address: string }>();
   const theme = useTheme();
+  const { proxyStatuses } = useSettings();
 
   const [detail, setDetail] = useState<TokenDetail | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
@@ -162,6 +164,18 @@ export default function TokenScreen() {
             {detail.dex ? <Metric label="DEX" value={detail.dex} /> : null}
           </View>
         </Card>
+
+        {detail.sources?.trenches && (() => {
+          const trenchStatus = proxyStatuses.find((s) => s.tab === 'new_creation' || s.tab === 'near_completion' || s.tab === 'completed');
+          if (trenchStatus?.working) return null;
+          return (
+            <Card style={{ borderColor: theme.warn, backgroundColor: `${theme.warn}15` }}>
+              <ThemedText type="small" style={{ color: theme.warn }}>
+                Datos de Trenches — proxy no verificado. Los datos pueden estar desactualizados.
+              </ThemedText>
+            </Card>
+          );
+        })()}
 
         {position && (
           <Card style={styles.posCard}>

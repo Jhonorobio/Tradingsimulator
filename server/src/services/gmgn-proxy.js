@@ -1,25 +1,32 @@
 import crypto from 'node:crypto';
+import { proxyConfigs } from '../stores.js';
 
-const PROXY_URL = (process.env.GMGN_PROXY_URL || '').replace(/\/+$/, '');
-const PROXY_KEY = process.env.GMGN_PROXY_KEY || '';
 const TIME_OFFSET_SEC = Number(process.env.GMGN_TIME_OFFSET) || 0;
 const API_HOST = 'https://openapi.gmgn.ai';
 const USER_AGENT = 'gmgn-cli/1.5.2';
 
-// Undici ProxyAgent — reuses connections for lower latency (~50-70% faster than raw tunnel).
-let undiciDispatcher = null;
+// Per-proxy-url dispatcher pool — one dispatcher per proxy URL for connection reuse.
+const dispatchers = new Map();
 
-async function getDispatcher() {
-  if (undiciDispatcher) return undiciDispatcher;
+async function getDispatcher(proxyUrl) {
+  if (!proxyUrl) return null;
+  if (dispatchers.has(proxyUrl)) return dispatchers.get(proxyUrl);
   const { ProxyAgent } = await import('undici');
-  undiciDispatcher = new ProxyAgent(PROXY_URL, {
+  const dispatcher = new ProxyAgent(proxyUrl, {
     connect: {
       timeout: 5_000,
-      // Some proxies do MITM/SSL inspection with expired certs — skip validation.
       tls: { rejectUnauthorized: false },
     },
   });
-  return undiciDispatcher;
+  dispatchers.set(proxyUrl, dispatcher);
+  return dispatcher;
+}
+
+function getTokenInfoProxy() {
+  const entry = proxyConfigs.get('token_info');
+  const url = entry?.url || '';
+  const key = entry?.apiKey || '';
+  return { url: url.replace(/\/+$/, ''), apiKey: key };
 }
 
 // Global batch for the GMGN token info API. `token info` has weight 1
@@ -110,7 +117,7 @@ function pct(current, ref) {
  */
 async function rawTokenInfo(chain, address) {
   if (!address) return null;
-  const apiKey = PROXY_KEY || process.env.GMGN_API_KEY || '';
+  const { url: proxyUrl, apiKey } = getTokenInfoProxy();
   if (!apiKey) return null;
 
   try {
@@ -124,9 +131,9 @@ async function rawTokenInfo(chain, address) {
     };
 
     let res;
-    if (PROXY_URL) {
+    if (proxyUrl) {
       // HTTP proxy — use Undici ProxyAgent (faster, connection pooling)
-      const dispatcher = await getDispatcher();
+      const dispatcher = await getDispatcher(proxyUrl);
       const { request } = await import('undici');
       const undiciRes = await request(url, {
         dispatcher,
