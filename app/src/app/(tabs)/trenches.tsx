@@ -209,13 +209,6 @@ export default function TrenchesScreen() {
 
   const resetDraft = useCallback(() => setDraft(emptyFilters()), []);
 
-  const confirmFilters = useCallback(() => {
-    const next = { ...filters, [activeTab]: draft };
-    setFilters(next);
-    saveTrenchesFilters(next).catch(() => {});
-    setFiltersVisible(false);
-  }, [activeTab, draft, filters]);
-
   useEffect(() => {
     let cancelled = false;
     getSavedTrenchesFilters()
@@ -249,6 +242,14 @@ export default function TrenchesScreen() {
     },
     [],
   );
+
+  const confirmFilters = useCallback(() => {
+    const next = { ...filters, [activeTab]: draft };
+    setFilters(next);
+    saveTrenchesFilters(next).catch(() => {});
+    setFiltersVisible(false);
+    fetchTab(activeTab);
+  }, [activeTab, draft, filters, fetchTab]);
 
   const initialLoad = useCallback(async () => {
     for (const tab of TABS) {
