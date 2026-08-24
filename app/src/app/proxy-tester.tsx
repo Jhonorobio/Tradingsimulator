@@ -1,13 +1,16 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
 import { batchTestProxies, type BatchTestResult } from '@/api/market';
+
+const PROXY_TESTER_KEY = 'trading-sim/proxy-tester-apikey';
 
 export default function ProxyTesterScreen() {
   const theme = useTheme();
@@ -16,6 +19,19 @@ export default function ProxyTesterScreen() {
   const [testing, setTesting] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<BatchTestResult[]>([]);
+
+  // Load saved API key on mount
+  useEffect(() => {
+    AsyncStorage.getItem(PROXY_TESTER_KEY).then((saved) => {
+      if (saved) setApiKey(saved);
+    });
+  }, []);
+
+  // Save API key when it changes
+  const updateApiKey = useCallback((val: string) => {
+    setApiKey(val);
+    AsyncStorage.setItem(PROXY_TESTER_KEY, val);
+  }, []);
 
   const parseProxies = useCallback(() => {
     return proxyList
@@ -64,7 +80,7 @@ export default function ProxyTesterScreen() {
                 <ThemedText type="smallBold">API Key GMGN</ThemedText>
                 <TextInput
                   value={apiKey}
-                  onChangeText={setApiKey}
+                  onChangeText={updateApiKey}
                   placeholder="gmgn_xxx"
                   placeholderTextColor={theme.textSecondary}
                   autoCapitalize="none"
