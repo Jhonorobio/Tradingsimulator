@@ -9,7 +9,7 @@ import { broadcast } from './ws-server.js';
 
 const byAddress = new Map();
 const lastBroadcast = { new_creation: 0, near_completion: 0, completed: 0 };
-const BROADCAST_THROTTLE_MS = 2000; // broadcast at most once per 2s per category
+const BROADCAST_THROTTLE_MS = 3000; // notify at most once per 3s per category
 
 /** Merges a fetchTrenches result (new_creation/near_completion/completed) into the store. */
 export function upsertTrenches(data) {
@@ -21,11 +21,11 @@ export function upsertTrenches(data) {
     for (const t of list) {
       if (t?.address) byAddress.set(t.address, { ...t, _category: key });
     }
-    // Throttled broadcast: send full category list to subscribed clients
+    // Throttled notification: tell clients data changed, they refetch via HTTP
+    // (HTTP endpoint applies per-device filters, WS can't do that)
     if (list.length > 0 && now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS) {
       lastBroadcast[key] = now;
-      const tokens = getCategoryTokens(key);
-      broadcast(`trenches:${key}`, { event: 'trenches', tab: key, data: tokens });
+      broadcast(`trenches:${key}`, { event: 'trenches_updated', tab: key });
     }
   }
 }

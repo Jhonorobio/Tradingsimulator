@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { getWsClient, onWsConnectionChange } from '@/api/ws-client';
+import { getTrenches } from '@/api/market';
 import type { TrenchesItem } from '@/api/types';
 
 interface WsState {
@@ -31,11 +32,18 @@ export const useWs = create<WsState>((set, get) => ({
     if (activeTrenchesSubs.has(tab)) return;
     activeTrenchesSubs.add(tab);
     client.subscribe(topic);
-    client.on('trenches', (msg: any) => {
-      if (msg.tab === tab) {
+    // Listen for "data updated" notifications, then refetch via HTTP
+    // (HTTP applies per-device filters, WS can't do that)
+    client.on('trenches_updated', async (msg: any) => {
+      if (msg.tab !== tab) return;
+      try {
+        const result = await getTrenches(tab);
+        const tokens = (result as Record<string, any>)[tab] ?? [];
         set((state) => ({
-          trenches: { ...state.trenches, [tab]: msg.data ?? [] },
+          trenches: { ...state.trenches, [tab]: tokens },
         }));
+      } catch {
+        // HTTP fetch failed — keep last known data
       }
     });
   },
