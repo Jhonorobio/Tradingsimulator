@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { proxyConfigs } from '../stores.js';
+import { gmgnTimestamp } from './gmgn-clock.js';
 
-const TIME_OFFSET_SEC = Number(process.env.GMGN_TIME_OFFSET) || 0;
 const API_HOST = 'https://openapi.gmgn.ai';
 const USER_AGENT = 'gmgn-cli/1.5.2';
 
@@ -121,7 +121,7 @@ async function rawTokenInfo(chain, address) {
   if (!apiKey) return null;
 
   try {
-    const timestamp = Math.floor(Date.now() / 1000) - TIME_OFFSET_SEC;
+    const timestamp = gmgnTimestamp();
     const client_id = crypto.randomUUID();
     const url = `${API_HOST}/v1/token/info?chain=${encodeURIComponent(chain)}&address=${encodeURIComponent(address)}&timestamp=${timestamp}&client_id=${client_id}`;
     const headers = {

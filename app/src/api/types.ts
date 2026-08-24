@@ -172,18 +172,13 @@ export interface TradeResult {
   price_source: string;
 }
 
-export interface PushSubscription {
-  id: number;
-  device_id: string;
-  push_token: string;
-  enabled: number;
-  chain: string;
-  types: string[];
-  filter_preset: string | null;
-  min_smart_degen: number | null;
-  min_volume_24h: number | null;
-  max_rug_ratio: number | null;
-  created_at: string;
+export interface NotificationConfig {
+  push_token: string | null;
+  categories: {
+    new_creation: boolean;
+    near_completion: boolean;
+    completed: boolean;
+  };
 }
 
 export interface GmgnStatus {

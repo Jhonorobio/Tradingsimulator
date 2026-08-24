@@ -2,6 +2,7 @@
  * In-memory snapshot of the latest GMGN trenches data, keyed by token address.
  * Populated on every successful fetchTrenches; lets the token detail screen
  * look up trenches info WITHOUT calling GMGN again.
+ * Also used by the push notification poller to detect new tokens per category.
  */
 
 const byAddress = new Map();
@@ -13,7 +14,7 @@ export function upsertTrenches(data) {
     const list = data[key];
     if (!Array.isArray(list)) continue;
     for (const t of list) {
-      if (t?.address) byAddress.set(t.address, t);
+      if (t?.address) byAddress.set(t.address, { ...t, _category: key });
     }
   }
 }
@@ -21,6 +22,11 @@ export function upsertTrenches(data) {
 /** Returns the cached trenches token for an address, or null. */
 export function findToken(address) {
   return byAddress.get(address) ?? null;
+}
+
+/** Returns all tokens in the store as an array. */
+export function getAllTokens() {
+  return [...byAddress.values()];
 }
 
 /** Number of unique tokens currently stored (debugging). */

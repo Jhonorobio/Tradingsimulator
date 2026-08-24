@@ -1,6 +1,8 @@
-import { pushSubscriptions, notifiedTokens } from '../stores.js';
-import { fetchTrenches } from '../cli/args.js';
+import { notificationConfig, notifiedTokens } from '../stores.js';
+import { getAllTokens, storeSize } from './trenches-store.js';
 import { sendPush } from './push.js';
+
+const CATEGORIES = ['new_creation', 'near_completion', 'completed'];
 
 function fmtUsd(n) {
   if (n == null || isNaN(n)) return 'n/a';
@@ -14,56 +16,60 @@ function fmtNum(n) {
   return n.toLocaleString();
 }
 
-function deriveParams(sub) {
-  const p = { chain: sub.chain };
-  p.types = sub.types || ['new_creation'];
-  if (sub.filter_preset) p.filterPreset = sub.filter_preset;
-  if (sub.min_smart_degen != null) p.minSmartDegen = sub.min_smart_degen;
-  if (sub.min_volume_24h != null) p.minVolume24h = sub.min_volume_24h;
-  if (sub.max_rug_ratio != null) p.maxRugRatio = sub.max_rug_ratio;
-  return p;
-}
-
 /**
- * Polls GMGN Trenches once for every enabled subscription and pushes
- * notifications for tokens that haven't been notified for that subscription yet.
+ * Checks all enabled notification configs against the in-memory trenches store.
+ * For each device with an enabled category, looks up tokens in the trenches
+ * store and sends push notifications for tokens not yet notified.
+ * No GMGN calls — reads only from the cache populated by the trenches refresher.
  */
 export async function pollOnce({ onError = () => {} } = {}) {
-  const subs = pushSubscriptions.filter((s) => s.enabled === 1 || s.enabled === true);
-  if (!subs.length) return { checked: 0, notified: 0 };
+  const all = notificationConfig.getAll();
+  const devices = Object.values(all).filter((e) => e?.push_token);
+  if (!devices.length) return { checked: 0, notified: 0 };
+
+  // If trenches store is empty, nothing to notify about
+  if (storeSize() === 0) return { checked: devices.length, notified: 0 };
 
   let notified = 0;
-  for (const sub of subs) {
-    try {
-      const result = await fetchTrenches(deriveParams(sub));
-      const tokens = [
-        ...(result.new_creation ?? []).map((t) => ({ ...t, _type: 'new_creation' })),
-        ...(result.near_completion ?? []).map((t) => ({ ...t, _type: 'near_completion' })),
-        ...(result.completed ?? []).map((t) => ({ ...t, _type: 'completed' })),
-      ];
 
-      const alreadyNotified = new Set(notifiedTokens.get(String(sub.id)) || []);
+  for (const entry of devices) {
+    const { push_token: token, categories } = entry;
+    if (!token || !categories) continue;
+
+    for (const cat of CATEGORIES) {
+      if (!categories[cat]) continue;
+
+      const notifiedKey = `${entry.device_id}:${cat}`;
+      const alreadyNotified = new Set(notifiedTokens.get(notifiedKey) || []);
+
+      // Get all known token addresses from the trenches store
+      // The store is populated by upsertTrenches() on every fetchTrenches() call
+      const tokens = getTokensFromStore(cat);
 
       for (const t of tokens) {
         if (!t.address || alreadyNotified.has(t.address)) continue;
         alreadyNotified.add(t.address);
 
-        const list = notifiedTokens.get(String(sub.id)) || [];
+        // Persist notified address
+        const list = notifiedTokens.get(notifiedKey) || [];
         list.push(t.address);
-        notifiedTokens.set(String(sub.id), list);
+        // Cap at 500 per category to avoid unbounded growth
+        if (list.length > 500) list.shift();
+        notifiedTokens.set(notifiedKey, list);
 
-        const title = `${t.symbol || t.name || 'Token'} — ${t._type.replace('_', ' ')}`;
+        const title = `${t.symbol || t.name || 'Token'} — ${cat.replace('_', ' ')}`;
         const body = [
           `MCap ${fmtUsd(t.usd_market_cap ?? t.market_cap)}`,
           `Liq ${fmtUsd(t.liquidity)}`,
-          `Vol24h ${fmtUsd(t.volume_24h ?? t.volume)}`,
+          `Vol24h ${fmtUsd(t.volume_24h)}`,
           `SM ${fmtNum(t.smart_degen_count)}`,
           `Rug ${t.rug_ratio != null ? t.rug_ratio.toFixed(2) : 'n/a'}`,
         ].join(' · ');
-        const res = await sendPush(sub.push_token, {
+
+        const res = await sendPush(token, {
           title,
           body,
-          data: { address: t.address, chain: sub.chain, symbol: t.symbol, type: t._type },
+          data: { address: t.address, chain: t.chain || 'sol', symbol: t.symbol, type: cat },
         });
         if (res?.data?.status === 'error') {
           onError(new Error(`Push failed: ${res.data.message}`));
@@ -71,15 +77,25 @@ export async function pollOnce({ onError = () => {} } = {}) {
           notified += 1;
         }
       }
-    } catch (err) {
-      onError(err);
     }
   }
-  return { checked: subs.length, notified };
+
+  return { checked: devices.length, notified };
 }
 
-export function startPoller(intervalMinutes, { onError = () => {} } = {}) {
-  const intervalMs = Math.max(1, Number(intervalMinutes) || 5) * 60_000;
+/**
+ * Gets tokens from the in-memory trenches store for a given category.
+ * The store is keyed by token address (flat), but each token carries
+ * the category it was seen in via upsertTrenches.
+ * Returns tokens that belong to the given category.
+ */
+function getTokensFromStore(category) {
+  const all = getAllTokens();
+  return all.filter((t) => t._category === category);
+}
+
+export function startPoller(intervalSeconds, { onError = () => {} } = {}) {
+  const intervalMs = Math.max(1, Number(intervalSeconds) || 5) * 1000;
   const run = async () => {
     try {
       await pollOnce({ onError });
@@ -89,6 +105,6 @@ export function startPoller(intervalMinutes, { onError = () => {} } = {}) {
   };
   const timer = setInterval(run, intervalMs);
   timer.unref?.();
-  setTimeout(run, 10_000).unref?.();
+  setTimeout(run, 5_000).unref?.();
   return timer;
 }

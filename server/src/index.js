@@ -6,6 +6,7 @@ import tradingRoutes from './routes/trading.js';
 import notificationRoutes from './routes/notifications.js';
 import { startPoller } from './services/poller.js';
 import { startTrenchesRefresher } from './services/trenches-refresher.js';
+import { ensureCalibrated } from './services/gmgn-clock.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -33,18 +34,19 @@ app.listen(PORT, () => {
   console.log(`Data dir: ${process.env.DATA_DIR || 'data/'}`);
 });
 
-// push notification watcher
-startPoller(process.env.NOTIFY_INTERVAL_MIN || 5, {
+// push notification watcher (reads from trenches store, no GMGN calls)
+startPoller(process.env.NOTIFY_INTERVAL_SEC || 5, {
   onError: (err) => console.error('[poller]', err?.message),
 });
-console.log('Push poller started (interval in minutes: ' + (process.env.NOTIFY_INTERVAL_MIN || 5) + ')');
+console.log('Push poller started (interval in seconds: ' + (process.env.NOTIFY_INTERVAL_SEC || 5) + ')');
 
-// background Trenches refresher: one worker per distinct proxy IP (falls back
-// to a single safe worker when no proxies or all share one egress IP)
-startTrenchesRefresher(process.env.TRENCHES_REFRESH_SEC, {
-  onError: (err) => console.error('[trenches-refresher]', err?.message),
-}).then((info) => {
-  console.log(
-    `Trenches refresher started: ${info.workers} worker(s), egress IPs=${JSON.stringify(info.egressIps)}, pinned tabs=${JSON.stringify(info.pins)}, rest=${info.restMs}ms`
-  );
+// Auto-calibrate GMGN clock from Date header, then start refresher
+ensureCalibrated().then(() => {
+  startTrenchesRefresher(process.env.TRENCHES_REFRESH_SEC, {
+    onError: (err) => console.error('[trenches-refresher]', err?.message),
+  }).then((info) => {
+    console.log(
+      `Trenches refresher started: ${info.workers} worker(s), egress IPs=${JSON.stringify(info.egressIps)}, pinned tabs=${JSON.stringify(info.pins)}, rest=${info.restMs}ms`
+    );
+  });
 });

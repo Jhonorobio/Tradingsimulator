@@ -2,6 +2,7 @@ import { runMarket } from './gmgn.js';
 import { fetchTrenchesHttp } from './trenches-http.js';
 import { cacheKey, withCache } from '../services/cache.js';
 import { upsertTrenches } from '../services/trenches-store.js';
+import { getOffset } from '../services/gmgn-clock.js';
 
 export const CHAINS = new Set(['sol', 'bsc', 'base', 'eth', 'robinhood', 'arc', 'stable']);
 export const TRENCH_TYPES = ['new_creation', 'near_completion', 'completed'];
@@ -143,7 +144,7 @@ export async function fetchTrenches(params, opts = {}) {
       return result;
     } catch (err) {
       const resetMs = parseRateLimitReset(err?.message);
-      const offsetMs = (Number(process.env.GMGN_TIME_OFFSET) || 0) * 1000;
+      const offsetMs = getOffset() * 1000;
       if (opts.proxy || opts.apiKey) {
         if (resetMs) {
           pairCooldowns.set(connKey, Math.max(pairCooldowns.get(connKey) || 0, resetMs + offsetMs + 10_000));

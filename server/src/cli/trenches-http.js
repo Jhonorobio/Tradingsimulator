@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { gmgnTimestamp } from '../services/gmgn-clock.js';
 
 const API_HOST = 'https://openapi.gmgn.ai';
 const USER_AGENT = 'gmgn-cli/1.5.2';
@@ -152,7 +153,7 @@ export async function fetchTrenchesHttp(args, connection) {
   if (!apiKey) throw new Error('fetchTrenchesHttp requires apiKey');
 
   const body = buildBodyFromArgs(args);
-  const timestamp = Math.floor(Date.now() / 1000) - (Number(process.env.GMGN_TIME_OFFSET) || 0);
+  const timestamp = gmgnTimestamp();
   const client_id = crypto.randomUUID();
   const url = `${API_HOST}/v1/trenches?chain=${chainArg(args)}&timestamp=${timestamp}&client_id=${client_id}`;
   const headers = {

@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import { proxyEgressIp } from './proxy-tunnel.js';
+import { gmgnTimestamp } from './gmgn-clock.js';
 
 const API_HOST = 'https://openapi.gmgn.ai';
-const TIME_OFFSET_SEC = Number(process.env.GMGN_TIME_OFFSET) || 0;
 
 // In-memory cache of last health check results per tab.
 const statusCache = new Map();
@@ -39,7 +39,7 @@ export async function testProxy(proxyUrl, apiKey) {
       connect: { timeout: 10_000, tls: { rejectUnauthorized: false } },
     });
 
-    const timestamp = Math.floor(Date.now() / 1000) - TIME_OFFSET_SEC;
+    const timestamp = gmgnTimestamp();
     const client_id = crypto.randomUUID();
     const url = `${API_HOST}/v1/trenches?chain=sol&timestamp=${timestamp}&client_id=${client_id}`;
     const body = JSON.stringify({

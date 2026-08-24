@@ -8,15 +8,10 @@ import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { getWallet, resetWallet } from '@/api/trading';
-import {
-  deleteSubscription,
-  getSubscriptions,
-  setSubscriptionEnabled,
-  subscribe,
-} from '@/api/notifications';
+import { saveNotificationConfig, getNotificationConfig } from '@/api/notifications';
 import { getGmgnStatus, getProxies, saveProxy, testProxy } from '@/api/market';
 import { ApiError } from '@/api/client';
-import type { ProxyConfig, ProxyStatus, ProxyTestResult, PushSubscription, Wallet } from '@/api/types';
+import type { ProxyConfig, ProxyStatus, ProxyTestResult, NotificationConfig, Wallet } from '@/api/types';
 import { registerForPushNotificationsAsync, notificationsAvailable } from '@/utils/notifications';
 import { fmtNum, fmtUsd, shortAddress } from '@/utils/format';
 
@@ -27,6 +22,12 @@ const TAB_LABELS: Record<string, string> = {
   token_info: 'Token Info (Detalle)',
 };
 const TAB_ORDER = ['new_creation', 'near_completion', 'completed', 'token_info'];
+const NOTIF_CATEGORIES = ['new_creation', 'near_completion', 'completed'] as const;
+const NOTIF_LABELS: Record<string, string> = {
+  new_creation: 'Nueva creación',
+  near_completion: 'Completando',
+  completed: 'Completado',
+};
 
 export default function SettingsScreen() {
   const theme = useTheme();
@@ -48,15 +49,12 @@ export default function SettingsScreen() {
   const [proxyTesting, setProxyTesting] = useState<Record<string, boolean>>({});
   const [proxyTestResults, setProxyTestResults] = useState<Record<string, ProxyTestResult | null>>({});
 
-  // notification config
-  const [notifEnabled, setNotifEnabled] = useState(false);
-  const [notifTypes, setNotifTypes] = useState<string[]>(['new_creation']);
-  const [notifPreset, setNotifPreset] = useState('safe');
-  const [notifMinSmart, setNotifMinSmart] = useState('1');
-  const [notifMinVol, setNotifMinVol] = useState('');
-  const [notifMaxRug, setNotifMaxRug] = useState('');
-  const [subscriptions, setSubscriptions] = useState<PushSubscription[]>([]);
-  const [savingNotif, setSavingNotif] = useState(false);
+  // notification config (3 toggles)
+  const [notifCategories, setNotifCategories] = useState<NotificationConfig['categories']>({
+    new_creation: false,
+    near_completion: false,
+    completed: false,
+  });
 
   useEffect(() => {
     setUrlInput(serverUrl);
@@ -64,23 +62,20 @@ export default function SettingsScreen() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [w, subs, status, proxies] = await Promise.all([
+      const [w, status, proxies, notifCfg] = await Promise.all([
         getWallet(),
-        getSubscriptions(),
         getGmgnStatus().catch(() => ({ ok: false })),
         getProxies().catch(() => null),
+        getNotificationConfig().catch(() => null),
       ]);
       setWallet(w.wallet);
       setBudget(String(w.wallet.balance_usd || w.wallet.balance_sol * 150 || 10000));
       setGas(String(w.wallet.gas_per_trade_sol));
-      setSubscriptions(subs.subscriptions);
       setGmgnOk(status.ok);
-      setNotifEnabled(subs.subscriptions.some((s) => s.enabled));
-      if (proxies) {
-        setProxyConfigs(proxies);
-      }
+      if (proxies) setProxyConfigs(proxies);
+      if (notifCfg) setNotifCategories(notifCfg.categories);
     } catch {
-      // wallet/subscription calls may fail if server unreachable
+      // server may be unreachable
     }
     loadProxyStatuses();
   }, [loadProxyStatuses]);
@@ -94,6 +89,8 @@ export default function SettingsScreen() {
     Alert.alert('Guardado', `Servidor: ${urlInput.replace(/\/+$/, '')}`);
     loadAll();
   };
+
+  // --- Proxy handlers ---
 
   const updateProxyField = (tab: string, field: 'url' | 'apiKey', value: string) => {
     setProxyConfigs((prev) => ({
@@ -138,6 +135,8 @@ export default function SettingsScreen() {
     }
   };
 
+  // --- Budget ---
+
   const doReset = async () => {
     const b = Number(budget);
     const g = Number(gas);
@@ -152,58 +151,41 @@ export default function SettingsScreen() {
     }
   };
 
-  const toggleNotifs = async (value: boolean) => {
-    setNotifEnabled(value);
-    if (value) {
+  // --- Notification toggle ---
+
+  const toggleNotifCategory = async (cat: string) => {
+    const next = { ...notifCategories, [cat]: !notifCategories[cat as keyof typeof notifCategories] };
+    setNotifCategories(next);
+
+    // Ensure push token exists
+    let token = pushToken;
+    if (!token) {
       if (!notificationsAvailable()) {
         Alert.alert(
           'Push no disponible',
-          'En Android, expo-notifications ya no funciona dentro de Expo Go (desde SDK 53). Necesitas un development build o probarlo en iOS para recibir notificaciones.'
+          'En Android, expo-notifications ya no funciona dentro de Expo Go (desde SDK 53). Necesitas un development build.'
         );
-        setNotifEnabled(false);
+        setNotifCategories((prev) => ({ ...prev, [cat]: false }));
         return;
       }
-      if (!pushToken) {
-        const token = await registerForPushNotificationsAsync();
-        if (!token) {
-          Alert.alert(
-            'Push no disponible',
-            'Solo funciona en un dispositivo físico (no simulador/web). Configura expo-notifications y vuelve a intentarlo.'
-          );
-          setNotifEnabled(false);
-          return;
-        }
-        setPushToken(token);
+      token = await registerForPushNotificationsAsync();
+      if (!token) {
+        Alert.alert('Push no disponible', 'Solo funciona en un dispositivo físico.');
+        setNotifCategories((prev) => ({ ...prev, [cat]: false }));
+        return;
       }
+      setPushToken(token);
+    }
+
+    try {
+      await saveNotificationConfig(token, next);
+    } catch (err) {
+      Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo guardar');
+      setNotifCategories((prev) => ({ ...prev, [cat]: !prev[cat as keyof typeof prev] }));
     }
   };
 
-  const saveNotif = async () => {
-    const token = pushToken ?? (await registerForPushNotificationsAsync());
-    if (!token) {
-      Alert.alert('Push no disponible', 'Registra el token push en un dispositivo físico primero.');
-      return;
-    }
-    setPushToken(token);
-    setSavingNotif(true);
-    try {
-      await subscribe({
-        push_token: token,
-        chain: 'sol',
-        types: notifTypes,
-        filter_preset: notifPreset || undefined,
-        min_smart_degen: notifMinSmart ? Number(notifMinSmart) : undefined,
-        min_volume_24h: notifMinVol ? Number(notifMinVol) : undefined,
-        max_rug_ratio: notifMaxRug ? Number(notifMaxRug) : undefined,
-      });
-      Alert.alert('Suscripción creada', 'El servidor avisará por push cuando lleguen tokens que cumplan tus filtros.');
-      loadAll();
-    } catch (err) {
-      Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo suscribir');
-    } finally {
-      setSavingNotif(false);
-    }
-  };
+  const isAnyNotifOn = Object.values(notifCategories).some(Boolean);
 
   return (
     <ThemedView style={styles.container}>
@@ -326,99 +308,32 @@ export default function SettingsScreen() {
           <Card>
             <View style={styles.rowBetween}>
               <ThemedText type="smallBold">Notificaciones push</ThemedText>
-              <Switch value={notifEnabled} onValueChange={toggleNotifs} trackColor={{ true: theme.accent }} />
+              {pushToken && isAnyNotifOn && (
+                <ThemedText type="small" style={{ color: theme.positive }}>Activo</ThemedText>
+              )}
             </View>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Avísame cuando lleguen tokens nuevos a Trenches que cumplan mis filtros (sol).
+              Recibe un aviso por push cuando llegue un token nuevo a cada categoría.
             </ThemedText>
             {pushToken ? (
               <ThemedText type="small" style={{ color: theme.positive }}>
-                Push token registrado ✓
+                Push token registrado
               </ThemedText>
             ) : null}
 
-            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>Tipos</ThemedText>
-            <View style={styles.pctRow}>
-              {['new_creation', 'near_completion', 'completed'].map((t) => {
-                const active = notifTypes.includes(t);
-                return (
-                  <Pressable
-                    key={t}
-                    onPress={() =>
-                      setNotifTypes((prev) => (active ? prev.filter((x) => x !== t) : [...prev, t]))
-                    }
-                    style={[styles.pctBtn, { backgroundColor: active ? theme.accent : theme.backgroundSelected, borderColor: theme.border }]}>
-                    <ThemedText type="small" style={{ color: active ? '#fff' : theme.text, fontSize: 11, lineHeight: 14 }}>
-                      {t.replace('_', ' ')}
-                    </ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>Preset</ThemedText>
-            <View style={styles.pctRow}>
-              {['', 'safe', 'smart-money', 'strict'].map((p) => (
-                <Pressable
-                  key={p || 'none'}
-                  onPress={() => setNotifPreset(p)}
-                  style={[styles.pctBtn, { backgroundColor: notifPreset === p ? theme.accent : theme.backgroundSelected, borderColor: theme.border }]}>
-                  <ThemedText type="small" style={{ color: notifPreset === p ? '#fff' : theme.text, fontSize: 11, lineHeight: 14 }}>
-                    {p || 'sin preset'}
-                  </ThemedText>
-                </Pressable>
-              ))}
-            </View>
-
-            <View style={styles.row}>
-              <View style={{ flex: 1 }}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>Min smart degens</ThemedText>
-                <TextInput value={notifMinSmart} onChangeText={setNotifMinSmart} keyboardType="numeric" style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>Min vol 24h ($)</ThemedText>
-                <TextInput value={notifMinVol} onChangeText={setNotifMinVol} keyboardType="numeric" style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>Max rug</ThemedText>
-                <TextInput value={notifMaxRug} onChangeText={setNotifMaxRug} keyboardType="numeric" style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]} />
-              </View>
-            </View>
-
-            <Pressable onPress={saveNotif} disabled={savingNotif} style={[styles.btn, { backgroundColor: theme.accent }]}>
-              <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
-                {savingNotif ? 'Guardando…' : 'Guardar suscripción'}
-              </ThemedText>
-            </Pressable>
-          </Card>
-
-          {subscriptions.length > 0 && (
-            <Card>
-              <ThemedText type="smallBold">Suscripciones activas</ThemedText>
-              {subscriptions.map((s) => (
-                <View key={s.id} style={styles.subRow}>
-                  <View style={{ flex: 1 }}>
-                    <ThemedText type="small">
-                      #{s.id} · {s.types.join(', ')} · {s.filter_preset || 'sin preset'}
-                    </ThemedText>
-                    <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                      smart≥{s.min_smart_degen ?? '—'} vol≥{s.min_volume_24h ?? '—'} rug≤{s.max_rug_ratio ?? '—'}
-                    </ThemedText>
-                  </View>
-                  <Switch
-                    value={!!s.enabled}
-                    onValueChange={(v) => setSubscriptionEnabled(s.id, v).then(loadAll)}
-                    trackColor={{ true: theme.accent }}
-                  />
-                  <Pressable
-                    onPress={() => deleteSubscription(s.id).then(loadAll)}
-                    hitSlop={8}>
-                    <ThemedText type="smallBold" style={{ color: theme.negative }}>Eliminar</ThemedText>
-                  </Pressable>
+            {NOTIF_CATEGORIES.map((cat) => (
+              <View key={cat} style={[styles.notifRow, { borderColor: theme.border }]}>
+                <View style={{ flex: 1 }}>
+                  <ThemedText type="smallBold">{NOTIF_LABELS[cat]}</ThemedText>
                 </View>
-              ))}
-            </Card>
-          )}
+                <Switch
+                  value={notifCategories[cat]}
+                  onValueChange={() => toggleNotifCategory(cat)}
+                  trackColor={{ true: theme.accent }}
+                />
+              </View>
+            ))}
+          </Card>
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -439,12 +354,16 @@ const styles = StyleSheet.create({
   btn: { marginTop: 10, paddingVertical: 12, borderRadius: 10 },
   row: { flexDirection: 'row', gap: 10, marginTop: 4 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  pctRow: { flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' },
-  pctBtn: { flex: 1, minWidth: 90, paddingVertical: 8, borderRadius: 8, alignItems: 'center', borderWidth: 1 },
-  subRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   proxyBlock: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, marginTop: 4 },
   proxyHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   proxyDot: { width: 8, height: 8, borderRadius: 4 },
   proxyBtnRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
   proxyBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', borderWidth: 1 },
+  notifRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
 });
