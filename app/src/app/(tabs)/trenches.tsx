@@ -18,6 +18,7 @@ import { ThemedView } from '@/components/themed-view';
 import { TokenRow } from '@/components/token-row';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
+import { useWs } from '@/store/ws';
 import { getTrenches, getSavedTrenchesFilters, saveTrenchesFilters } from '@/api/market';
 import { ApiError } from '@/api/client';
 import type { TrenchesItem } from '@/api/types';
@@ -156,6 +157,7 @@ function RangeField({
 export default function TrenchesScreen() {
   const theme = useTheme();
   const { proxyStatuses, loadProxyStatuses } = useSettings();
+  const { trenches: wsTrenches, connected: wsConnected, subscribeTrenches, unsubscribeTrenches } = useWs();
   const [activeTab, setActiveTab] = useState<TabKey>('new_creation');
 
   const [filters, setFilters] = useState<Record<TabKey, Filters>>({
@@ -173,6 +175,30 @@ export default function TrenchesScreen() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Subscribe to WS trenches for all tabs on mount
+  useEffect(() => {
+    for (const tab of TABS) {
+      subscribeTrenches(tab.key);
+    }
+    return () => {
+      for (const tab of TABS) {
+        unsubscribeTrenches(tab.key);
+      }
+    };
+  }, [subscribeTrenches, unsubscribeTrenches]);
+
+  // Merge WS data into local state
+  useEffect(() => {
+    if (wsConnected && wsTrenches) {
+      setData({
+        new_creation: wsTrenches.new_creation ?? [],
+        near_completion: wsTrenches.near_completion ?? [],
+        completed: wsTrenches.completed ?? [],
+      });
+      setLoading(false);
+    }
+  }, [wsConnected, wsTrenches]);
 
   const openFilters = useCallback(() => {
     setDraft(filters[activeTab]);
@@ -207,8 +233,6 @@ export default function TrenchesScreen() {
     setDraft((prev) => ({ ...prev, [key]: { ...prev[key], [side]: value } }));
   }, []);
 
-  const pollingRef = useRef(false);
-
   const fetchTab = useCallback(
     async (tab: TabKey, opts: { silent?: boolean } = {}) => {
       const { silent = false } = opts;
@@ -234,31 +258,11 @@ export default function TrenchesScreen() {
     }
   }, [fetchTab, proxyStatuses]);
 
-  const pollNext = useCallback(async () => {
-    if (pollingRef.current) return;
-    pollingRef.current = true;
-    try {
-      await Promise.all(
-        TABS.map((tab) => {
-          const status = proxyStatuses.find((s) => s.tab === tab.key);
-          if (!status?.working) return Promise.resolve();
-          return fetchTab(tab.key, { silent: true });
-        }),
-      );
-    } finally {
-      pollingRef.current = false;
-    }
-  }, [fetchTab, proxyStatuses]);
-
+  // Initial HTTP load + WS subscription for live updates
   useEffect(() => {
     initialLoad();
     loadProxyStatuses();
   }, [initialLoad, loadProxyStatuses]);
-
-  useEffect(() => {
-    const id = setInterval(pollNext, 1000);
-    return () => clearInterval(id);
-  }, [pollNext]);
 
   const activeTokens = data[activeTab] ?? [];
 

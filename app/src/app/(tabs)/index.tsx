@@ -10,8 +10,8 @@ import { TokenAvatar } from '@/components/token-avatar';
 import { PriceChange } from '@/components/price-change';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
+import { useWs } from '@/store/ws';
 import { convertWallet, getPortfolio } from '@/api/trading';
-import { getSolPrice } from '@/api/market';
 import { ApiError } from '@/api/client';
 import type { PortfolioResponse } from '@/api/types';
 import { fmtNum, fmtUsd } from '@/utils/format';
@@ -20,12 +20,22 @@ export default function DashboardScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { proxyStatuses, loadProxyStatuses } = useSettings();
+  const { solPrice: wsSolPrice, subscribeSolPrice, unsubscribeSolPrice } = useWs();
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [solPrice, setSolPrice] = useState<number>(0);
   const [convAmount, setConvAmount] = useState('');
   const [converting, setConverting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    subscribeSolPrice();
+    return () => unsubscribeSolPrice();
+  }, [subscribeSolPrice, unsubscribeSolPrice]);
+
+  useEffect(() => {
+    if (wsSolPrice != null) setSolPrice(wsSolPrice);
+  }, [wsSolPrice]);
 
   const load = useCallback(async () => {
     try {
@@ -40,26 +50,14 @@ export default function DashboardScreen() {
     }
   }, []);
 
-  // Precio de SOL en vivo (vía GMGN proxy, batch global en el server): cada 3s.
-  const loadSolPrice = useCallback(async () => {
-    try {
-      const r = await getSolPrice();
-      if (r.sol_price != null) setSolPrice(r.sol_price);
-    } catch {
-      // mantén el último precio conocido
-    }
-  }, []);
-
   useEffect(() => {
     load();
     loadProxyStatuses();
-    const solTimer = setInterval(loadSolPrice, 3000);
     const pfTimer = setInterval(load, 2000);
     return () => {
-      clearInterval(solTimer);
       clearInterval(pfTimer);
     };
-  }, [load, loadSolPrice, loadProxyStatuses]);
+  }, [load, loadProxyStatuses]);
 
   const doConvert = async (direction: 'usd_to_sol' | 'sol_to_usd') => {
     const amt = Number(convAmount);

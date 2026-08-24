@@ -5,9 +5,12 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useColorScheme } from 'react-native';
 
 import { useSettings } from '@/store/settings';
+import { initWs } from '@/api/ws-client';
 import { setAndroidChannel } from '@/utils/notifications';
 
 SplashScreen.preventAutoHideAsync();
+
+let wsInitialized = false;
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -16,6 +19,10 @@ export default function RootLayout() {
   useEffect(() => {
     load().catch(() => {});
     setAndroidChannel().catch(() => {});
+    if (!wsInitialized) {
+      wsInitialized = true;
+      initWs();
+    }
   }, [load]);
 
   useEffect(() => {

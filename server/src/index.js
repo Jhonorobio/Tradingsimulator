@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { createServer } from 'http';
 import express from 'express';
 import cors from 'cors';
 import marketRoutes from './routes/market.js';
@@ -7,6 +8,8 @@ import notificationRoutes from './routes/notifications.js';
 import { startPoller } from './services/poller.js';
 import { startTrenchesRefresher } from './services/trenches-refresher.js';
 import { ensureCalibrated } from './services/gmgn-clock.js';
+import { initWebSocket } from './services/ws-server.js';
+import { startPricePoller } from './services/ws-price-poller.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -29,8 +32,14 @@ app.use((err, _req, res, _next) => {
   res.status(status).json({ error: err?.message || 'Internal error' });
 });
 
-app.listen(PORT, () => {
+// HTTP + WebSocket server
+const server = createServer(app);
+initWebSocket(server);
+startPricePoller();
+
+server.listen(PORT, () => {
   console.log(`Trading Simulator server on http://localhost:${PORT}`);
+  console.log(`WebSocket server on ws://localhost:${PORT}/ws`);
   console.log(`Data dir: ${process.env.DATA_DIR || 'data/'}`);
 });
 

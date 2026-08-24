@@ -11,6 +11,7 @@ import { TokenAvatar } from '@/components/token-avatar';
 import { PriceChange } from '@/components/price-change';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
+import { useWs } from '@/store/ws';
 import { getTokenDetail } from '@/api/market';
 import { buy, getPortfolio, sell } from '@/api/trading';
 import { ApiError } from '@/api/client';
@@ -23,6 +24,7 @@ export default function TokenScreen() {
   const { chain, address } = useLocalSearchParams<{ chain: string; address: string }>();
   const theme = useTheme();
   const { proxyStatuses } = useSettings();
+  const { tokenPrices, subscribeTokenPrice, unsubscribeTokenPrice, solPrice: wsSolPrice, subscribeSolPrice, unsubscribeSolPrice } = useWs();
 
   const [detail, setDetail] = useState<TokenDetail | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
@@ -35,7 +37,31 @@ export default function TokenScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<TradeResult | null>(null);
 
-  // Token detail: cada 1s. Fetch directo al server.
+  // Subscribe to WS for token price + SOL price
+  useEffect(() => {
+    if (address) subscribeTokenPrice(chain || 'sol', address);
+    subscribeSolPrice();
+    return () => {
+      if (address) unsubscribeTokenPrice(chain || 'sol', address);
+      unsubscribeSolPrice();
+    };
+  }, [address, chain, subscribeTokenPrice, unsubscribeTokenPrice, subscribeSolPrice, unsubscribeSolPrice]);
+
+  // Merge WS SOL price
+  useEffect(() => {
+    if (wsSolPrice != null) setSolPrice(wsSolPrice);
+  }, [wsSolPrice]);
+
+  // Merge WS token price into detail
+  useEffect(() => {
+    const key = `${chain || 'sol'}:${address}`;
+    const wsData = tokenPrices[key];
+    if (wsData && detail) {
+      setDetail((prev) => prev ? { ...prev, ...wsData } : prev);
+    }
+  }, [tokenPrices, chain, address, detail]);
+
+  // Token detail: initial load + WS for live price
   const loadDetail = useCallback(async () => {
     if (!address) return;
     try {
@@ -47,7 +73,7 @@ export default function TokenScreen() {
     }
   }, [address, chain]);
 
-  // Posición del token + balance SOL en vivo (portfolio): cada 2s.
+  // Position: cada 2s (HTTP — needs wallet data)
   const loadPosition = useCallback(async () => {
     if (!address) return;
     try {
@@ -64,10 +90,8 @@ export default function TokenScreen() {
   useEffect(() => {
     loadDetail();
     loadPosition();
-    const detailTimer = setInterval(loadDetail, 1000);
     const posTimer = setInterval(loadPosition, 2000);
     return () => {
-      clearInterval(detailTimer);
       clearInterval(posTimer);
     };
   }, [loadDetail, loadPosition]);
