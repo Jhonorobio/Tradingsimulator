@@ -70,6 +70,37 @@ router.post('/proxies/test', async (req, res) => {
 });
 
 /**
+ * POST /api/market/proxies/batch-test — test a list of proxies sequentially.
+ * Body: { proxies: string[], apiKey: string }
+ * Each proxy string is "host:port" (http) or "socks5://host:port".
+ * Returns { results: [{ proxy, ok, egressIp, latencyMs, error }] }
+ */
+router.post('/proxies/batch-test', async (req, res) => {
+  const { proxies, apiKey } = req.body || {};
+  if (!Array.isArray(proxies) || !apiKey) {
+    return fail(res, new Error('proxies (array) and apiKey are required'), 400);
+  }
+  if (proxies.length === 0) return res.json({ results: [] });
+
+  const results = [];
+  for (const raw of proxies) {
+    const proxy = String(raw).trim();
+    if (!proxy) continue;
+    // Normalize: bare "host:port" → http://host:port
+    const url = proxy.startsWith('http') || proxy.startsWith('socks')
+      ? proxy
+      : `http://${proxy}`;
+    try {
+      const result = await testProxy(url, String(apiKey).trim());
+      results.push({ proxy: url, ...result });
+    } catch (err) {
+      results.push({ proxy: url, ok: false, egressIp: null, latencyMs: 0, error: err.message });
+    }
+  }
+  res.json({ results });
+});
+
+/**
  * GET /api/market/proxies/status — health status of all configured proxies.
  */
 router.get('/proxies/status', async (_req, res) => {

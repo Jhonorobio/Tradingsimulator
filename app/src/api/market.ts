@@ -67,6 +67,18 @@ export function testProxy(url: string, apiKey: string) {
   return api.post<ProxyTestResult>('/api/market/proxies/test', { url, apiKey });
 }
 
+export interface BatchTestResult {
+  proxy: string;
+  ok: boolean;
+  egressIp: string | null;
+  latencyMs: number;
+  error?: string;
+}
+
+export function batchTestProxies(proxies: string[], apiKey: string) {
+  return api.post<{ results: BatchTestResult[] }>('/api/market/proxies/batch-test', { proxies, apiKey });
+}
+
 export function getProxiesStatus() {
   return api.get<{ statuses: ProxyStatus[] }>('/api/market/proxies/status');
 }

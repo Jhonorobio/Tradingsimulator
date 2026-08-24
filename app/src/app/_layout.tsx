@@ -34,6 +34,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="token/[chain]/[address]" options={{ headerShown: true, title: '' }} />
+        <Stack.Screen name="proxy-tester" options={{ headerShown: true, title: 'Proxy Tester' }} />
       </Stack>
     </ThemeProvider>
   );

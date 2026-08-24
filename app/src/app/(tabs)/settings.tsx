@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -31,6 +32,7 @@ const NOTIF_LABELS: Record<string, string> = {
 
 export default function SettingsScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const { serverUrl, setUrl, deviceId, pushToken, setPushToken, proxyStatuses, loadProxyStatuses } = useSettings();
 
   const [urlInput, setUrlInput] = useState(serverUrl);
@@ -218,6 +220,13 @@ export default function SettingsScreen() {
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               Cada categoría necesita su propio proxy + API key para conectarse a GMGN.
             </ThemedText>
+            <Pressable
+              onPress={() => router.push('/proxy-tester')}
+              style={[styles.proxyBtn, { backgroundColor: theme.backgroundSelected, borderColor: theme.border, marginTop: 8 }]}>
+              <ThemedText type="small" style={{ color: theme.accent, textAlign: 'center' }}>
+                Probar lista de proxies →
+              </ThemedText>
+            </Pressable>
             {TAB_ORDER.map((tab) => {
               const status = proxyStatuses.find((s) => s.tab === tab);
               const cfg = proxyConfigs[tab] || { url: '', apiKey: '' };
