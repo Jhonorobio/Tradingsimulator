@@ -34,6 +34,8 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
     const queue = [];
     for (const config of configs) {
       for (const tab of TRENCH_TABS) {
+        // Skip tabs without a configured proxy
+        if (!connectionFor(tab)) continue;
         const params = buildParamsFromConfig(config, tab);
         const key = JSON.stringify({ t: tab, p: params });
         if (seen.has(key)) continue;
@@ -66,7 +68,8 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
   return {
     workers: WORKERS,
     egressIps: distinct.map((d) => d.ip),
-    pins: TRENCH_TABS.filter((tab) => connectionFor(tab)?.proxy),
+    pinnedTabs: TRENCH_TABS.filter((tab) => connectionFor(tab)?.proxy),
+    skippedTabs: TRENCH_TABS.filter((tab) => !connectionFor(tab)?.proxy),
     mode: WORKERS >= TRENCH_TABS.length ? 'dedicated' : 'shared',
   };
 }
@@ -122,9 +125,14 @@ async function sharedWorker(rebuildQueue, connectionFor, delay, onError) {
     cursor += 1;
 
     const connection = connectionFor(item.tab);
+    if (!connection) {
+      // No proxy configured for this tab — skip it
+      await delay(MIN_INTERVAL_MS);
+      continue;
+    }
     const start = Date.now();
     try {
-      await fetchTrenches(item.params, { ...(connection || {}), force: true });
+      await fetchTrenches(item.params, { ...connection, force: true });
     } catch (err) {
       onError(err);
       // If rate-limited, wait until reset time before retrying
