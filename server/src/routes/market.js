@@ -158,36 +158,33 @@ router.post('/proxies/latency-test', async (req, res) => {
   }
   if (proxies.length === 0) return res.json({ results: [] });
 
-  res.setHeader('Content-Type', 'application/x-ndjson');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
+  const { ProxyAgent, request } = await import('undici');
 
-  const { default: fetch } = await import('node-fetch');
-  const { HttpsProxyAgent } = await import('https-proxy-agent');
+  const results = await Promise.all(
+    proxies.map(async (raw) => {
+      const proxy = String(raw).trim();
+      if (!proxy) return { proxy: '', ok: false, latencyMs: 0, httpStatus: null, error: 'empty' };
+      const url = proxy.startsWith('http') || proxy.startsWith('socks')
+        ? proxy
+        : `http://${proxy}`;
+      const start = Date.now();
+      try {
+        const dispatcher = new ProxyAgent(url, {
+          connect: { timeout: 5_000, tls: { rejectUnauthorized: false } },
+        });
+        const r = await request('https://gmgn.ai', {
+          method: 'HEAD',
+          dispatcher,
+          signal: AbortSignal.timeout(8_000),
+        });
+        return { proxy: url, ok: true, latencyMs: Date.now() - start, httpStatus: r.statusCode };
+      } catch (err) {
+        return { proxy: url, ok: false, latencyMs: Date.now() - start, httpStatus: null, error: err.message };
+      }
+    })
+  );
 
-  for (const raw of proxies) {
-    const proxy = String(raw).trim();
-    if (!proxy) continue;
-    const url = proxy.startsWith('http') || proxy.startsWith('socks')
-      ? proxy
-      : `http://${proxy}`;
-    const start = Date.now();
-    try {
-      const agent = new HttpsProxyAgent(url);
-      const r = await fetch('https://gmgn.ai', {
-        method: 'HEAD',
-        agent,
-        timeout: 8000,
-        redirect: 'follow',
-      });
-      const latencyMs = Date.now() - start;
-      res.write(JSON.stringify({ proxy: url, ok: true, latencyMs, httpStatus: r.status }) + '\n');
-    } catch (err) {
-      const latencyMs = Date.now() - start;
-      res.write(JSON.stringify({ proxy: url, ok: false, latencyMs, httpStatus: null, error: err.message }) + '\n');
-    }
-  }
-  res.end();
+  res.json({ results });
 });
 
 /**

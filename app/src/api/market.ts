@@ -92,12 +92,8 @@ export interface LatencyTestResult {
   error?: string;
 }
 
-/** Streams latency test results via NDJSON — no API key needed. */
-export function latencyTestProxiesStream(
-  proxies: string[],
-  onLine: (result: LatencyTestResult) => void,
-) {
-  return api.postStream('/api/market/proxies/latency-test', { proxies }, onLine);
+export function latencyTestProxies(proxies: string[]) {
+  return api.post<{ results: LatencyTestResult[] }>('/api/market/proxies/latency-test', { proxies });
 }
 
 export interface TcpTestResult {

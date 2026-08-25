@@ -11,7 +11,7 @@ import { useTheme } from '@/hooks/use-theme';
 import {
   batchTestProxiesStream,
   tcpTestProxies,
-  latencyTestProxiesStream,
+  latencyTestProxies,
   type BatchTestResult,
   type TcpTestResult,
   type LatencyTestResult,
@@ -69,12 +69,9 @@ export default function ProxyTesterScreen() {
     setTestMode('latency');
     setTesting(true);
     setResults([]);
-    resultsRef.current = [];
     try {
-      await latencyTestProxiesStream(proxies, (result) => {
-        resultsRef.current = [...resultsRef.current, result];
-        setResults([...resultsRef.current]);
-      });
+      const res = await latencyTestProxies(proxies);
+      setResults(res.results);
     } catch {} finally { setTesting(false); }
   }, [parseProxies]);
 
