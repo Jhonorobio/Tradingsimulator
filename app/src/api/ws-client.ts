@@ -27,7 +27,7 @@ function getWsUrl(): string {
 
 async function buildWsUrl(): Promise<string> {
   const httpUrl = await getServerUrl();
-  const wsUrl = httpUrl.replace(/^http/, 'ws');
+  const wsUrl = httpUrl.replace(/^https/, 'wss').replace(/^http/, 'ws');
   return `${wsUrl}/ws`;
 }
 
