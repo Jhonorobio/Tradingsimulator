@@ -70,9 +70,8 @@ router.post('/proxies/test', async (req, res) => {
 });
 
 /**
- * POST /api/market/proxies/batch-test — test a list of proxies sequentially.
- * Streams results as JSON lines (NDJSON) so the client sees each result
- * immediately instead of waiting for all to finish.
+ * POST /api/market/proxies/batch-test — test a list of proxies via real GMGN API.
+ * Streams results as NDJSON. No egress IP resolution (faster, closer to production).
  * Body: { proxies: string[], apiKey: string }
  */
 router.post('/proxies/batch-test', async (req, res) => {
@@ -82,10 +81,12 @@ router.post('/proxies/batch-test', async (req, res) => {
   }
   if (proxies.length === 0) return res.json({ results: [] });
 
-  // Stream results as NDJSON (one JSON object per line)
   res.setHeader('Content-Type', 'application/x-ndjson');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+
+  const { ProxyAgent, request } = await import('undici');
+  const { gmgnTimestamp } = await import('../services/gmgn-clock.js');
 
   for (const raw of proxies) {
     const proxy = String(raw).trim();
@@ -93,11 +94,39 @@ router.post('/proxies/batch-test', async (req, res) => {
     const url = proxy.startsWith('http') || proxy.startsWith('socks')
       ? proxy
       : `http://${proxy}`;
+    const start = Date.now();
     try {
-      const result = await testProxy(url, String(apiKey).trim());
-      res.write(JSON.stringify({ proxy: url, ...result }) + '\n');
+      const dispatcher = new ProxyAgent(url, {
+        connect: { timeout: 5_000, tls: { rejectUnauthorized: false } },
+      });
+      const timestamp = gmgnTimestamp();
+      const client_id = crypto.randomUUID();
+      const apiUrl = `https://openapi.gmgn.ai/v1/trenches?chain=sol&timestamp=${timestamp}&client_id=${client_id}`;
+      const body = JSON.stringify({
+        version: 'v2',
+        new_creation: { limit: 1, filters: ['offchain', 'onchain'] },
+      });
+      const r = await request(apiUrl, {
+        dispatcher,
+        method: 'POST',
+        body,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'gmgn-cli/1.5.2',
+          'X-APIKEY': apiKey,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(8_000),
+      });
+      const latencyMs = Date.now() - start;
+      const text = await r.body.text();
+      let json;
+      try { json = JSON.parse(text); } catch {}
+      const ok = r.statusCode === 200 && json?.code === 0;
+      const error = ok ? undefined : (json?.error || json?.message || `HTTP ${r.statusCode}`);
+      res.write(JSON.stringify({ proxy: url, ok, latencyMs, egressIp: null, error }) + '\n');
     } catch (err) {
-      res.write(JSON.stringify({ proxy: url, ok: false, egressIp: null, latencyMs: 0, error: err.message }) + '\n');
+      res.write(JSON.stringify({ proxy: url, ok: false, latencyMs: Date.now() - start, egressIp: null, error: err.message }) + '\n');
     }
   }
   res.end();
