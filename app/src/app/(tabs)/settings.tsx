@@ -130,7 +130,13 @@ export default function SettingsScreen() {
     }
     try {
       await saveProxy(tab, cfg.url, cfg.apiKey);
+      // Optimistically mark as working so trenches tab shows data immediately
+      const { proxyStatuses: current } = useSettings.getState();
+      const next = current.filter((s) => s.tab !== tab);
+      next.push({ tab, url: cfg.url, egressIp: null, working: true, lastCheck: new Date().toISOString(), error: null });
+      useSettings.setState({ proxyStatuses: next });
       Alert.alert('Guardado', `Proxy de ${TAB_LABELS[tab]} guardado`);
+      // Background health check confirms or denies
       loadProxyStatuses();
     } catch (err) {
       Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo guardar');
