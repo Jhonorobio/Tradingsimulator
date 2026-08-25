@@ -9,7 +9,7 @@ import { broadcast } from './ws-server.js';
 
 const byAddress = new Map();
 const lastBroadcast = { new_creation: 0, near_completion: 0, completed: 0 };
-const BROADCAST_THROTTLE_MS = 3000; // notify at most once per 3s per category
+const BROADCAST_THROTTLE_MS = 1000; // notify at most once per 1s per category
 
 /** Merges a fetchTrenches result (new_creation/near_completion/completed) into the store. */
 export function upsertTrenches(data) {

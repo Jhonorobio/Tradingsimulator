@@ -56,13 +56,12 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
   const distinct = uniqueUrls.length ? await resolveDistinctProxies(uniqueUrls) : [];
   const WORKERS = Math.max(distinct.length, 1);
 
-  if (WORKERS >= TRENCH_TABS.length) {
-    for (const tab of TRENCH_TABS) {
-      const connection = connectionFor(tab);
-      setTimeout(() => tabWorker(tab, connection, rebuildQueue, delay, onError), 0);
-    }
-  } else {
-    setTimeout(() => sharedWorker(rebuildQueue, connectionFor, delay, onError), 0);
+  // Each proxy has its own API key → independent rate limit buckets.
+  // Always run dedicated workers per tab (one request per tab every ~1s).
+  for (const tab of TRENCH_TABS) {
+    const connection = connectionFor(tab);
+    if (!connection) continue;
+    setTimeout(() => tabWorker(tab, connection, rebuildQueue, delay, onError), 0);
   }
 
   return {
