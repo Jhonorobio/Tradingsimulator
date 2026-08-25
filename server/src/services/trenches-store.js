@@ -15,6 +15,12 @@ const byCategory = {
 };
 const lastBroadcast = { new_creation: 0, near_completion: 0, completed: 0 };
 const BROADCAST_THROTTLE_MS = 1000;
+// Temporarily suppress WS broadcasts for a tab (e.g. after filter change)
+// so the refresher's stale data doesn't overwrite the HTTP response.
+const suppressed = new Set();
+
+export function suppressBroadcast(tab) { suppressed.add(tab); }
+export function unsuppressBroadcast(tab) { suppressed.delete(tab); }
 
 /** Merges a fetchTrenches result into per-category stores and broadcasts. */
 export function upsertTrenches(data) {
@@ -29,7 +35,7 @@ export function upsertTrenches(data) {
     for (const t of list) {
       if (t?.address) map.set(t.address, t);
     }
-    if (list.length > 0 && now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS) {
+    if (list.length > 0 && !suppressed.has(key) && now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS) {
       lastBroadcast[key] = now;
       broadcast(`trenches:${key}`, { event: 'trenches_updated', tab: key, data: list });
     }
