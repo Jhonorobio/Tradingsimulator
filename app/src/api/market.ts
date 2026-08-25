@@ -75,8 +75,13 @@ export interface BatchTestResult {
   error?: string;
 }
 
-export function batchTestProxies(proxies: string[], apiKey: string) {
-  return api.post<{ results: BatchTestResult[] }>('/api/market/proxies/batch-test', { proxies, apiKey });
+/** Streams GMGN test results via NDJSON — onLine fires per proxy tested. */
+export function batchTestProxiesStream(
+  proxies: string[],
+  apiKey: string,
+  onLine: (result: BatchTestResult) => void,
+) {
+  return api.postStream('/api/market/proxies/batch-test', { proxies, apiKey }, onLine);
 }
 
 export interface TcpTestResult {

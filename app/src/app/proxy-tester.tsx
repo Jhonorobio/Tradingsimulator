@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,7 +8,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
-import { batchTestProxies, tcpTestProxies, type BatchTestResult, type TcpTestResult } from '@/api/market';
+import { batchTestProxiesStream, tcpTestProxies, type BatchTestResult, type TcpTestResult } from '@/api/market';
 
 const PROXY_TESTER_KEY = 'trading-sim/proxy-tester-apikey';
 
@@ -21,6 +21,7 @@ export default function ProxyTesterScreen() {
   const [testing, setTesting] = useState(false);
   const [results, setResults] = useState<TestResult[]>([]);
   const [testMode, setTestMode] = useState<'tcp' | 'gmgn'>('tcp');
+  const resultsRef = useRef<TestResult[]>([]);
 
   useEffect(() => {
     AsyncStorage.getItem(PROXY_TESTER_KEY).then((saved) => {
@@ -40,29 +41,44 @@ export default function ProxyTesterScreen() {
       .filter((line) => line && !line.startsWith('#'));
   }, [proxyList]);
 
-  const runTest = useCallback(async (mode: 'tcp' | 'gmgn') => {
+  const runGmgnTest = useCallback(async () => {
     const proxies = parseProxies();
-    if (!proxies.length) return;
-    if (mode === 'gmgn' && !apiKey.trim()) return;
+    if (!proxies.length || !apiKey.trim()) return;
 
-    setTestMode(mode);
+    setTestMode('gmgn');
     setTesting(true);
     setResults([]);
+    resultsRef.current = [];
 
     try {
-      if (mode === 'tcp') {
-        const res = await tcpTestProxies(proxies);
-        setResults(res.results);
-      } else {
-        const res = await batchTestProxies(proxies, apiKey.trim());
-        setResults(res.results);
-      }
+      await batchTestProxiesStream(proxies, apiKey.trim(), (result) => {
+        resultsRef.current = [...resultsRef.current, result];
+        setResults([...resultsRef.current]);
+      });
     } catch {
       // error handled by display
     } finally {
       setTesting(false);
     }
   }, [parseProxies, apiKey]);
+
+  const runTcpTest = useCallback(async () => {
+    const proxies = parseProxies();
+    if (!proxies.length) return;
+
+    setTestMode('tcp');
+    setTesting(true);
+    setResults([]);
+
+    try {
+      const res = await tcpTestProxies(proxies);
+      setResults(res.results);
+    } catch {
+      // error handled by display
+    } finally {
+      setTesting(false);
+    }
+  }, [parseProxies]);
 
   const proxyCount = parseProxies().length;
   const okCount = results.filter((r) => r.ok).length;
@@ -79,7 +95,7 @@ export default function ProxyTesterScreen() {
             <>
               <ThemedText type="subtitle">Proxy Tester</ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: 12 }}>
-                Pega proxies y elige el tipo de test.
+                TCP = rápido, solo verifica conexión. GMGN = verifica que funcione con la API, mide latencia real.
               </ThemedText>
 
               <Card>
@@ -119,7 +135,7 @@ export default function ProxyTesterScreen() {
               {/* Two test buttons */}
               <View style={styles.btnRow}>
                 <Pressable
-                  onPress={() => runTest('tcp')}
+                  onPress={runTcpTest}
                   disabled={testing || !proxyCount}
                   style={[styles.btn, { backgroundColor: testing && testMode === 'tcp' ? theme.backgroundSelected : theme.accent, flex: 1 }]}>
                   {testing && testMode === 'tcp' ? (
@@ -133,7 +149,7 @@ export default function ProxyTesterScreen() {
                   )}
                 </Pressable>
                 <Pressable
-                  onPress={() => runTest('gmgn')}
+                  onPress={runGmgnTest}
                   disabled={testing || !proxyCount || !apiKey.trim()}
                   style={[styles.btn, { backgroundColor: testing && testMode === 'gmgn' ? theme.backgroundSelected : theme.accent, flex: 1 }]}>
                   {testing && testMode === 'gmgn' ? (
@@ -142,7 +158,7 @@ export default function ProxyTesterScreen() {
                     </View>
                   ) : (
                     <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
-                      GMGN Full
+                      GMGN Latencia
                     </ThemedText>
                   )}
                 </Pressable>
@@ -150,7 +166,9 @@ export default function ProxyTesterScreen() {
 
               {testing && (
                 <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>
-                  {testMode === 'tcp' ? 'Verificando conectividad...' : `Probando GMGN 1 req/s...`}
+                  {testMode === 'tcp'
+                    ? 'Verificando conectividad...'
+                    : `Probando GMGN... ${results.length}/${proxyCount}`}
                 </ThemedText>
               )}
 
