@@ -243,11 +243,12 @@ export default function TrenchesScreen() {
     [],
   );
 
-  const confirmFilters = useCallback(() => {
+  const confirmFilters = useCallback(async () => {
     const next = { ...filters, [activeTab]: draft };
     setFilters(next);
-    saveTrenchesFilters(next).catch(() => {});
     setFiltersVisible(false);
+    // Await PUT so server has new filters BEFORE we GET
+    try { await saveTrenchesFilters(next); } catch {}
     fetchTab(activeTab);
   }, [activeTab, draft, filters, fetchTab]);
 
