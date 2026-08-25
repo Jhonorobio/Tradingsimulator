@@ -22,10 +22,9 @@ const suppressed = new Set();
 export function suppressBroadcast(tab) { suppressed.add(tab); }
 export function unsuppressBroadcast(tab) { suppressed.delete(tab); }
 
-/** Merges a fetchTrenches result into per-category stores.
- *  When skipBroadcast=true (refresher with force), only updates the store
- *  without WS broadcast — the HTTP GET endpoint handles broadcasting. */
-export function upsertTrenches(data, skipBroadcast = false) {
+/** Merges a fetchTrenches result into per-category stores and broadcasts.
+ *  source='http' bypasses suppression (HTTP GET after filter change). */
+export function upsertTrenches(data, source = 'refresher') {
   if (!data || typeof data !== 'object') return;
   const now = Date.now();
   for (const key of ['new_creation', 'near_completion', 'completed']) {
@@ -36,7 +35,8 @@ export function upsertTrenches(data, skipBroadcast = false) {
     for (const t of list) {
       if (t?.address) map.set(t.address, t);
     }
-    if (!skipBroadcast && list.length > 0 && !suppressed.has(key) && now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS) {
+    const canBroadcast = source === 'http' || !suppressed.has(key);
+    if (canBroadcast && list.length > 0 && now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS) {
       lastBroadcast[key] = now;
       broadcast(`trenches:${key}`, { event: 'trenches_updated', tab: key, data: list });
     }

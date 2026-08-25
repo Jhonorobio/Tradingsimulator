@@ -140,7 +140,7 @@ export async function fetchTrenches(params, opts = {}) {
         near_completion: data.near_completion ?? data.pump ?? [],
         completed: data.completed ?? [],
       };
-      upsertTrenches(result, opts.force);
+      upsertTrenches(result, opts.source || 'refresher');
       return result;
     } catch (err) {
       const resetMs = parseRateLimitReset(err?.message);
