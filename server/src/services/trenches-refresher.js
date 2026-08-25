@@ -29,6 +29,12 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
 
   const rebuildQueue = () => {
     const all = trenchesFilters.getAll();
+    // Remove stale 'default' entry left over from old hardcoded deviceId.
+    // Without this, two device configs (default + real) would produce two
+    // different fetch params for the same tab, causing two alternating lists.
+    if (all.has('default')) {
+      trenchesFilters.delete('default');
+    }
     const configs = Object.values(all).map((entry) => entry?.filters ?? null).filter(Boolean);
     const seen = new Set();
     const queue = [];
