@@ -8,11 +8,18 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
-import { batchTestProxiesStream, tcpTestProxies, type BatchTestResult, type TcpTestResult } from '@/api/market';
+import {
+  batchTestProxiesStream,
+  tcpTestProxies,
+  latencyTestProxiesStream,
+  type BatchTestResult,
+  type TcpTestResult,
+  type LatencyTestResult,
+} from '@/api/market';
 
 const PROXY_TESTER_KEY = 'trading-sim/proxy-tester-apikey';
 
-type TestResult = BatchTestResult | TcpTestResult;
+type TestResult = BatchTestResult | TcpTestResult | LatencyTestResult;
 
 export default function ProxyTesterScreen() {
   const theme = useTheme();
@@ -20,7 +27,7 @@ export default function ProxyTesterScreen() {
   const [apiKey, setApiKey] = useState('');
   const [testing, setTesting] = useState(false);
   const [results, setResults] = useState<TestResult[]>([]);
-  const [testMode, setTestMode] = useState<'tcp' | 'gmgn'>('tcp');
+  const [testMode, setTestMode] = useState<'tcp' | 'gmgn' | 'latency'>('tcp');
   const resultsRef = useRef<TestResult[]>([]);
 
   useEffect(() => {
@@ -44,45 +51,50 @@ export default function ProxyTesterScreen() {
   const runGmgnTest = useCallback(async () => {
     const proxies = parseProxies();
     if (!proxies.length || !apiKey.trim()) return;
-
     setTestMode('gmgn');
     setTesting(true);
     setResults([]);
     resultsRef.current = [];
-
     try {
       await batchTestProxiesStream(proxies, apiKey.trim(), (result) => {
         resultsRef.current = [...resultsRef.current, result];
         setResults([...resultsRef.current]);
       });
-    } catch {
-      // error handled by display
-    } finally {
-      setTesting(false);
-    }
+    } catch {} finally { setTesting(false); }
   }, [parseProxies, apiKey]);
+
+  const runLatencyTest = useCallback(async () => {
+    const proxies = parseProxies();
+    if (!proxies.length) return;
+    setTestMode('latency');
+    setTesting(true);
+    setResults([]);
+    resultsRef.current = [];
+    try {
+      await latencyTestProxiesStream(proxies, (result) => {
+        resultsRef.current = [...resultsRef.current, result];
+        setResults([...resultsRef.current]);
+      });
+    } catch {} finally { setTesting(false); }
+  }, [parseProxies]);
 
   const runTcpTest = useCallback(async () => {
     const proxies = parseProxies();
     if (!proxies.length) return;
-
     setTestMode('tcp');
     setTesting(true);
     setResults([]);
-
     try {
       const res = await tcpTestProxies(proxies);
       setResults(res.results);
-    } catch {
-      // error handled by display
-    } finally {
-      setTesting(false);
-    }
+    } catch {} finally { setTesting(false); }
   }, [parseProxies]);
 
   const proxyCount = parseProxies().length;
   const okCount = results.filter((r) => r.ok).length;
   const failCount = results.filter((r) => !r.ok).length;
+
+  const testLabel = testMode === 'tcp' ? 'conexión' : testMode === 'latency' ? 'latencia' : 'API';
 
   return (
     <ThemedView style={styles.container}>
@@ -95,11 +107,11 @@ export default function ProxyTesterScreen() {
             <>
               <ThemedText type="subtitle">Proxy Tester</ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: 12 }}>
-                TCP = rápido, solo verifica conexión. GMGN = verifica que funcione con la API, mide latencia real.
+                TCP = rápido, solo verifica conexión. Latencia = mide tiempo a gmgn.ai (sin key). GMGN = test completo con API key.
               </ThemedText>
 
               <Card>
-                <ThemedText type="smallBold">API Key GMGN (para test GMGN)</ThemedText>
+                <ThemedText type="smallBold">API Key GMGN (solo para test GMGN)</ThemedText>
                 <TextInput
                   value={apiKey}
                   onChangeText={updateApiKey}
@@ -132,34 +144,36 @@ export default function ProxyTesterScreen() {
                 </ThemedText>
               </Card>
 
-              {/* Two test buttons */}
+              {/* Three test buttons */}
               <View style={styles.btnRow}>
                 <Pressable
                   onPress={runTcpTest}
                   disabled={testing || !proxyCount}
                   style={[styles.btn, { backgroundColor: testing && testMode === 'tcp' ? theme.backgroundSelected : theme.accent, flex: 1 }]}>
                   {testing && testMode === 'tcp' ? (
-                    <View style={styles.btnInner}>
-                      <ActivityIndicator size="small" color="#fff" />
-                    </View>
+                    <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
-                      TCP Rápido
-                    </ThemedText>
+                    <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>TCP</ThemedText>
+                  )}
+                </Pressable>
+                <Pressable
+                  onPress={runLatencyTest}
+                  disabled={testing || !proxyCount}
+                  style={[styles.btn, { backgroundColor: testing && testMode === 'latency' ? theme.backgroundSelected : '#e67e22', flex: 1 }]}>
+                  {testing && testMode === 'latency' ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>Latencia GMGN</ThemedText>
                   )}
                 </Pressable>
                 <Pressable
                   onPress={runGmgnTest}
                   disabled={testing || !proxyCount || !apiKey.trim()}
-                  style={[styles.btn, { backgroundColor: testing && testMode === 'gmgn' ? theme.backgroundSelected : theme.accent, flex: 1 }]}>
+                  style={[styles.btn, { backgroundColor: testing && testMode === 'gmgn' ? theme.backgroundSelected : '#8e44ad', flex: 1 }]}>
                   {testing && testMode === 'gmgn' ? (
-                    <View style={styles.btnInner}>
-                      <ActivityIndicator size="small" color="#fff" />
-                    </View>
+                    <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
-                      GMGN Latencia
-                    </ThemedText>
+                    <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>GMGN Full</ThemedText>
                   )}
                 </Pressable>
               </View>
@@ -168,7 +182,7 @@ export default function ProxyTesterScreen() {
                 <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>
                   {testMode === 'tcp'
                     ? 'Verificando conectividad...'
-                    : `Probando GMGN... ${results.length}/${proxyCount}`}
+                    : `Probando ${testLabel}... ${results.length}/${proxyCount}`}
                 </ThemedText>
               )}
 
@@ -176,7 +190,7 @@ export default function ProxyTesterScreen() {
                 <Card>
                   <View style={styles.summaryRow}>
                     <ThemedText type="smallBold" style={{ color: theme.positive }}>
-                      ✓ {okCount} {testMode === 'tcp' ? 'abiertos' : 'funcionales'}
+                      ✓ {okCount} {testMode === 'tcp' ? 'abiertos' : 'respondieron'}
                     </ThemedText>
                     <ThemedText type="smallBold" style={{ color: theme.negative }}>
                       ✗ {failCount} fallidos
@@ -203,6 +217,11 @@ export default function ProxyTesterScreen() {
                   </ThemedText>
                 )}
               </View>
+              {'httpStatus' in r && r.ok && (
+                <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: 24 }}>
+                  HTTP {(r as LatencyTestResult).httpStatus}
+                </ThemedText>
+              )}
               {'egressIp' in r && r.ok && (r as BatchTestResult).egressIp && (
                 <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: 24 }}>
                   IP: {(r as BatchTestResult).egressIp}
@@ -249,9 +268,8 @@ const styles = StyleSheet.create({
     minHeight: 120,
     textAlignVertical: 'top',
   },
-  btnRow: { flexDirection: 'row', gap: 8 },
+  btnRow: { flexDirection: 'row', gap: 6 },
   btn: { paddingVertical: 12, borderRadius: 10 },
-  btnInner: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
   resultRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 8, paddingBottom: 4 },
   resultHeader: { flexDirection: 'row', alignItems: 'center' },

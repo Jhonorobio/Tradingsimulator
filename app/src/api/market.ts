@@ -84,6 +84,22 @@ export function batchTestProxiesStream(
   return api.postStream('/api/market/proxies/batch-test', { proxies, apiKey }, onLine);
 }
 
+export interface LatencyTestResult {
+  proxy: string;
+  ok: boolean;
+  latencyMs: number;
+  httpStatus: number | null;
+  error?: string;
+}
+
+/** Streams latency test results via NDJSON — no API key needed. */
+export function latencyTestProxiesStream(
+  proxies: string[],
+  onLine: (result: LatencyTestResult) => void,
+) {
+  return api.postStream('/api/market/proxies/latency-test', { proxies }, onLine);
+}
+
 export interface TcpTestResult {
   proxy: string;
   ok: boolean;

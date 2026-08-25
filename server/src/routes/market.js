@@ -146,6 +146,51 @@ router.post('/proxies/tcp-test', async (req, res) => {
 });
 
 /**
+ * POST /api/market/proxies/latency-test — measure latency from each proxy to GMGN.
+ * Body: { proxies: string[] }
+ * Does a HEAD request to https://gmgn.ai through each proxy. No API key needed.
+ * Returns NDJSON stream: { proxy, ok, latencyMs, httpStatus, error }
+ */
+router.post('/proxies/latency-test', async (req, res) => {
+  const { proxies } = req.body || {};
+  if (!Array.isArray(proxies)) {
+    return fail(res, new Error('proxies (array) is required'), 400);
+  }
+  if (proxies.length === 0) return res.json({ results: [] });
+
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const { default: fetch } = await import('node-fetch');
+  const { HttpsProxyAgent } = await import('https-proxy-agent');
+
+  for (const raw of proxies) {
+    const proxy = String(raw).trim();
+    if (!proxy) continue;
+    const url = proxy.startsWith('http') || proxy.startsWith('socks')
+      ? proxy
+      : `http://${proxy}`;
+    const start = Date.now();
+    try {
+      const agent = new HttpsProxyAgent(url);
+      const r = await fetch('https://gmgn.ai', {
+        method: 'HEAD',
+        agent,
+        timeout: 8000,
+        redirect: 'follow',
+      });
+      const latencyMs = Date.now() - start;
+      res.write(JSON.stringify({ proxy: url, ok: true, latencyMs, httpStatus: r.status }) + '\n');
+    } catch (err) {
+      const latencyMs = Date.now() - start;
+      res.write(JSON.stringify({ proxy: url, ok: false, latencyMs, httpStatus: null, error: err.message }) + '\n');
+    }
+  }
+  res.end();
+});
+
+/**
  * GET /api/market/proxies/status — health status of all configured proxies.
  */
 router.get('/proxies/status', async (_req, res) => {
