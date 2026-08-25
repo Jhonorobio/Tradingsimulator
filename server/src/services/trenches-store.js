@@ -7,21 +7,28 @@
 
 import { broadcast } from './ws-server.js';
 
-const byAddress = new Map();
+// Separate maps per category to prevent cross-contamination
+const byCategory = {
+  new_creation: new Map(),
+  near_completion: new Map(),
+  completed: new Map(),
+};
 const lastBroadcast = { new_creation: 0, near_completion: 0, completed: 0 };
-const BROADCAST_THROTTLE_MS = 1000; // notify at most once per 1s per category
+const BROADCAST_THROTTLE_MS = 1000;
 
-/** Merges a fetchTrenches result (new_creation/near_completion/completed) into the store. */
+/** Merges a fetchTrenches result into per-category stores and broadcasts. */
 export function upsertTrenches(data) {
   if (!data || typeof data !== 'object') return;
   const now = Date.now();
   for (const key of ['new_creation', 'near_completion', 'completed']) {
     const list = data[key];
     if (!Array.isArray(list)) continue;
+    const map = byCategory[key];
+    // Clear old tokens for this category, then insert new ones
+    map.clear();
     for (const t of list) {
-      if (t?.address) byAddress.set(t.address, { ...t, _category: key });
+      if (t?.address) map.set(t.address, t);
     }
-    // Broadcast data directly — no HTTP refetch needed (single user, GMGN does filtering)
     if (list.length > 0 && now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS) {
       lastBroadcast[key] = now;
       broadcast(`trenches:${key}`, { event: 'trenches_updated', tab: key, data: list });
@@ -31,24 +38,36 @@ export function upsertTrenches(data) {
 
 /** Returns the cached trenches token for an address, or null. */
 export function findToken(address) {
-  return byAddress.get(address) ?? null;
+  for (const key of ['new_creation', 'near_completion', 'completed']) {
+    const t = byCategory[key].get(address);
+    if (t) return { ...t, _category: key };
+  }
+  return null;
 }
 
 /** Returns all tokens in the store as an array. */
 export function getAllTokens() {
-  return [...byAddress.values()];
+  const out = [];
+  for (const key of ['new_creation', 'near_completion', 'completed']) {
+    for (const t of byCategory[key].values()) {
+      out.push({ ...t, _category: key });
+    }
+  }
+  return out;
 }
 
 /** Returns tokens for a specific category. */
 export function getCategoryTokens(category) {
-  const tokens = [];
-  for (const t of byAddress.values()) {
-    if (t._category === category) tokens.push(t);
-  }
-  return tokens;
+  const map = byCategory[category];
+  if (!map) return [];
+  return [...map.values()];
 }
 
 /** Number of unique tokens currently stored (debugging). */
 export function storeSize() {
-  return byAddress.size;
+  let n = 0;
+  for (const key of ['new_creation', 'near_completion', 'completed']) {
+    n += byCategory[key].size;
+  }
+  return n;
 }

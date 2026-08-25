@@ -16,9 +16,9 @@ interface WsState {
 }
 
 const client = getWsClient();
-const activeTrenchesSubs = new Set<string>();
-const activeTokenSubs = new Set<string>();
-let solPriceSubscribed = false;
+const trenchesCleanups = new Map<string, () => void>();
+const tokenCleanups = new Map<string, () => void>();
+let solPriceCleanup: (() => void) | null = null;
 
 export const useWs = create<WsState>((set, get) => ({
   connected: false,
@@ -28,55 +28,55 @@ export const useWs = create<WsState>((set, get) => ({
 
   subscribeTrenches: (tab: string) => {
     const topic = `trenches:${tab}`;
-    if (activeTrenchesSubs.has(tab)) return;
-    activeTrenchesSubs.add(tab);
+    if (trenchesCleanups.has(tab)) return;
     client.subscribe(topic);
-    // Server sends data directly in WS message (single user, GMGN does filtering)
-    client.on('trenches_updated', (msg: any) => {
+    const unsub = client.on('trenches_updated', (msg: any) => {
       if (msg.tab !== tab) return;
       set((state) => ({
         trenches: { ...state.trenches, [tab]: msg.data ?? [] },
       }));
     });
+    trenchesCleanups.set(tab, unsub);
   },
 
   unsubscribeTrenches: (tab: string) => {
-    activeTrenchesSubs.delete(tab);
+    const unsub = trenchesCleanups.get(tab);
+    if (unsub) { unsub(); trenchesCleanups.delete(tab); }
     client.unsubscribe(`trenches:${tab}`);
   },
 
   subscribeTokenPrice: (chain: string, address: string) => {
     const key = `${chain}:${address}`;
     const topic = `token:${key}`;
-    if (activeTokenSubs.has(key)) return;
-    activeTokenSubs.add(key);
+    if (tokenCleanups.has(key)) return;
     client.subscribe(topic);
-    client.on('token_price', (msg: any) => {
+    const unsub = client.on('token_price', (msg: any) => {
       if (msg.chain === chain && msg.address === address) {
         set((state) => ({
           tokenPrices: { ...state.tokenPrices, [key]: msg.data },
         }));
       }
     });
+    tokenCleanups.set(key, unsub);
   },
 
   unsubscribeTokenPrice: (chain: string, address: string) => {
     const key = `${chain}:${address}`;
-    activeTokenSubs.delete(key);
+    const unsub = tokenCleanups.get(key);
+    if (unsub) { unsub(); tokenCleanups.delete(key); }
     client.unsubscribe(`token:${key}`);
   },
 
   subscribeSolPrice: () => {
-    if (solPriceSubscribed) return;
-    solPriceSubscribed = true;
+    if (solPriceCleanup) return;
     client.subscribe('sol_price');
-    client.on('sol_price', (msg: any) => {
+    solPriceCleanup = client.on('sol_price', (msg: any) => {
       set({ solPrice: msg.data?.price ?? null });
     });
   },
 
   unsubscribeSolPrice: () => {
-    solPriceSubscribed = false;
+    if (solPriceCleanup) { solPriceCleanup(); solPriceCleanup = null; }
     client.unsubscribe('sol_price');
   },
 }));
