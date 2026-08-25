@@ -21,11 +21,10 @@ export function upsertTrenches(data) {
     for (const t of list) {
       if (t?.address) byAddress.set(t.address, { ...t, _category: key });
     }
-    // Throttled notification: tell clients data changed, they refetch via HTTP
-    // (HTTP endpoint applies per-device filters, WS can't do that)
+    // Broadcast data directly — no HTTP refetch needed (single user, GMGN does filtering)
     if (list.length > 0 && now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS) {
       lastBroadcast[key] = now;
-      broadcast(`trenches:${key}`, { event: 'trenches_updated', tab: key });
+      broadcast(`trenches:${key}`, { event: 'trenches_updated', tab: key, data: list });
     }
   }
 }
