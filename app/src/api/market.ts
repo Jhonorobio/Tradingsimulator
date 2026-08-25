@@ -79,6 +79,17 @@ export function batchTestProxies(proxies: string[], apiKey: string) {
   return api.post<{ results: BatchTestResult[] }>('/api/market/proxies/batch-test', { proxies, apiKey });
 }
 
+export interface TcpTestResult {
+  proxy: string;
+  ok: boolean;
+  latencyMs: number;
+  error?: string;
+}
+
+export function tcpTestProxies(proxies: string[]) {
+  return api.post<{ results: TcpTestResult[] }>('/api/market/proxies/tcp-test', { proxies });
+}
+
 export function getProxiesStatus() {
   return api.get<{ statuses: ProxyStatus[] }>('/api/market/proxies/status');
 }

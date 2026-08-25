@@ -101,6 +101,48 @@ router.post('/proxies/batch-test', async (req, res) => {
 });
 
 /**
+ * POST /api/market/proxies/tcp-test — test TCP connectivity to a list of proxies (parallel, fast).
+ * Body: { proxies: string[] }
+ * Just checks if the proxy host:port accepts connections. No GMGN involved.
+ * Returns { results: [{ proxy, ok, latencyMs, error }] }
+ */
+router.post('/proxies/tcp-test', async (req, res) => {
+  const { proxies } = req.body || {};
+  if (!Array.isArray(proxies)) {
+    return fail(res, new Error('proxies (array) is required'), 400);
+  }
+  if (proxies.length === 0) return res.json({ results: [] });
+
+  const { default: net } = await import('node:net');
+
+  const results = await Promise.all(
+    proxies.map(async (raw) => {
+      const proxy = String(raw).trim();
+      if (!proxy) return { proxy: '', ok: false, latencyMs: 0, error: 'empty' };
+      // Extract host:port from url or bare "host:port"
+      const clean = proxy.replace(/^(https?|socks[45]):\/\//, '');
+      const [host, portStr] = clean.split(':');
+      const port = Number(portStr);
+      if (!host || !port) return { proxy, ok: false, latencyMs: 0, error: 'invalid format' };
+
+      const start = Date.now();
+      return new Promise((resolve) => {
+        const socket = net.createConnection({ host, port, timeout: 5000 });
+        const done = (ok, error) => {
+          socket.destroy();
+          resolve({ proxy, ok, latencyMs: Date.now() - start, error: error || undefined });
+        };
+        socket.on('connect', () => done(true));
+        socket.on('timeout', () => done(false, 'timeout'));
+        socket.on('error', (err) => done(false, err.message));
+      });
+    })
+  );
+
+  res.json({ results });
+});
+
+/**
  * GET /api/market/proxies/status — health status of all configured proxies.
  */
 router.get('/proxies/status', async (_req, res) => {

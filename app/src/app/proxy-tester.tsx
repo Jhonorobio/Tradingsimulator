@@ -8,26 +8,26 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
-import { batchTestProxies, type BatchTestResult } from '@/api/market';
+import { batchTestProxies, tcpTestProxies, type BatchTestResult, type TcpTestResult } from '@/api/market';
 
 const PROXY_TESTER_KEY = 'trading-sim/proxy-tester-apikey';
+
+type TestResult = BatchTestResult | TcpTestResult;
 
 export default function ProxyTesterScreen() {
   const theme = useTheme();
   const [proxyList, setProxyList] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [testing, setTesting] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [results, setResults] = useState<BatchTestResult[]>([]);
+  const [results, setResults] = useState<TestResult[]>([]);
+  const [testMode, setTestMode] = useState<'tcp' | 'gmgn'>('tcp');
 
-  // Load saved API key on mount
   useEffect(() => {
     AsyncStorage.getItem(PROXY_TESTER_KEY).then((saved) => {
       if (saved) setApiKey(saved);
     });
   }, []);
 
-  // Save API key when it changes
   const updateApiKey = useCallback((val: string) => {
     setApiKey(val);
     AsyncStorage.setItem(PROXY_TESTER_KEY, val);
@@ -40,18 +40,23 @@ export default function ProxyTesterScreen() {
       .filter((line) => line && !line.startsWith('#'));
   }, [proxyList]);
 
-  const runTest = useCallback(async () => {
+  const runTest = useCallback(async (mode: 'tcp' | 'gmgn') => {
     const proxies = parseProxies();
     if (!proxies.length) return;
-    if (!apiKey.trim()) return;
+    if (mode === 'gmgn' && !apiKey.trim()) return;
 
+    setTestMode(mode);
     setTesting(true);
     setResults([]);
-    setProgress({ current: 0, total: proxies.length });
 
     try {
-      const res = await batchTestProxies(proxies, apiKey.trim());
-      setResults(res.results);
+      if (mode === 'tcp') {
+        const res = await tcpTestProxies(proxies);
+        setResults(res.results);
+      } else {
+        const res = await batchTestProxies(proxies, apiKey.trim());
+        setResults(res.results);
+      }
     } catch {
       // error handled by display
     } finally {
@@ -59,6 +64,7 @@ export default function ProxyTesterScreen() {
     }
   }, [parseProxies, apiKey]);
 
+  const proxyCount = parseProxies().length;
   const okCount = results.filter((r) => r.ok).length;
   const failCount = results.filter((r) => !r.ok).length;
 
@@ -73,11 +79,11 @@ export default function ProxyTesterScreen() {
             <>
               <ThemedText type="subtitle">Proxy Tester</ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: 12 }}>
-                Pega una lista de proxies (uno por línea) y haz test contra GMGN.
+                Pega proxies y elige el tipo de test.
               </ThemedText>
 
               <Card>
-                <ThemedText type="smallBold">API Key GMGN</ThemedText>
+                <ThemedText type="smallBold">API Key GMGN (para test GMGN)</ThemedText>
                 <TextInput
                   value={apiKey}
                   onChangeText={updateApiKey}
@@ -106,33 +112,53 @@ export default function ProxyTesterScreen() {
                   style={[styles.textarea, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
                 />
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  {parseProxies().length} proxies detectados
+                  {proxyCount} proxies detectados
                 </ThemedText>
               </Card>
 
-              <Pressable
-                onPress={runTest}
-                disabled={testing || !apiKey.trim() || !parseProxies().length}
-                style={[styles.btn, { backgroundColor: testing ? theme.backgroundSelected : theme.accent }]}>
-                {testing ? (
-                  <View style={styles.btnRow}>
-                    <ActivityIndicator size="small" color={theme.text} />
-                    <ThemedText type="smallBold" style={{ color: theme.text, marginLeft: 8 }}>
-                      Probando {progress.current}/{progress.total}...
+              {/* Two test buttons */}
+              <View style={styles.btnRow}>
+                <Pressable
+                  onPress={() => runTest('tcp')}
+                  disabled={testing || !proxyCount}
+                  style={[styles.btn, { backgroundColor: testing && testMode === 'tcp' ? theme.backgroundSelected : theme.accent, flex: 1 }]}>
+                  {testing && testMode === 'tcp' ? (
+                    <View style={styles.btnInner}>
+                      <ActivityIndicator size="small" color="#fff" />
+                    </View>
+                  ) : (
+                    <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
+                      TCP Rápido
                     </ThemedText>
-                  </View>
-                ) : (
-                  <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
-                    Probar {parseProxies().length} Proxies
-                  </ThemedText>
-                )}
-              </Pressable>
+                  )}
+                </Pressable>
+                <Pressable
+                  onPress={() => runTest('gmgn')}
+                  disabled={testing || !proxyCount || !apiKey.trim()}
+                  style={[styles.btn, { backgroundColor: testing && testMode === 'gmgn' ? theme.backgroundSelected : theme.accent, flex: 1 }]}>
+                  {testing && testMode === 'gmgn' ? (
+                    <View style={styles.btnInner}>
+                      <ActivityIndicator size="small" color="#fff" />
+                    </View>
+                  ) : (
+                    <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
+                      GMGN Full
+                    </ThemedText>
+                  )}
+                </Pressable>
+              </View>
 
-              {results.length > 0 && (
+              {testing && (
+                <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>
+                  {testMode === 'tcp' ? 'Verificando conectividad...' : `Probando GMGN 1 req/s...`}
+                </ThemedText>
+              )}
+
+              {results.length > 0 && !testing && (
                 <Card>
                   <View style={styles.summaryRow}>
                     <ThemedText type="smallBold" style={{ color: theme.positive }}>
-                      ✓ {okCount} funcionales
+                      ✓ {okCount} {testMode === 'tcp' ? 'abiertos' : 'funcionales'}
                     </ThemedText>
                     <ThemedText type="smallBold" style={{ color: theme.negative }}>
                       ✗ {failCount} fallidos
@@ -159,9 +185,9 @@ export default function ProxyTesterScreen() {
                   </ThemedText>
                 )}
               </View>
-              {r.ok && r.egressIp && (
+              {'egressIp' in r && r.ok && (r as BatchTestResult).egressIp && (
                 <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: 24 }}>
-                  IP: {r.egressIp}
+                  IP: {(r as BatchTestResult).egressIp}
                 </ThemedText>
               )}
               {!r.ok && r.error && (
@@ -205,8 +231,9 @@ const styles = StyleSheet.create({
     minHeight: 120,
     textAlignVertical: 'top',
   },
-  btn: { marginTop: 4, paddingVertical: 12, borderRadius: 10 },
-  btnRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  btnRow: { flexDirection: 'row', gap: 8 },
+  btn: { paddingVertical: 12, borderRadius: 10 },
+  btnInner: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
   resultRow: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 8, paddingBottom: 4 },
   resultHeader: { flexDirection: 'row', alignItems: 'center' },
