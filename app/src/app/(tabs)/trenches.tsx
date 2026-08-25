@@ -157,7 +157,7 @@ function RangeField({
 export default function TrenchesScreen() {
   const theme = useTheme();
   const { proxyStatuses, loadProxyStatuses } = useSettings();
-  const { trenches: wsTrenches, connected: wsConnected, subscribeTrenches, unsubscribeTrenches } = useWs();
+  const { subscribeTrenches, unsubscribeTrenches } = useWs();
   const [activeTab, setActiveTab] = useState<TabKey>('new_creation');
 
   const [filters, setFilters] = useState<Record<TabKey, Filters>>({
@@ -176,29 +176,29 @@ export default function TrenchesScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Subscribe to WS trenches for all tabs on mount
+  // Subscribe to WS trenches for all tabs on mount.
+  // Use useWs.subscribe to diff per-tab — only the tab that actually
+  // received a WS message gets updated, preventing other tabs' HTTP
+  // data from being overwritten with stale WS state.
   useEffect(() => {
     for (const tab of TABS) {
       subscribeTrenches(tab.key);
     }
+    const unsub = useWs.subscribe((state, prev) => {
+      for (const tab of TABS) {
+        if (state.trenches[tab.key] !== prev.trenches[tab.key]) {
+          setData((p) => ({ ...p, [tab.key]: state.trenches[tab.key] ?? [] }));
+          setLoading(false);
+        }
+      }
+    });
     return () => {
+      unsub();
       for (const tab of TABS) {
         unsubscribeTrenches(tab.key);
       }
     };
   }, [subscribeTrenches, unsubscribeTrenches]);
-
-  // Merge WS data into local state
-  useEffect(() => {
-    if (wsConnected && wsTrenches) {
-      setData({
-        new_creation: wsTrenches.new_creation ?? [],
-        near_completion: wsTrenches.near_completion ?? [],
-        completed: wsTrenches.completed ?? [],
-      });
-      setLoading(false);
-    }
-  }, [wsConnected, wsTrenches]);
 
   const openFilters = useCallback(() => {
     setDraft(filters[activeTab]);
