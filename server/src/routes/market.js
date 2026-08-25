@@ -4,7 +4,6 @@ import { fetchTrenches } from '../cli/args.js';
 import { trenchesFilters, proxyConfigs } from '../stores.js';
 import { getTokenInfo as getDexTokenInfo, searchTokens as dexSearch } from '../services/dexscreener.js';
 import { findToken } from '../services/trenches-store.js';
-import { suppressBroadcast, unsuppressBroadcast } from '../services/trenches-store.js';
 import { getProxyMarketCap } from '../services/gmgn-proxy.js';
 import { getTokenInfo, getLiveTokenInfo, getPrices, SOL_MINT } from '../services/token-data.js';
 import { cacheKey, withCache } from '../services/cache.js';
@@ -282,12 +281,6 @@ router.put('/trenches/filters', (req, res) => {
     const raw = req.body?.filters;
     if (raw == null) return fail(res, new Error('filters is required'), 400);
     trenchesFilters.set(id, { filters: raw, updated_at: new Date().toISOString() });
-    // Suppress WS broadcasts for 5s so the refresher's stale data
-    // (fetched with old filters) doesn't overwrite the HTTP response.
-    for (const tab of ['new_creation', 'near_completion', 'completed']) {
-      suppressBroadcast(tab);
-      setTimeout(() => unsuppressBroadcast(tab), 5000);
-    }
     res.json({ ok: true });
   } catch (err) {
     fail(res, err);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -19,8 +19,7 @@ import { TokenRow } from '@/components/token-row';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
-import { getTrenches, getSavedTrenchesFilters, saveTrenchesFilters } from '@/api/market';
-import { ApiError } from '@/api/client';
+import { getSavedTrenchesFilters } from '@/api/market';
 import type { TrenchesItem } from '@/api/types';
 
 type TabKey = 'new_creation' | 'near_completion' | 'completed';
@@ -157,7 +156,7 @@ function RangeField({
 export default function TrenchesScreen() {
   const theme = useTheme();
   const { proxyStatuses, loadProxyStatuses } = useSettings();
-  const { subscribeTrenches, unsubscribeTrenches } = useWs();
+  const { connected: wsConnected, trenches: wsTrenches, subscribeTrenches, unsubscribeTrenches, setTrenchesFilters } = useWs();
   const [activeTab, setActiveTab] = useState<TabKey>('new_creation');
 
   const [filters, setFilters] = useState<Record<TabKey, Filters>>({
@@ -173,13 +172,10 @@ export default function TrenchesScreen() {
     near_completion: [],
     completed: [],
   });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // Subscribe to WS trenches for all tabs on mount.
-  // Use useWs.subscribe to diff per-tab — only the tab that actually
-  // received a WS message gets updated, preventing other tabs' HTTP
-  // data from being overwritten with stale WS state.
+  // Server pushes current store data immediately on subscribe, then
+  // the refresher pushes live updates. No HTTP fetch needed.
   useEffect(() => {
     for (const tab of TABS) {
       subscribeTrenches(tab.key);
@@ -188,7 +184,6 @@ export default function TrenchesScreen() {
       for (const tab of TABS) {
         if (state.trenches[tab.key] !== prev.trenches[tab.key]) {
           setData((p) => ({ ...p, [tab.key]: state.trenches[tab.key] ?? [] }));
-          setLoading(false);
         }
       }
     });
@@ -200,6 +195,23 @@ export default function TrenchesScreen() {
     };
   }, [subscribeTrenches, unsubscribeTrenches]);
 
+  // Load saved filters on mount
+  useEffect(() => {
+    let cancelled = false;
+    getSavedTrenchesFilters()
+      .then((res) => {
+        if (cancelled || !res.filters) return;
+        setFilters(normalizeFilters(res.filters));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load proxy statuses on mount
+  useEffect(() => {
+    loadProxyStatuses();
+  }, [loadProxyStatuses]);
+
   const openFilters = useCallback(() => {
     setDraft(filters[activeTab]);
     setFiltersVisible(true);
@@ -209,62 +221,17 @@ export default function TrenchesScreen() {
 
   const resetDraft = useCallback(() => setDraft(emptyFilters()), []);
 
-  useEffect(() => {
-    let cancelled = false;
-    getSavedTrenchesFilters()
-      .then((res) => {
-        if (cancelled || !res.filters) return;
-        setFilters(normalizeFilters(res.filters));
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const setDraftValue = useCallback((key: string, side: 'min' | 'max', value: string) => {
     setDraft((prev) => ({ ...prev, [key]: { ...prev[key], [side]: value } }));
   }, []);
 
-  const fetchTab = useCallback(
-    async (tab: TabKey, opts: { silent?: boolean } = {}) => {
-      const { silent = false } = opts;
-      if (!silent) setLoading(true);
-      try {
-        const result = await getTrenches(tab);
-        setData((prev) => ({ ...prev, [tab]: result[tab] ?? [] }));
-        setError(null);
-      } catch (err) {
-        if (!silent) setError(err instanceof ApiError ? err.message : 'Error al cargar Trenches');
-      } finally {
-        if (!silent) setLoading(false);
-      }
-    },
-    [],
-  );
-
-  const confirmFilters = useCallback(async () => {
+  const confirmFilters = useCallback(() => {
     const next = { ...filters, [activeTab]: draft };
     setFilters(next);
     setFiltersVisible(false);
-    // Await PUT so server has new filters BEFORE we GET
-    try { await saveTrenchesFilters(next); } catch {}
-    fetchTab(activeTab);
-  }, [activeTab, draft, filters, fetchTab]);
-
-  const initialLoad = useCallback(async () => {
-    for (const tab of TABS) {
-      const status = proxyStatuses.find((s) => s.tab === tab.key);
-      if (!status?.working) continue;
-      await fetchTab(tab.key);
-    }
-  }, [fetchTab, proxyStatuses]);
-
-  // Initial HTTP load + WS subscription for live updates
-  useEffect(() => {
-    initialLoad();
-    loadProxyStatuses();
-  }, [initialLoad, loadProxyStatuses]);
+    // Send filters via WS — server saves and re-fetches, then pushes result
+    setTrenchesFilters('default', next);
+  }, [activeTab, draft, filters, setTrenchesFilters]);
 
   const activeTokens = data[activeTab] ?? [];
 
@@ -318,12 +285,6 @@ export default function TrenchesScreen() {
           </View>
         </View>
 
-        {error ? (
-          <ThemedText type="small" style={{ color: theme.negative, paddingHorizontal: 16, paddingTop: 8 }}>
-            {error}
-          </ThemedText>
-        ) : null}
-
         {(() => {
           const activeStatus = proxyStatuses.find((s) => s.tab === activeTab);
           const isProxyOk = activeStatus?.working ?? false;
@@ -347,23 +308,20 @@ export default function TrenchesScreen() {
               keyExtractor={(item, i) => `t-${item.address}-${i}`}
               renderItem={({ item }) => <TokenRow token={item} chain="sol" />}
               contentContainerStyle={styles.list}
-              ListHeaderComponent={loading ? (
-                <View style={styles.skelCard}>
-                  <View style={[styles.skelBar, { width: '45%' }]} />
-                  <View style={{ marginTop: 6 }}>
-                    <View style={[styles.skelBar, { width: '70%' }]} />
-                    <View style={[styles.skelBar, { width: '30%', marginTop: 6 }]} />
-                  </View>
-                </View>
-              ) : null}
               ListEmptyComponent={
-                !loading && !error ? (
+                !wsConnected ? (
+                  <View style={styles.emptyCard}>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                      Conectando al servidor...
+                    </ThemedText>
+                  </View>
+                ) : (
                   <View style={styles.emptyCard}>
                     <ThemedText type="small" style={{ color: theme.textSecondary }}>
                       Sin resultados con estos filtros.
                     </ThemedText>
                   </View>
-                ) : null
+                )
               }
             />
           );
@@ -371,7 +329,7 @@ export default function TrenchesScreen() {
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Fin de la Página
+            {wsConnected ? 'Conectado' : 'Desconectado'} · Fin de la Página
           </ThemedText>
         </View>
       </SafeAreaView>

@@ -15,15 +15,8 @@ const byCategory = {
 };
 const lastBroadcast = { new_creation: 0, near_completion: 0, completed: 0 };
 const BROADCAST_THROTTLE_MS = 1000;
-// Temporarily suppress WS broadcasts for a tab (e.g. after filter change)
-// so the refresher's stale data doesn't overwrite the HTTP response.
-const suppressed = new Set();
-
-export function suppressBroadcast(tab) { suppressed.add(tab); }
-export function unsuppressBroadcast(tab) { suppressed.delete(tab); }
 
 /** Merges a fetchTrenches result into per-category stores and broadcasts.
- *  source='http' bypasses suppression (HTTP GET after filter change).
  *  When `tab` is provided, only that category's store is updated — this
  *  prevents one refresher worker's response (which defaults non-fetched
  *  categories to []) from wiping out other workers' data. */
@@ -40,12 +33,26 @@ export function upsertTrenches(data, source = 'refresher', tab = null) {
     for (const t of list) {
       if (t?.address) map.set(t.address, t);
     }
-    const canBroadcast = source === 'http' || !suppressed.has(key);
-    if (canBroadcast && list.length > 0 && now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS) {
+    const canBroadcast = now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS;
+    if (canBroadcast && list.length > 0) {
       lastBroadcast[key] = now;
       broadcast(`trenches:${key}`, { event: 'trenches_updated', tab: key, data: list });
     }
   }
+}
+
+/** Returns current trenches data for a tab (or all tabs). */
+export function getCurrentData(tab = null) {
+  if (tab) {
+    const map = byCategory[tab];
+    if (!map) return [];
+    return [...map.values()];
+  }
+  const out = {};
+  for (const key of ['new_creation', 'near_completion', 'completed']) {
+    out[key] = [...byCategory[key].values()];
+  }
+  return out;
 }
 
 /** Returns the cached trenches token for an address, or null. */

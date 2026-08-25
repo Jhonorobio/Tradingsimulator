@@ -6,6 +6,7 @@ interface WsClient {
   subscribe: (topic: string) => void;
   unsubscribe: (topic: string) => void;
   on: (event: string, handler: MessageHandler) => () => void;
+  send: (msg: object) => void;
   disconnect: () => void;
 }
 
@@ -123,6 +124,11 @@ export function getWsClient(): WsClient {
       return () => {
         listeners.get(event)?.delete(handler);
       };
+    },
+    send(msg: object) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      }
     },
     disconnect() {
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
