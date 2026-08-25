@@ -23,11 +23,16 @@ export function suppressBroadcast(tab) { suppressed.add(tab); }
 export function unsuppressBroadcast(tab) { suppressed.delete(tab); }
 
 /** Merges a fetchTrenches result into per-category stores and broadcasts.
- *  source='http' bypasses suppression (HTTP GET after filter change). */
-export function upsertTrenches(data, source = 'refresher') {
+ *  source='http' bypasses suppression (HTTP GET after filter change).
+ *  When `tab` is provided, only that category's store is updated — this
+ *  prevents one refresher worker's response (which defaults non-fetched
+ *  categories to []) from wiping out other workers' data. */
+export function upsertTrenches(data, source = 'refresher', tab = null) {
   if (!data || typeof data !== 'object') return;
   const now = Date.now();
-  for (const key of ['new_creation', 'near_completion', 'completed']) {
+  const keys = tab ? [tab] : ['new_creation', 'near_completion', 'completed'];
+  for (const key of keys) {
+    if (!['new_creation', 'near_completion', 'completed'].includes(key)) continue;
     const list = data[key];
     if (!Array.isArray(list)) continue;
     const map = byCategory[key];

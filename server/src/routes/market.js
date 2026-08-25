@@ -247,6 +247,7 @@ router.get('/trenches', async (req, res) => {
     const result = await fetchTrenches(buildParamsFromConfig(config, tab), {
       ...(connectionForTab(tab) || {}),
       ttl: 2,
+      tab,
       source: 'http',
     });
     res.json({ ...result, tab, fetched_at: new Date().toISOString() });

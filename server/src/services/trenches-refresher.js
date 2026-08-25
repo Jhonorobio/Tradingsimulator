@@ -90,7 +90,7 @@ async function tabWorker(tab, connection, rebuildQueue, delay, onError) {
 
     const start = Date.now();
     try {
-      await fetchTrenches(item.params, { ...(connection || {}), force: true });
+      await fetchTrenches(item.params, { ...(connection || {}), tab: item.tab, force: true });
     } catch (err) {
       onError(err);
       // If rate-limited, wait until reset time before retrying
@@ -131,7 +131,7 @@ async function sharedWorker(rebuildQueue, connectionFor, delay, onError) {
     }
     const start = Date.now();
     try {
-      await fetchTrenches(item.params, { ...connection, force: true });
+      await fetchTrenches(item.params, { ...connection, tab: item.tab, force: true });
     } catch (err) {
       onError(err);
       // If rate-limited, wait until reset time before retrying
