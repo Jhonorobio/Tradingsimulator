@@ -59,7 +59,7 @@ export default function TokenScreen() {
     if (wsData && detail) {
       setDetail((prev) => prev ? { ...prev, ...wsData } : prev);
     }
-  }, [tokenPrices, chain, address, detail]);
+  }, [tokenPrices, chain, address]);
 
   // Token detail: initial load + WS for live price
   const loadDetail = useCallback(async () => {
