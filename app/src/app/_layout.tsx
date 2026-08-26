@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { Platform } from 'react-native';
+import { Platform, useColorScheme } from 'react-native';
 
 import { useSettings } from '@/store/settings';
 import { initWs } from '@/api/ws-client';
