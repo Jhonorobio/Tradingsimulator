@@ -195,12 +195,6 @@ export default function TrenchesScreen() {
     };
   }, [subscribeTrenches, unsubscribeTrenches]);
 
-  const [filters, setFilters] = useState<Record<TabKey, Filters>>({
-    new_creation: emptyFilters(),
-    near_completion: emptyFilters(),
-    completed: emptyFilters(),
-  });
-
   // Load saved filters on mount
   useEffect(() => {
     let cancelled = false;
