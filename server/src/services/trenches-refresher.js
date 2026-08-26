@@ -32,7 +32,7 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
     // Remove stale 'default' entry left over from old hardcoded deviceId.
     // Without this, two device configs (default + real) would produce two
     // different fetch params for the same tab, causing two alternating lists.
-    if (all.has('default')) {
+    if ('default' in all) {
       trenchesFilters.delete('default');
     }
     const configs = Object.values(all).map((entry) => entry?.filters ?? null).filter(Boolean);
