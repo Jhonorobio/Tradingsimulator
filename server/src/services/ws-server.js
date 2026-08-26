@@ -94,15 +94,6 @@ async function handleSetTrenchesFilters(client, msg) {
     sendTo(client, { event: 'error', message: 'deviceId and filters are required' });
     return;
   }
-  if (deviceId === 'default') {
-    sendTo(client, { event: 'error', message: 'invalid deviceId: default' });
-    return;
-  }
-
-  // Remove stale 'default' entry if present (leftover from hardcoded deviceId)
-  if (trenchesFilters.has('default')) {
-    trenchesFilters.delete('default');
-  }
 
   // Save filters to store
   trenchesFilters.set(deviceId, { filters: rawFilters, updated_at: new Date().toISOString() });
