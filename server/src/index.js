@@ -5,7 +5,7 @@ import cors from 'cors';
 import marketRoutes from './routes/market.js';
 import tradingRoutes from './routes/trading.js';
 import notificationRoutes from './routes/notifications.js';
-import { startPoller } from './services/poller.js';
+import { startNotificationWatcher } from './services/poller.js';
 import { startTrenchesRefresher } from './services/trenches-refresher.js';
 import { ensureCalibrated } from './services/gmgn-clock.js';
 import { initWebSocket } from './services/ws-server.js';
@@ -43,11 +43,10 @@ server.listen(PORT, () => {
   console.log(`Data dir: ${process.env.DATA_DIR || 'data/'}`);
 });
 
-// push notification watcher (reads from trenches store, no GMGN calls)
-startPoller(process.env.NOTIFY_INTERVAL_SEC || 5, {
+// push notification watcher (event-driven, triggered by upsertTrenches)
+startNotificationWatcher({
   onError: (err) => console.error('[poller]', err?.message),
 });
-console.log('Push poller started (interval in seconds: ' + (process.env.NOTIFY_INTERVAL_SEC || 5) + ')');
 
 // Auto-calibrate GMGN clock from Date header, then start refresher
 ensureCalibrated().then(() => {

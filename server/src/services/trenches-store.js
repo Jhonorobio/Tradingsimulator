@@ -16,6 +16,15 @@ const byCategory = {
 const lastBroadcast = { new_creation: 0, near_completion: 0, completed: 0 };
 const BROADCAST_THROTTLE_MS = 1000;
 
+// Optional callback fired after new tokens are inserted (for push notifications)
+let onNewTokens = null;
+
+/** Register a callback to be called when new tokens are upserted.
+ *  Callback receives (updatedTabs: string[]) — the categories that changed. */
+export function onTokensInserted(cb) {
+  onNewTokens = cb;
+}
+
 /** Merges a fetchTrenches result into per-category stores and broadcasts.
  *  When `tab` is provided, only that category's store is updated — this
  *  prevents one refresher worker's response (which defaults non-fetched
@@ -24,6 +33,7 @@ export function upsertTrenches(data, source = 'refresher', tab = null) {
   if (!data || typeof data !== 'object') return;
   const now = Date.now();
   const keys = tab ? [tab] : ['new_creation', 'near_completion', 'completed'];
+  const updatedTabs = [];
   for (const key of keys) {
     if (!['new_creation', 'near_completion', 'completed'].includes(key)) continue;
     const list = data[key];
@@ -33,11 +43,16 @@ export function upsertTrenches(data, source = 'refresher', tab = null) {
     for (const t of list) {
       if (t?.address) map.set(t.address, t);
     }
+    updatedTabs.push(key);
     const canBroadcast = now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS;
     if (canBroadcast && list.length > 0) {
       lastBroadcast[key] = now;
       broadcast(`trenches:${key}`, { event: 'trenches_updated', tab: key, data: list });
     }
+  }
+  // Notify listener (push notification check) about updated categories
+  if (updatedTabs.length > 0 && onNewTokens) {
+    try { onNewTokens(updatedTabs); } catch {}
   }
 }
 
