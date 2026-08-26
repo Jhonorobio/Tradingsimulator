@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "810975195634",
+    "project_id": "coinsdashboardnotif",
+    "storage_bucket": "coinsdashboardnotif.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:810975195634:android:5b01e6bac99957776d3b6b",
+        "android_client_info": {
+          "package_name": "com.anonymous.CoinsDashboard"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDGVOOTcoPzbHf1eGY4Cz8X7SJ0hj5D2MY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:810975195634:android:0ea590de354a2bae6d3b6b",
+        "android_client_info": {
+          "package_name": "com.jhonorobio.memetradesimulator"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDGVOOTcoPzbHf1eGY4Cz8X7SJ0hj5D2MY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
