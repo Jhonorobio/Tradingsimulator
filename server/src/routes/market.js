@@ -256,14 +256,11 @@ router.get('/trenches', async (req, res) => {
 });
 
 /**
- * GET /api/market/trenches/filters — saved per-device trenches filters.
- * Header: X-Device-Id
+ * GET /api/market/trenches/filters — global trenches filters config.
  */
-router.get('/trenches/filters', (req, res) => {
-  const id = deviceId(req);
-  if (!id) return fail(res, new Error('X-Device-Id header is required'), 400);
+router.get('/trenches/filters', (_req, res) => {
   try {
-    const entry = trenchesFilters.get(id);
+    const entry = trenchesFilters.get('global');
     res.json({ filters: entry?.filters ?? null });
   } catch (err) {
     fail(res, err);
@@ -271,16 +268,14 @@ router.get('/trenches/filters', (req, res) => {
 });
 
 /**
- * PUT /api/market/trenches/filters — save per-device trenches filters.
- * Header: X-Device-Id · Body: { filters }
+ * PUT /api/market/trenches/filters — save global trenches filters.
+ * Body: { filters }
  */
 router.put('/trenches/filters', (req, res) => {
-  const id = deviceId(req);
-  if (!id) return fail(res, new Error('X-Device-Id header is required'), 400);
   try {
     const raw = req.body?.filters;
     if (raw == null) return fail(res, new Error('filters is required'), 400);
-    trenchesFilters.set(id, { filters: raw, updated_at: new Date().toISOString() });
+    trenchesFilters.set('global', { filters: raw, updated_at: new Date().toISOString() });
     res.json({ ok: true });
   } catch (err) {
     fail(res, err);

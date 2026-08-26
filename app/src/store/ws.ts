@@ -9,7 +9,7 @@ interface WsState {
   solPrice: number | null;
   subscribeTrenches: (tab: string) => void;
   unsubscribeTrenches: (tab: string) => void;
-  setTrenchesFilters: (deviceId: string, filters: unknown) => void;
+  setTrenchesFilters: (filters: unknown) => void;
   subscribeTokenPrice: (chain: string, address: string) => void;
   unsubscribeTokenPrice: (chain: string, address: string) => void;
   subscribeSolPrice: () => void;
@@ -46,8 +46,8 @@ export const useWs = create<WsState>((set, get) => ({
     client.unsubscribe(`trenches:${tab}`);
   },
 
-  setTrenchesFilters: (deviceId: string, filters: unknown) => {
-    client.send({ action: 'set_trenches_filters', deviceId, filters });
+  setTrenchesFilters: (filters: unknown) => {
+    client.send({ action: 'set_trenches_filters', filters });
   },
 
   subscribeTokenPrice: (chain: string, address: string) => {

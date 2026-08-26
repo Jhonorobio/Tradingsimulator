@@ -85,18 +85,18 @@ function handleMessage(client, msg) {
 
 /**
  * Handle set_trenches_filters from a WS client.
- * Saves filters, then fetches all tabs with the new config and pushes results.
+ * Saves filters under a single global key (one shared config, like the old project).
+ * Then fetches all tabs with the new config and pushes results.
  */
 async function handleSetTrenchesFilters(client, msg) {
-  const deviceId = msg.deviceId;
   const rawFilters = msg.filters;
-  if (!deviceId || rawFilters == null) {
-    sendTo(client, { event: 'error', message: 'deviceId and filters are required' });
+  if (rawFilters == null) {
+    sendTo(client, { event: 'error', message: 'filters are required' });
     return;
   }
 
-  // Save filters to store
-  trenchesFilters.set(deviceId, { filters: rawFilters, updated_at: new Date().toISOString() });
+  // Save filters under fixed 'global' key — single config for all tabs
+  trenchesFilters.set('global', { filters: rawFilters, updated_at: new Date().toISOString() });
 
   // Fetch each tab that has a configured proxy and push results
   for (const tab of TRENCH_TABS) {

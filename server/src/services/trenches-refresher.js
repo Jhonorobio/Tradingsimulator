@@ -28,17 +28,12 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const rebuildQueue = () => {
-    const all = trenchesFilters.getAll();
-    // Remove stale 'default' entry left over from old hardcoded deviceId.
-    // Without this, two device configs (default + real) would produce two
-    // different fetch params for the same tab, causing two alternating lists.
-    if ('default' in all) {
-      trenchesFilters.delete('default');
-    }
-    const configs = Object.values(all).map((entry) => entry?.filters ?? null).filter(Boolean);
+    // Single global config — one shared filter set for all tabs (like old project)
+    const entry = trenchesFilters.get('global');
+    const config = entry?.filters ?? null;
     const seen = new Set();
     const queue = [];
-    for (const config of configs) {
+    if (config) {
       for (const tab of TRENCH_TABS) {
         // Skip tabs without a configured proxy
         if (!connectionFor(tab)) continue;

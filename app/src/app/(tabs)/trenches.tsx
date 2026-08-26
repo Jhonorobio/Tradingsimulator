@@ -20,7 +20,6 @@ import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
 import { getSavedTrenchesFilters } from '@/api/market';
-import { getDeviceId } from '@/api/client';
 import type { TrenchesItem } from '@/api/types';
 
 type TabKey = 'new_creation' | 'near_completion' | 'completed';
@@ -196,14 +195,15 @@ export default function TrenchesScreen() {
     };
   }, [subscribeTrenches, unsubscribeTrenches]);
 
-  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<Record<TabKey, Filters>>({
+    new_creation: emptyFilters(),
+    near_completion: emptyFilters(),
+    completed: emptyFilters(),
+  });
 
   // Load saved filters on mount
   useEffect(() => {
     let cancelled = false;
-    getDeviceId().then((id) => {
-      if (!cancelled) setDeviceId(id);
-    });
     getSavedTrenchesFilters()
       .then((res) => {
         if (cancelled || !res.filters) return;
@@ -235,9 +235,8 @@ export default function TrenchesScreen() {
     const next = { ...filters, [activeTab]: draft };
     setFilters(next);
     setFiltersVisible(false);
-    // Send filters via WS — server saves and re-fetches, then pushes result
-    if (deviceId) setTrenchesFilters(deviceId, next);
-  }, [activeTab, draft, filters, setTrenchesFilters, deviceId]);
+    setTrenchesFilters(next);
+  }, [activeTab, draft, filters, setTrenchesFilters]);
 
   const activeTokens = data[activeTab] ?? [];
 
