@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SERVER_URL_KEY = 'trading-sim/server-url';
 const DEVICE_ID_KEY = 'trading-sim/device-id';
+const PUSH_TOKEN_KEY = 'trading-sim/push-token';
 
 /** Derive the backend host from the Metro bundler host when available. */
 function deriveDefaultUrl() {
@@ -34,6 +35,18 @@ export async function getDeviceId(): Promise<string> {
   id = `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   await AsyncStorage.setItem(DEVICE_ID_KEY, id);
   return id;
+}
+
+export async function getPersistedPushToken(): Promise<string | null> {
+  return AsyncStorage.getItem(PUSH_TOKEN_KEY);
+}
+
+export async function setPersistedPushToken(token: string | null): Promise<void> {
+  if (token) {
+    await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
+  } else {
+    await AsyncStorage.removeItem(PUSH_TOKEN_KEY);
+  }
 }
 
 export class ApiError extends Error {

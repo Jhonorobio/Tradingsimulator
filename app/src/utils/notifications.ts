@@ -27,7 +27,7 @@ export function notificationsAvailable(): boolean {
 }
 
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
-  if (Platform.OS === 'web' || Platform.OS === 'android' || !Notifications || !Device.isDevice) {
+  if (Platform.OS === 'web' || !Notifications || !Device.isDevice) {
     return null;
   }
 

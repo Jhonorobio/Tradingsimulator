@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getDeviceId, getServerUrl, setServerUrl } from '@/api/client';
+import { getDeviceId, getServerUrl, setServerUrl, getPersistedPushToken, setPersistedPushToken } from '@/api/client';
 import { getProxiesStatus } from '@/api/market';
 import type { ProxyStatus } from '@/api/types';
 
@@ -22,14 +22,17 @@ export const useSettings = create<SettingsState>((set, get) => ({
   pushToken: null,
   proxyStatuses: [],
   load: async () => {
-    const [deviceId, serverUrl] = await Promise.all([getDeviceId(), getServerUrl()]);
-    set({ deviceId, serverUrl, ready: true });
+    const [deviceId, serverUrl, persistedToken] = await Promise.all([getDeviceId(), getServerUrl(), getPersistedPushToken()]);
+    set({ deviceId, serverUrl, pushToken: persistedToken, ready: true });
   },
   setUrl: async (url) => {
     await setServerUrl(url);
     set({ serverUrl: url.replace(/\/+$/, '') });
   },
-  setPushToken: (pushToken) => set({ pushToken }),
+  setPushToken: (pushToken) => {
+    set({ pushToken });
+    setPersistedPushToken(pushToken).catch(() => {});
+  },
   loadProxyStatuses: async () => {
     try {
       const res = await getProxiesStatus();

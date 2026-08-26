@@ -1,8 +1,11 @@
 import { notificationConfig, notifiedTokens } from '../stores.js';
 import { getAllTokens, storeSize } from './trenches-store.js';
-import { sendPush } from './push.js';
+import { sendPush, checkReceipts } from './push.js';
 
 const CATEGORIES = ['new_creation', 'near_completion', 'completed'];
+
+// How many poll cycles between receipt checks (e.g., 60 × 5s = 5 min)
+const RECEIPT_CHECK_INTERVAL = 60;
 
 function fmtUsd(n) {
   if (n == null || isNaN(n)) return 'n/a';
@@ -21,16 +24,18 @@ function fmtNum(n) {
  * For each device with an enabled category, looks up tokens in the trenches
  * store and sends push notifications for tokens not yet notified.
  * No GMGN calls — reads only from the cache populated by the trenches refresher.
+ * Returns { checked, notified, tickets } where tickets = [{ticketId, deviceId}]
  */
 export async function pollOnce({ onError = () => {} } = {}) {
   const all = notificationConfig.getAll();
   const devices = Object.values(all).filter((e) => e?.push_token);
-  if (!devices.length) return { checked: 0, notified: 0 };
+  if (!devices.length) return { checked: 0, notified: 0, tickets: [] };
 
   // If trenches store is empty, nothing to notify about
-  if (storeSize() === 0) return { checked: devices.length, notified: 0 };
+  if (storeSize() === 0) return { checked: devices.length, notified: 0, tickets: [] };
 
   let notified = 0;
+  const tickets = [];
 
   for (const entry of devices) {
     const { push_token: token, categories } = entry;
@@ -43,7 +48,6 @@ export async function pollOnce({ onError = () => {} } = {}) {
       const alreadyNotified = new Set(notifiedTokens.get(notifiedKey) || []);
 
       // Get all known token addresses from the trenches store
-      // The store is populated by upsertTrenches() on every fetchTrenches() call
       const tokens = getTokensFromStore(cat);
 
       for (const t of tokens) {
@@ -53,7 +57,6 @@ export async function pollOnce({ onError = () => {} } = {}) {
         // Persist notified address
         const list = notifiedTokens.get(notifiedKey) || [];
         list.push(t.address);
-        // Cap at 500 per category to avoid unbounded growth
         if (list.length > 500) list.shift();
         notifiedTokens.set(notifiedKey, list);
 
@@ -66,21 +69,24 @@ export async function pollOnce({ onError = () => {} } = {}) {
           `Rug ${t.rug_ratio != null ? t.rug_ratio.toFixed(2) : 'n/a'}`,
         ].join(' · ');
 
-        const res = await sendPush(token, {
+        const { ticketId, result } = await sendPush(token, {
           title,
           body,
           data: { address: t.address, chain: t.chain || 'sol', symbol: t.symbol, type: cat },
         });
-        if (res?.data?.status === 'error') {
-          onError(new Error(`Push failed: ${res.data.message}`));
+        if (result?.data?.status === 'error') {
+          onError(new Error(`Push failed: ${result.data.message}`));
         } else {
           notified += 1;
+          if (ticketId) {
+            tickets.push({ ticketId, deviceId: entry.device_id });
+          }
         }
       }
     }
   }
 
-  return { checked: devices.length, notified };
+  return { checked: devices.length, notified, tickets };
 }
 
 /**
@@ -96,9 +102,36 @@ function getTokensFromStore(category) {
 
 export function startPoller(intervalSeconds, { onError = () => {} } = {}) {
   const intervalMs = Math.max(1, Number(intervalSeconds) || 5) * 1000;
+  let cycleCount = 0;
+  let pendingTickets = [];
+
   const run = async () => {
     try {
-      await pollOnce({ onError });
+      const { tickets } = await pollOnce({ onError });
+      if (tickets?.length) pendingTickets.push(...tickets);
+
+      // Every RECEIPT_CHECK_INTERVAL cycles, check accumulated receipts
+      cycleCount++;
+      if (cycleCount >= RECEIPT_CHECK_INTERVAL && pendingTickets.length > 0) {
+        cycleCount = 0;
+        const ticketIds = pendingTickets.map((t) => t.ticketId);
+        const ticketToDevice = new Map(pendingTickets.map((t) => [t.ticketId, t.deviceId]));
+        pendingTickets = [];
+
+        try {
+          const invalidDevices = await checkReceipts(ticketIds, ticketToDevice);
+          for (const deviceId of invalidDevices) {
+            // Remove dead device's notification config and notified tokens
+            notificationConfig.delete(deviceId);
+            for (const cat of CATEGORIES) {
+              notifiedTokens.delete(`${deviceId}:${cat}`);
+            }
+            console.log(`[poller] Removed dead push token for device ${deviceId}`);
+          }
+        } catch (err) {
+          onError(err);
+        }
+      }
     } catch (err) {
       onError(err);
     }
