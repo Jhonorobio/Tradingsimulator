@@ -1,5 +1,12 @@
 const PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
 const RECEIPTS_ENDPOINT = 'https://exp.host/--/api/v2/push/getReceipts';
+const EXPO_ACCESS_TOKEN = process.env.EXPO_ACCESS_TOKEN;
+
+function pushHeaders() {
+  const h = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  if (EXPO_ACCESS_TOKEN) h['Authorization'] = `Bearer ${EXPO_ACCESS_TOKEN}`;
+  return h;
+}
 
 /**
  * Sends a push notification through the Expo Push API.
@@ -13,7 +20,7 @@ export async function sendPush(token, { title, body, data = {} }) {
   try {
     const res = await fetch(PUSH_ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: pushHeaders(),
       body: JSON.stringify({ to: token, title, body, data }),
       signal: controller.signal,
     });
@@ -34,7 +41,7 @@ export async function sendPushes(entries) {
     try {
       const res = await fetch(PUSH_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: pushHeaders(),
         body: JSON.stringify(chunk),
         signal: controller.signal,
       });
@@ -73,7 +80,7 @@ export async function checkReceipts(ticketIds, ticketToDevice) {
     try {
       const res = await fetch(RECEIPTS_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: pushHeaders(),
         body: JSON.stringify({ ids: chunk }),
         signal: controller.signal,
       });
