@@ -24,10 +24,10 @@ import type { TrenchesItem } from '@/api/types';
 
 type TabKey = 'new_creation' | 'completed' | 'new_creation_robinhood' | 'completed_robinhood';
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'new_creation', label: 'Nueva (SOL)' },
-  { key: 'completed', label: 'Completado (SOL)' },
-  { key: 'new_creation_robinhood', label: 'Nueva (Robinhood)' },
-  { key: 'completed_robinhood', label: 'Completado (Robinhood)' },
+  { key: 'new_creation', label: 'Nueva' },
+  { key: 'completed', label: 'Hecha' },
+  { key: 'new_creation_robinhood', label: 'Nueva RH' },
+  { key: 'completed_robinhood', label: 'Hecha RH' },
 ];
 
 type RangeValues = { min: string; max: string };
