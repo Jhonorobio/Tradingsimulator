@@ -49,8 +49,13 @@ router.get('/proxies', (_req, res) => {
 router.put('/proxies', (req, res) => {
   const { tab, url, apiKey } = req.body || {};
   if (!VALID_TABS.includes(tab)) return fail(res, new Error('Invalid tab'), 400);
-  if (!url || !apiKey) return fail(res, new Error('url and apiKey are required'), 400);
-  proxyConfigs.set(tab, { url: String(url).trim(), apiKey: String(apiKey).trim() });
+  // new_creation (SOL) only needs API key, no proxy URL
+  if (tab === 'new_creation') {
+    if (!apiKey) return fail(res, new Error('apiKey is required'), 400);
+  } else {
+    if (!url || !apiKey) return fail(res, new Error('url and apiKey are required'), 400);
+  }
+  proxyConfigs.set(tab, { url: String(url || '').trim(), apiKey: String(apiKey).trim() });
   res.json({ ok: true });
 });
 

@@ -128,9 +128,17 @@ export default function SettingsScreen() {
 
   const doSaveProxy = async (tab: string) => {
     const cfg = proxyConfigs[tab];
-    if (!cfg.url || !cfg.apiKey) {
-      Alert.alert('Error', 'URL y API Key son requeridas');
-      return;
+    // new_creation (SOL) only needs API key, no proxy URL
+    if (tab === 'new_creation') {
+      if (!cfg.apiKey) {
+        Alert.alert('Error', 'API Key es requerida');
+        return;
+      }
+    } else {
+      if (!cfg.url || !cfg.apiKey) {
+        Alert.alert('Error', 'URL y API Key son requeridas');
+        return;
+      }
     }
     try {
       await saveProxy(tab, cfg.url, cfg.apiKey);
