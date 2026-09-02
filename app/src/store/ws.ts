@@ -23,7 +23,7 @@ let solPriceCleanup: (() => void) | null = null;
 
 export const useWs = create<WsState>((set, get) => ({
   connected: false,
-  trenches: { new_creation: [], near_completion: [], completed: [] },
+  trenches: { new_creation: [], completed: [] },
   tokenPrices: {},
   solPrice: null,
 

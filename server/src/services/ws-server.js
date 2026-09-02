@@ -23,7 +23,7 @@ import { fetchTrenches } from '../cli/args.js';
  *     { event: "pong" }
  *
  * Topics:
- *   trenches:new_creation | trenches:near_completion | trenches:completed
+ *   trenches:new_creation | trenches:completed
  *   token:{chain}:{address}
  *   portfolio:{deviceId}
  *   sol_price

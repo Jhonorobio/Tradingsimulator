@@ -127,7 +127,6 @@ export interface TrenchesItem {
 
 export interface TrenchesResponse {
   new_creation: TrenchesItem[];
-  near_completion: TrenchesItem[];
   completed: TrenchesItem[];
   fetched_at: string;
 }
@@ -176,7 +175,6 @@ export interface NotificationConfig {
   push_token: string | null;
   categories: {
     new_creation: boolean;
-    near_completion: boolean;
     completed: boolean;
   };
 }

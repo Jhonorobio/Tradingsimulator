@@ -10,10 +10,9 @@ import { broadcast } from './ws-server.js';
 // Separate maps per category to prevent cross-contamination
 const byCategory = {
   new_creation: new Map(),
-  near_completion: new Map(),
   completed: new Map(),
 };
-const lastBroadcast = { new_creation: 0, near_completion: 0, completed: 0 };
+const lastBroadcast = { new_creation: 0, completed: 0 };
 const BROADCAST_THROTTLE_MS = 1000;
 
 // Optional callback fired after new tokens are inserted (for push notifications)
@@ -32,10 +31,10 @@ export function onTokensInserted(cb) {
 export function upsertTrenches(data, source = 'refresher', tab = null) {
   if (!data || typeof data !== 'object') return;
   const now = Date.now();
-  const keys = tab ? [tab] : ['new_creation', 'near_completion', 'completed'];
+  const keys = tab ? [tab] : ['new_creation', 'completed'];
   const updatedTabs = [];
   for (const key of keys) {
-    if (!['new_creation', 'near_completion', 'completed'].includes(key)) continue;
+    if (!['new_creation', 'completed'].includes(key)) continue;
     const list = data[key];
     if (!Array.isArray(list)) continue;
     const map = byCategory[key];
@@ -64,7 +63,7 @@ export function getCurrentData(tab = null) {
     return [...map.values()];
   }
   const out = {};
-  for (const key of ['new_creation', 'near_completion', 'completed']) {
+  for (const key of ['new_creation', 'completed']) {
     out[key] = [...byCategory[key].values()];
   }
   return out;
@@ -72,7 +71,7 @@ export function getCurrentData(tab = null) {
 
 /** Returns the cached trenches token for an address, or null. */
 export function findToken(address) {
-  for (const key of ['new_creation', 'near_completion', 'completed']) {
+  for (const key of ['new_creation', 'completed']) {
     const t = byCategory[key].get(address);
     if (t) return { ...t, _category: key };
   }
@@ -82,7 +81,7 @@ export function findToken(address) {
 /** Returns all tokens in the store as an array. */
 export function getAllTokens() {
   const out = [];
-  for (const key of ['new_creation', 'near_completion', 'completed']) {
+  for (const key of ['new_creation', 'completed']) {
     for (const t of byCategory[key].values()) {
       out.push({ ...t, _category: key });
     }
@@ -100,7 +99,7 @@ export function getCategoryTokens(category) {
 /** Number of unique tokens currently stored (debugging). */
 export function storeSize() {
   let n = 0;
-  for (const key of ['new_creation', 'near_completion', 'completed']) {
+  for (const key of ['new_creation', 'completed']) {
     n += byCategory[key].size;
   }
   return n;

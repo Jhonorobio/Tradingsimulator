@@ -4,7 +4,7 @@ import { isValidPushToken } from '../services/push.js';
 
 const router = Router();
 
-const VALID_CATEGORIES = ['new_creation', 'near_completion', 'completed'];
+const VALID_CATEGORIES = ['new_creation', 'completed'];
 
 function deviceId(req) {
   const id = req.headers['x-device-id'] || req.params.deviceId;
@@ -22,7 +22,7 @@ function fail(res, err, status = 500) {
 
 /**
  * PUT /api/notifications/config
- * Body: { push_token, categories: { new_creation: bool, near_completion: bool, completed: bool } }
+ * Body: { push_token, categories: { new_creation: bool, completed: bool } }
  * Creates or replaces the notification config for this device.
  */
 router.put('/config', (req, res) => {
@@ -67,7 +67,7 @@ router.get('/config', (req, res) => {
     if (!entry) {
       return res.json({
         push_token: null,
-        categories: { new_creation: false, near_completion: false, completed: false },
+        categories: { new_creation: false, completed: false },
       });
     }
     res.json({

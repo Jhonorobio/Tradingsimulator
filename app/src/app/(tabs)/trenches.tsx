@@ -22,10 +22,9 @@ import { useWs } from '@/store/ws';
 import { getSavedTrenchesFilters } from '@/api/market';
 import type { TrenchesItem } from '@/api/types';
 
-type TabKey = 'new_creation' | 'near_completion' | 'completed';
+type TabKey = 'new_creation' | 'completed';
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'new_creation', label: 'Nueva' },
-  { key: 'near_completion', label: 'Completando' },
   { key: 'completed', label: 'Completado' },
 ];
 
@@ -83,7 +82,6 @@ function emptyFilters(): Filters {
 function normalizeFilters(raw: unknown): Record<TabKey, Filters> {
   const fallback: Record<TabKey, Filters> = {
     new_creation: emptyFilters(),
-    near_completion: emptyFilters(),
     completed: emptyFilters(),
   };
   if (!raw || typeof raw !== 'object') return fallback;
@@ -161,7 +159,6 @@ export default function TrenchesScreen() {
 
   const [filters, setFilters] = useState<Record<TabKey, Filters>>({
     new_creation: emptyFilters(),
-    near_completion: emptyFilters(),
     completed: emptyFilters(),
   });
   const [filtersVisible, setFiltersVisible] = useState(false);
@@ -169,7 +166,6 @@ export default function TrenchesScreen() {
 
   const [data, setData] = useState<Record<TabKey, TrenchesItem[]>>({
     new_creation: [],
-    near_completion: [],
     completed: [],
   });
 

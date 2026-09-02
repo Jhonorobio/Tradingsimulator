@@ -10,7 +10,7 @@ const MIN_INTERVAL_MS = 1050;
 
 /**
  * Background refresher for the Trenches views. Runs one dedicated worker per
- * tab (new_creation / near_completion / completed). Each worker fetches that
+ * tab (new_creation / completed). Each worker fetches that
  * tab's params on its own adaptive loop: it measures the actual GMGN response
  * time and sleeps only as long as needed to stay within the rate limit.
  *

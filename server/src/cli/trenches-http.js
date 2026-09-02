@@ -113,7 +113,7 @@ function buildBodyFromArgs(args) {
   if (quote.length) section.quote_address_type = quote;
 
   const body = { version: 'v2' };
-  for (const type of types.length ? types : ['new_creation', 'near_completion', 'completed']) {
+  for (const type of types.length ? types : ['new_creation', 'completed']) {
     body[type] = { ...section };
   }
   return body;
@@ -235,7 +235,6 @@ export async function fetchTrenchesHttp(args, connection) {
   const data = json?.data ?? {};
   const result = {
     new_creation: data.new_creation ?? [],
-    near_completion: data.near_completion ?? data.pump ?? [],
     completed: data.completed ?? [],
   };
   return sortResult(result, extractSort(args), extractDirection(args));

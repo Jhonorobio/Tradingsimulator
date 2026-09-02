@@ -5,7 +5,7 @@ import { upsertTrenches } from '../services/trenches-store.js';
 import { getOffset } from '../services/gmgn-clock.js';
 
 export const CHAINS = new Set(['sol', 'bsc', 'base', 'eth', 'robinhood', 'arc', 'stable']);
-export const TRENCH_TYPES = ['new_creation', 'near_completion', 'completed'];
+export const TRENCH_TYPES = ['new_creation', 'completed'];
 const PRESETS = new Set(['safe', 'smart-money', 'strict']);
 const SORT_FIELDS = new Set([
   'smart_degen_count', 'renowned_count', 'volume_24h', 'volume_1h', 'swaps_24h', 'swaps_1h',
@@ -136,8 +136,6 @@ export async function fetchTrenches(params, opts = {}) {
       const data = json?.data ?? json ?? {};
       const result = {
         new_creation: data.new_creation ?? [],
-        // CLI v1.5.2 returns `near_completion` directly (older versions used `pump`).
-        near_completion: data.near_completion ?? data.pump ?? [],
         completed: data.completed ?? [],
       };
       upsertTrenches(result, opts.source || 'refresher', opts.tab || null);

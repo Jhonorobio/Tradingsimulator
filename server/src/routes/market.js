@@ -28,7 +28,7 @@ function cleanValue(v) {
   return typeof v === 'string' ? v.trim() : v;
 }
 
-const VALID_TABS = ['new_creation', 'near_completion', 'completed', 'token_info'];
+const VALID_TABS = ['new_creation', 'completed', 'token_info'];
 
 /**
  * GET /api/market/proxies — returns saved proxy configs for all 3 tabs.

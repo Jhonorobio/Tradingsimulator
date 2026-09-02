@@ -5,7 +5,7 @@
  * logic lives in the app.
  */
 
-export const TRENCH_TABS = ['new_creation', 'near_completion', 'completed'];
+export const TRENCH_TABS = ['new_creation', 'completed'];
 
 export const DEFAULT_TRENCH_PARAMS = { chain: 'sol', types: ['new_creation'], limit: 50 };
 

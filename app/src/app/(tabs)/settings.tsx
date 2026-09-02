@@ -18,15 +18,13 @@ import { fmtNum, fmtUsd, shortAddress } from '@/utils/format';
 
 const TAB_LABELS: Record<string, string> = {
   new_creation: 'Nueva creación',
-  near_completion: 'Completando',
   completed: 'Completado',
   token_info: 'Token Info (Detalle)',
 };
-const TAB_ORDER = ['new_creation', 'near_completion', 'completed', 'token_info'];
-const NOTIF_CATEGORIES = ['new_creation', 'near_completion', 'completed'] as const;
+const TAB_ORDER = ['new_creation', 'completed', 'token_info'];
+const NOTIF_CATEGORIES = ['new_creation', 'completed'] as const;
 const NOTIF_LABELS: Record<string, string> = {
   new_creation: 'Nueva creación',
-  near_completion: 'Completando',
   completed: 'Completado',
 };
 
@@ -44,17 +42,15 @@ export default function SettingsScreen() {
   // proxy config state (per tab)
   const [proxyConfigs, setProxyConfigs] = useState<Record<string, ProxyConfig>>({
     new_creation: { url: '', apiKey: '' },
-    near_completion: { url: '', apiKey: '' },
     completed: { url: '', apiKey: '' },
     token_info: { url: '', apiKey: '' },
   });
   const [proxyTesting, setProxyTesting] = useState<Record<string, boolean>>({});
   const [proxyTestResults, setProxyTestResults] = useState<Record<string, ProxyTestResult | null>>({});
 
-  // notification config (3 toggles)
+  // notification config (2 toggles)
   const [notifCategories, setNotifCategories] = useState<NotificationConfig['categories']>({
     new_creation: false,
-    near_completion: false,
     completed: false,
   });
 
