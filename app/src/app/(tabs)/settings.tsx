@@ -17,15 +17,19 @@ import { registerForPushNotificationsAsync, notificationsAvailable } from '@/uti
 import { fmtNum, fmtUsd, shortAddress } from '@/utils/format';
 
 const TAB_LABELS: Record<string, string> = {
-  new_creation: 'Nueva creación',
-  completed: 'Completado',
+  new_creation: 'Nueva creación (SOL)',
+  completed: 'Completado (SOL)',
+  new_creation_robinhood: 'Nueva creación (Robinhood)',
+  completed_robinhood: 'Completado (Robinhood)',
   token_info: 'Token Info (Detalle)',
 };
-const TAB_ORDER = ['new_creation', 'completed', 'token_info'];
-const NOTIF_CATEGORIES = ['new_creation', 'completed'] as const;
+const TAB_ORDER = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'token_info'];
+const NOTIF_CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'] as const;
 const NOTIF_LABELS: Record<string, string> = {
-  new_creation: 'Nueva creación',
-  completed: 'Completado',
+  new_creation: 'Nueva creación (SOL)',
+  completed: 'Completado (SOL)',
+  new_creation_robinhood: 'Nueva creación (Robinhood)',
+  completed_robinhood: 'Completado (Robinhood)',
 };
 
 export default function SettingsScreen() {
@@ -43,15 +47,19 @@ export default function SettingsScreen() {
   const [proxyConfigs, setProxyConfigs] = useState<Record<string, ProxyConfig>>({
     new_creation: { url: '', apiKey: '' },
     completed: { url: '', apiKey: '' },
+    new_creation_robinhood: { url: '', apiKey: '' },
+    completed_robinhood: { url: '', apiKey: '' },
     token_info: { url: '', apiKey: '' },
   });
   const [proxyTesting, setProxyTesting] = useState<Record<string, boolean>>({});
   const [proxyTestResults, setProxyTestResults] = useState<Record<string, ProxyTestResult | null>>({});
 
-  // notification config (2 toggles)
+  // notification config (4 toggles)
   const [notifCategories, setNotifCategories] = useState<NotificationConfig['categories']>({
     new_creation: false,
     completed: false,
+    new_creation_robinhood: false,
+    completed_robinhood: false,
   });
 
   useEffect(() => {

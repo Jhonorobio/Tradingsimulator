@@ -2,7 +2,7 @@ import { notificationConfig, notifiedTokens } from '../stores.js';
 import { getAllTokens, storeSize, onTokensInserted } from './trenches-store.js';
 import { sendPush, checkReceipts } from './push.js';
 
-const CATEGORIES = ['new_creation', 'completed'];
+const CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'];
 
 // How many insert cycles between receipt checks (e.g., 60 ≈ 5 min depending on frequency)
 const RECEIPT_CHECK_INTERVAL = 60;

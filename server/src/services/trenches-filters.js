@@ -5,9 +5,25 @@
  * logic lives in the app.
  */
 
-export const TRENCH_TABS = ['new_creation', 'completed'];
+export const TRENCH_TABS = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'];
 
 export const DEFAULT_TRENCH_PARAMS = { chain: 'sol', types: ['new_creation'], limit: 50 };
+
+// Map tab name → GMGN chain
+const TAB_CHAIN = {
+  new_creation: 'sol',
+  completed: 'sol',
+  new_creation_robinhood: 'robinhood',
+  completed_robinhood: 'robinhood',
+};
+
+// Map tab name → GMGN trench type (the API category parameter)
+const TAB_TYPE = {
+  new_creation: 'new_creation',
+  completed: 'completed',
+  new_creation_robinhood: 'new_creation',
+  completed_robinhood: 'completed',
+};
 
 // Field key -> interpretation scale. Mirrors what the app renders.
 const FIELD_SCALES = {
@@ -69,7 +85,9 @@ function parseValue(raw, scale) {
  * Record<TabKey, { [field]: { min, max } }>. Falls back to the default query.
  */
 export function buildParamsFromConfig(config, tab) {
-  const p = { chain: 'sol', types: [tab], limit: 50 };
+  const chain = TAB_CHAIN[tab] || 'sol';
+  const type = TAB_TYPE[tab] || 'new_creation';
+  const p = { chain, types: [type], limit: 50 };
   const vals = config?.[tab];
   if (!vals || typeof vals !== 'object') return p;
   for (const [key, scale] of Object.entries(FIELD_SCALES)) {

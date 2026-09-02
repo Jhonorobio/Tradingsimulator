@@ -128,6 +128,8 @@ export interface TrenchesItem {
 export interface TrenchesResponse {
   new_creation: TrenchesItem[];
   completed: TrenchesItem[];
+  new_creation_robinhood: TrenchesItem[];
+  completed_robinhood: TrenchesItem[];
   fetched_at: string;
 }
 
@@ -176,6 +178,8 @@ export interface NotificationConfig {
   categories: {
     new_creation: boolean;
     completed: boolean;
+    new_creation_robinhood: boolean;
+    completed_robinhood: boolean;
   };
 }
 

@@ -190,7 +190,7 @@ export default function TokenScreen() {
         </Card>
 
         {detail.sources?.trenches && (() => {
-          const trenchStatus = proxyStatuses.find((s) => s.tab === 'new_creation' || s.tab === 'completed');
+          const trenchStatus = proxyStatuses.find((s) => s.tab === 'new_creation' || s.tab === 'completed' || s.tab === 'new_creation_robinhood' || s.tab === 'completed_robinhood');
           if (trenchStatus?.working) return null;
           return (
             <Card style={{ borderColor: theme.warn, backgroundColor: `${theme.warn}15` }}>

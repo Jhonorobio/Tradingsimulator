@@ -22,10 +22,12 @@ import { useWs } from '@/store/ws';
 import { getSavedTrenchesFilters } from '@/api/market';
 import type { TrenchesItem } from '@/api/types';
 
-type TabKey = 'new_creation' | 'completed';
+type TabKey = 'new_creation' | 'completed' | 'new_creation_robinhood' | 'completed_robinhood';
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'new_creation', label: 'Nueva' },
-  { key: 'completed', label: 'Completado' },
+  { key: 'new_creation', label: 'Nueva (SOL)' },
+  { key: 'completed', label: 'Completado (SOL)' },
+  { key: 'new_creation_robinhood', label: 'Nueva (Robinhood)' },
+  { key: 'completed_robinhood', label: 'Completado (Robinhood)' },
 ];
 
 type RangeValues = { min: string; max: string };
@@ -83,6 +85,8 @@ function normalizeFilters(raw: unknown): Record<TabKey, Filters> {
   const fallback: Record<TabKey, Filters> = {
     new_creation: emptyFilters(),
     completed: emptyFilters(),
+    new_creation_robinhood: emptyFilters(),
+    completed_robinhood: emptyFilters(),
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const obj = raw as Record<string, unknown>;
@@ -160,6 +164,8 @@ export default function TrenchesScreen() {
   const [filters, setFilters] = useState<Record<TabKey, Filters>>({
     new_creation: emptyFilters(),
     completed: emptyFilters(),
+    new_creation_robinhood: emptyFilters(),
+    completed_robinhood: emptyFilters(),
   });
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [draft, setDraft] = useState<Filters>(emptyFilters());
@@ -167,6 +173,8 @@ export default function TrenchesScreen() {
   const [data, setData] = useState<Record<TabKey, TrenchesItem[]>>({
     new_creation: [],
     completed: [],
+    new_creation_robinhood: [],
+    completed_robinhood: [],
   });
 
   // Subscribe to WS trenches for all tabs on mount.

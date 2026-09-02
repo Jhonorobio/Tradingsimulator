@@ -5,7 +5,10 @@ import { upsertTrenches } from '../services/trenches-store.js';
 import { getOffset } from '../services/gmgn-clock.js';
 
 export const CHAINS = new Set(['sol', 'bsc', 'base', 'eth', 'robinhood', 'arc', 'stable']);
-export const TRENCH_TYPES = ['new_creation', 'completed'];
+// GMGN API accepts only these types (not the robinhood variants)
+const GMGN_TYPES = ['new_creation', 'completed'];
+// All tab names (including robinhood variants)
+export const TRENCH_TYPES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'];
 const PRESETS = new Set(['safe', 'smart-money', 'strict']);
 const SORT_FIELDS = new Set([
   'smart_degen_count', 'renowned_count', 'volume_24h', 'volume_1h', 'swaps_24h', 'swaps_1h',
@@ -62,9 +65,9 @@ export function buildTrenchesArgs(p) {
   args.push('--chain', chain);
 
   const rawTypes = [].concat(clean(p.types) ?? []).filter(Boolean);
-  const types = rawTypes.length ? rawTypes : TRENCH_TYPES;
+  const types = rawTypes.length ? rawTypes : GMGN_TYPES;
   for (const t of types) {
-    if (!new Set(TRENCH_TYPES).has(t)) throw Object.assign(new Error(`Unsupported type: ${t}`), { status: 400 });
+    if (!new Set(GMGN_TYPES).has(t)) throw Object.assign(new Error(`Unsupported type: ${t}`), { status: 400 });
     args.push('--type', t);
   }
 
@@ -134,9 +137,11 @@ export async function fetchTrenches(params, opts = {}) {
         ? await fetchTrenchesHttp(args, { proxy: opts.proxy || '', apiKey })
         : await runMarket('trenches', args);
       const data = json?.data ?? json ?? {};
+      // Map GMGN response to correct tab key (handles robinhood tabs)
+      const tab = opts.tab || 'new_creation';
+      const type = tab.replace('_robinhood', '');
       const result = {
-        new_creation: data.new_creation ?? [],
-        completed: data.completed ?? [],
+        [tab]: data[type] ?? data.new_creation ?? [],
       };
       upsertTrenches(result, opts.source || 'refresher', opts.tab || null);
       return result;
