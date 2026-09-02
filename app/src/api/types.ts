@@ -144,6 +144,12 @@ export interface TokenDetail {
   supply: number | null;
   liquidity: number;
   volume24h: number;
+  volume1h: number;
+  swaps24h: number;
+  swaps1h: number;
+  buys24h: number;
+  sells24h: number;
+  netBuy24h: number;
   priceChange: {
     m5: number;
     h1: number;
@@ -151,8 +157,29 @@ export interface TokenDetail {
     h24: number;
   } | null;
   holders: number | null;
+  top10HolderRate: number | null;
+  smartDegenCount: number | null;
+  renownedCount: number | null;
+  sniperCount: number | null;
+  rugRatio: number | null;
+  isWashTrading: boolean | null;
+  isHoneypot: string | number | null;
+  bundlerRate: number | null;
+  buyTax: number | null;
+  devTeamHoldRate: number | null;
+  creatorBalanceRate: number | null;
+  creatorTokenStatus: string | null;
+  renouncedMint: number | null;
+  renouncedFreeze: number | null;
   dex: string | null;
   dexPairs: number;
+  twitter: string | null;
+  telegram: string | null;
+  website: string | null;
+  xFollowers: number | null;
+  ctoFlag: number | null;
+  createdTimestamp: number | null;
+  openTimestamp: number | null;
   sources: { dex: boolean; gmgn: boolean; trenches: boolean };
 }
 

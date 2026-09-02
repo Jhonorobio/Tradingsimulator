@@ -88,6 +88,12 @@ export function buildParamsFromConfig(config, tab) {
   const chain = TAB_CHAIN[tab] || 'sol';
   const type = TAB_TYPE[tab] || 'new_creation';
   const p = { chain, types: [type], limit: 50 };
+
+  // Robinhood needs explicit launchpad_platform to include all supported launchpads
+  if (chain === 'robinhood') {
+    p.launchpadPlatform = ['pons', 'longxyz', 'o1', 'bankr', 'flap', 'trench', 'livo'];
+  }
+
   const vals = config?.[tab];
   if (!vals || typeof vals !== 'object') return p;
   for (const [key, scale] of Object.entries(FIELD_SCALES)) {

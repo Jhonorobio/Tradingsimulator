@@ -31,6 +31,18 @@ const QUOTE_ADDRESS_TYPES = {
   robinhood: [11, 20, 24, 12, 0],
 };
 
+// Robinhood launchpad platforms — explicit list ensures all supported
+// launchpads are included (GMGN may not return all by default).
+const ROBINHOOD_LAUNCHPADS = [
+  'pons',
+  'longxyz',
+  'o1',
+  'bankr',
+  'flap',
+  'trench',
+  'livo',
+];
+
 const PRESETS = {
   safe: { max_rug_ratio: 0.3, max_bundler_rate: 0.3, max_insider_ratio: 0.3 },
   'smart-money': { min_smart_degen_count: 1 },
@@ -108,7 +120,11 @@ function buildBodyFromArgs(args) {
     ...(preset ? PRESETS[preset] : {}),
     ...filters,
   };
-  if (platforms.length) section.launchpad_platform = platforms;
+  if (platforms.length) {
+    section.launchpad_platform = platforms;
+  } else if (chain === 'robinhood') {
+    section.launchpad_platform = ROBINHOOD_LAUNCHPADS;
+  }
   const quote = QUOTE_ADDRESS_TYPES[chain] ?? [];
   if (quote.length) section.quote_address_type = quote;
 
