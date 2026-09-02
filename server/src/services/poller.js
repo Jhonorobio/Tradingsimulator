@@ -1,4 +1,4 @@
-import { notificationConfig, notifiedTokens } from '../stores.js';
+import { notificationConfig, notifiedTokens, notificationHistory } from '../stores.js';
 import { getAllTokens, storeSize, onTokensInserted } from './trenches-store.js';
 import { sendPush, checkReceipts } from './push.js';
 
@@ -77,6 +77,27 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
           notified += 1;
           if (ticketId) {
             tickets.push({ ticketId, deviceId: entry.device_id });
+          }
+          // Save to notification history
+          notificationHistory.add({
+            device_id: entry.device_id,
+            address: t.address,
+            chain: t.chain || 'sol',
+            symbol: t.symbol || null,
+            name: t.name || null,
+            category: cat,
+            mcap: t.usd_market_cap ?? t.market_cap ?? null,
+            liq: t.liquidity ?? null,
+            logo: t.logo || null,
+            notified_at: new Date().toISOString(),
+          });
+          // Cap history at 500 entries per device
+          const allEntries = notificationHistory.filter((e) => e.device_id === entry.device_id);
+          if (allEntries.length > 500) {
+            const toRemove = allEntries.slice(0, allEntries.length - 500);
+            for (const old of toRemove) {
+              notificationHistory.delete((e) => e.id === old.id);
+            }
           }
         }
       }

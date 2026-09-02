@@ -188,6 +188,20 @@ export interface GmgnStatus {
   message: string;
 }
 
+export interface NotificationHistoryItem {
+  id: number;
+  device_id: string;
+  address: string;
+  chain: string;
+  symbol: string | null;
+  name: string | null;
+  category: string;
+  mcap: number | null;
+  liq: number | null;
+  logo: string | null;
+  notified_at: string;
+}
+
 export interface ProxyConfig {
   url: string;
   apiKey: string;

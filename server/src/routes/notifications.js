@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { notificationConfig } from '../stores.js';
+import { notificationConfig, notificationHistory } from '../stores.js';
 import { isValidPushToken } from '../services/push.js';
 
 const router = Router();
@@ -74,6 +74,26 @@ router.get('/config', (req, res) => {
       push_token: entry.push_token,
       categories: entry.categories,
     });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * GET /api/notifications/history
+ * Header: X-Device-Id
+ * Query: limit (default 50, max 200)
+ * Returns notification history for this device, newest first.
+ */
+router.get('/history', (req, res) => {
+  try {
+    const id = deviceId(req);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const entries = notificationHistory
+      .filter((e) => e.device_id === id)
+      .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''))
+      .slice(0, limit);
+    res.json({ history: entries });
   } catch (err) {
     fail(res, err);
   }
