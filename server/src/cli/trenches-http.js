@@ -89,6 +89,17 @@ function parseDuration(value) {
  * the /v1/trenches endpoint expects, replicating gmgn-cli's buildTrenchesBody
  * and its flag→filter mapping (preset first, explicit ranges override it).
  */
+// Scale conversion for GMGN API body fields.
+// Values from buildParamsFromConfig are already in GMGN units (marketcap in USD, percentages as decimals).
+// Only duration fields need special handling.
+const DURATION_FIELDS = new Set(['created']);
+
+function convertFilterValue(fieldName, rawValue) {
+  const baseField = fieldName.replace(/^(min|max)_/, '');
+  if (DURATION_FIELDS.has(baseField)) return parseDuration(rawValue);
+  return Number(rawValue);
+}
+
 function buildBodyFromArgs(args) {
   let chain = 'sol';
   const types = [];
@@ -108,8 +119,7 @@ function buildBodyFromArgs(args) {
     if (flag === '--sort-by' || flag === '--direction') continue;
     if (flag.startsWith('--')) {
       const apiKey = flag.slice(2).replace(/-/g, '_');
-      const v = apiKey.endsWith('_created') ? parseDuration(value) : Number(value);
-      filters[apiKey] = v;
+      filters[apiKey] = convertFilterValue(apiKey, value);
     }
   }
 
