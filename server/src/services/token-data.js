@@ -51,23 +51,28 @@ export async function getLiveTokenInfo(chain, address) {
 }
 
 /**
- * Batch market data for many mints. Each mint is resolved via GMGN proxy first
+ * Batched price/market-cap lookup for multiple mints. Uses GMGN proxy
  * (dedicated 2nd key, one request that yields both price and market cap),
  * falling back to Dexscreener batches. Dexscreener results are cached 15s.
- * @param {string[]} mints
+ * @param {Array<{address: string, chain?: string}>|string[]} mints - array of {address, chain} or bare addresses (defaults to 'sol')
  * @returns {Promise<Record<string, { price: number|null, marketCap: number|null } | null>>}
  */
 export async function getPrices(mints) {
-  const ids = [...new Set(mints.filter(Boolean))];
+  const normalized = mints.map((m) => typeof m === 'string' ? { address: m, chain: 'sol' } : m);
+  const ids = [...new Set(normalized.map((m) => m.address).filter(Boolean))];
   if (!ids.length) return {};
+  const chainMap = Object.fromEntries(normalized.map((m) => [m.address, m.chain || 'sol']));
   const out = {};
   const missing = [];
 
   const resolved = await Promise.all(
     ids.map(async (m) => {
       const info = await withCache(cacheKey('token-price', m), 1, () =>
-        getProxyTokenInfo('sol', m)
+        getProxyTokenInfo(chainMap[m], m)
       );
+      return { m, info };
+    })
+  );
       return { m, info };
     })
   );

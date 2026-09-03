@@ -180,7 +180,7 @@ router.get('/portfolio', async (req, res) => {
     const positions = trading.getPositions(id);
     const stats = trading.getStats(id);
 
-    const mints = positions.map((p) => p.token_address);
+    const mints = positions.map((p) => ({ address: p.token_address, chain: p.chain || 'sol' }));
     const market = await getPrices(mints); // single batched request
 
     const enriched = positions.map((p) => {
