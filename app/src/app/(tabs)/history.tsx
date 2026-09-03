@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
@@ -26,6 +26,7 @@ export default function HistoryScreen() {
   const { deviceId } = useSettings();
   const { notifications: wsNotifications, subscribeNotifications, unsubscribeNotifications } = useWs();
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
+  const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
@@ -65,18 +66,35 @@ export default function HistoryScreen() {
     router.push(`/token/${item.chain}/${item.address}`);
   };
 
+  const filtered = search.trim()
+    ? history.filter((h) => {
+        const q = search.trim().toLowerCase();
+        return (h.symbol?.toLowerCase().includes(q)) || (h.name?.toLowerCase().includes(q));
+      })
+    : history;
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ThemedText type="subtitle" style={styles.title}>Historial de Notificaciones</ThemedText>
 
+        <View style={styles.searchWrap}>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Buscar por símbolo..."
+            placeholderTextColor={theme.textSecondary}
+            style={[styles.searchInput, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
+          />
+        </View>
+
         <ScrollView
           contentContainerStyle={styles.scroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}>
-          {history.length === 0 ? (
-            <ThemedText style={styles.empty}>No hay notificaciones aún</ThemedText>
+          {filtered.length === 0 ? (
+            <ThemedText style={styles.empty}>{history.length === 0 ? 'No hay notificaciones aún' : 'Sin resultados'}</ThemedText>
           ) : (
-            history.map((item) => (
+            filtered.map((item) => (
               <Pressable key={`${item.address}-${item.notified_at}`} onPress={() => goToToken(item)}>
                 <Card style={[styles.card, { borderColor: theme.border }]}>
                   <View style={styles.cardHeader}>
@@ -138,6 +156,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d0d' },
   safe: { flex: 1 },
   title: { marginHorizontal: 16, marginTop: 12, marginBottom: 8 },
+  searchWrap: { marginHorizontal: 16, marginBottom: 8 },
+  searchInput: { borderWidth: 1, borderRadius: 10, padding: 10, fontSize: 14 },
   empty: { textAlign: 'center', marginTop: 40, opacity: 0.5 },
   scroll: { paddingHorizontal: 16, paddingBottom: 40 },
   card: { marginBottom: 8, padding: 12 },
