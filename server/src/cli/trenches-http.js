@@ -135,8 +135,10 @@ function buildBodyFromArgs(args) {
   } else if (chain === 'robinhood') {
     section.launchpad_platform = ROBINHOOD_LAUNCHPADS;
   }
-  const quote = QUOTE_ADDRESS_TYPES[chain] ?? [];
-  if (quote.length) section.quote_address_type = quote;
+  if (chain !== 'robinhood') {
+    const quote = QUOTE_ADDRESS_TYPES[chain] ?? [];
+    if (quote.length) section.quote_address_type = quote;
+  }
 
   const body = { version: 'v2' };
   for (const type of types.length ? types : ['new_creation', 'completed']) {
