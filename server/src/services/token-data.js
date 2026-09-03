@@ -73,9 +73,6 @@ export async function getPrices(mints) {
       return { m, info };
     })
   );
-      return { m, info };
-    })
-  );
   for (const { m, info } of resolved) {
     if (info?.price != null) out[m] = { price: info.price, marketCap: info.marketCap ?? null };
     else missing.push(m);
