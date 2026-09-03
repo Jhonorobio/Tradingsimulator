@@ -37,7 +37,7 @@ export default function TokenScreen() {
   const [detail, setDetail] = useState<TokenDetail | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
   const [solPrice, setSolPrice] = useState<number>(0);
-  const [solBalance, setSolBalance] = useState<number>(0);
+  const [usdBalance, setUsdBalance] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('buy');
   const [amount, setAmount] = useState('');
@@ -82,7 +82,7 @@ export default function TokenScreen() {
     try {
       const pf = await getPortfolio();
       setSolPrice(pf.sol_price ?? 0);
-      setSolBalance(pf.wallet.balance_sol);
+      setUsdBalance(pf.wallet.balance_usd + pf.wallet.balance_sol * (pf.sol_price || 0));
       const pos = pf.positions.find((p) => p.token_address === address);
       setPosition(pos ?? null);
     } catch {}
@@ -108,7 +108,7 @@ export default function TokenScreen() {
     try {
       const res = await buy(address, usd, chain || 'sol');
       setResult(res);
-      setSolBalance(res.balance_sol);
+      setUsdBalance(res.balance_usd + res.balance_sol * solPrice);
       setAmount('');
       await loadDetail();
       await loadPosition();
@@ -261,7 +261,7 @@ export default function TokenScreen() {
               {fmtUsd(result.total_usdc)} al MC {fmtUsd(result.market_cap, { compact: true })} · gas {fmtNum(result.gas_sol, { decimals: 4 })} SOL
               {result.pnl_usdc != null ? ` · P&L ${fmtUsd(result.pnl_usdc)}` : ''}
             </ThemedText>
-            <ThemedText type="smallBold">SOL: {fmtNum(result.balance_sol)} · USD: {fmtUsd(result.balance_usd)}</ThemedText>
+            <ThemedText type="smallBold">Balance: {fmtUsd(result.balance_usd + result.balance_sol * solPrice)}</ThemedText>
           </Card>
         )}
 
@@ -273,9 +273,9 @@ export default function TokenScreen() {
 
         {tab === 'buy' ? (
           <Card>
-            <ThemedText type="smallBold">Comprar {symbol} (presupuesto SOL)</ThemedText>
+            <ThemedText type="smallBold">Comprar {symbol}</ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Balance SOL: {fmtNum(solBalance, { decimals: 4 })} ({fmtUsd(solBalance * solPrice)})
+              Balance: {fmtUsd(usdBalance)}
             </ThemedText>
             <TextInput
               value={amount}
@@ -287,7 +287,7 @@ export default function TokenScreen() {
             />
             {d.marketCap && Number(amount) > 0 && solPrice > 0 ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                ≈ {fmtNum((Number(amount) / solPrice) - 0.001, { decimals: 4 })} SOL gastados · ≈ {fmtNum((Number(amount) / d.marketCap) * 100, { decimals: 6 })}% del MC · gas {fmtNum(0.001, { decimals: 4 })} SOL
+                ≈ {fmtNum((Number(amount) / d.marketCap) * 100, { decimals: 6 })}% del MC · gas ~$0.10
               </ThemedText>
             ) : null}
             <Pressable onPress={doBuy} disabled={submitting} style={({ pressed }) => [styles.buyBtn, { backgroundColor: theme.positive }, pressed && { opacity: 0.8 }]}>
@@ -311,7 +311,7 @@ export default function TokenScreen() {
             </View>
             {position && d.marketCap ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Venderás {pct}% de tu posición por ≈ {fmtNum(((position.quantity * (pct / 100)) * d.marketCap) / (solPrice || 1))} SOL (menos gas)
+                Venderás {pct}% por ≈ {fmtUsd((position.value * pct) / 100)}
               </ThemedText>
             ) : null}
             <Pressable onPress={doSell} disabled={submitting} style={({ pressed }) => [styles.buyBtn, { backgroundColor: theme.negative }, pressed && { opacity: 0.8 }]}>

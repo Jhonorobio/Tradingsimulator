@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,10 +11,10 @@ import { PriceChange } from '@/components/price-change';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
-import { convertWallet, getPortfolio } from '@/api/trading';
+import { getPortfolio } from '@/api/trading';
 import { ApiError } from '@/api/client';
 import type { PortfolioResponse } from '@/api/types';
-import { fmtNum, fmtUsd } from '@/utils/format';
+import { fmtUsd } from '@/utils/format';
 
 export default function DashboardScreen() {
   const theme = useTheme();
@@ -23,8 +23,6 @@ export default function DashboardScreen() {
   const { solPrice: wsSolPrice, subscribeSolPrice, unsubscribeSolPrice } = useWs();
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [solPrice, setSolPrice] = useState<number>(0);
-  const [convAmount, setConvAmount] = useState('');
-  const [converting, setConverting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,22 +57,6 @@ export default function DashboardScreen() {
     };
   }, [load, loadProxyStatuses]);
 
-  const doConvert = async (direction: 'usd_to_sol' | 'sol_to_usd') => {
-    const amt = Number(convAmount);
-    if (!amt || amt <= 0) return Alert.alert('Error', 'Introduce un monto válido');
-    setConverting(true);
-    try {
-      await convertWallet(direction, amt);
-      setConvAmount('');
-      await load();
-      Alert.alert('Listo', direction === 'usd_to_sol' ? 'USD convertidos a SOL' : 'SOL convertidos a USD');
-    } catch (err) {
-      Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo convertir');
-    } finally {
-      setConverting(false);
-    }
-  };
-
   if (loading && !data) {
     return (
       <ThemedView style={styles.center}>
@@ -98,8 +80,8 @@ export default function DashboardScreen() {
   if (!data) return null;
 
   const { stats, positions, summary } = data;
-  const solValueUsd = summary.balance_sol * (solPrice || 0);
-  const totalEquity = summary.balance_usd + solValueUsd + summary.total_value;
+  const floatingUsd = summary.balance_usd + summary.balance_sol * (solPrice || 0);
+  const totalEquity = floatingUsd + summary.total_value;
 
   return (
     <ThemedView style={styles.container}>
@@ -121,10 +103,10 @@ export default function DashboardScreen() {
             <View style={styles.balanceHeader}>
               <View>
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  Balance USD
+                  Balance
                 </ThemedText>
                 <ThemedText type="subtitle" style={{ color: theme.text }}>
-                  {fmtUsd(summary.balance_usd)}
+                  {fmtUsd(floatingUsd)}
                 </ThemedText>
               </View>
               <View style={styles.equityBox}>
@@ -136,14 +118,6 @@ export default function DashboardScreen() {
                 </ThemedText>
               </View>
             </View>
-            <View style={styles.solBox}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Balance SOL
-              </ThemedText>
-              <ThemedText type="smallBold" style={{ color: theme.text }}>
-                {fmtNum(summary.balance_sol, { decimals: 4 })} SOL ≈ {fmtUsd(solValueUsd)}
-              </ThemedText>
-            </View>
             <View style={styles.summaryRow}>
               <SummaryItem label="Invertido" value={fmtUsd(summary.invested)} />
               <SummaryItem label="Valor posiciones" value={fmtUsd(summary.total_value)} />
@@ -153,39 +127,6 @@ export default function DashboardScreen() {
                 color={summary.unrealized_pnl >= 0 ? theme.positive : theme.negative}
               />
               {solPrice > 0 ? <SummaryItem label="SOL" value={fmtUsd(solPrice, { decimals: 2 })} /> : null}
-            </View>
-          </Card>
-
-          <Card style={styles.convCard}>
-            <ThemedText type="smallBold">Convertir USD ↔ SOL</ThemedText>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              1 SOL = {fmtUsd(solPrice, { decimals: 2 })}
-            </ThemedText>
-            <TextInput
-              value={convAmount}
-              onChangeText={setConvAmount}
-              placeholder="Monto"
-              placeholderTextColor={theme.textSecondary}
-              keyboardType="decimal-pad"
-              style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
-            />
-            <View style={styles.convRow}>
-              <Pressable
-                onPress={() => doConvert('usd_to_sol')}
-                disabled={converting}
-                style={({ pressed }) => [styles.convBtn, { backgroundColor: theme.accent }, pressed && { opacity: 0.8 }]}>
-                <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
-                  USD → SOL
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={() => doConvert('sol_to_usd')}
-                disabled={converting}
-                style={({ pressed }) => [styles.convBtn, { backgroundColor: theme.accent }, pressed && { opacity: 0.8 }]}>
-                <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
-                  SOL → USD
-                </ThemedText>
-              </Pressable>
             </View>
           </Card>
 
@@ -269,22 +210,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   equityBox: { alignItems: 'flex-end', gap: 2 },
-  solBox: { gap: 2 },
   summaryRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
   },
   summaryItem: { minWidth: 90, gap: 2 },
-  convCard: { gap: 8 },
-  input: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 10,
-    fontSize: 14,
-  },
-  convRow: { flexDirection: 'row', gap: 10 },
-  convBtn: { flex: 1, paddingVertical: 12, borderRadius: 10 },
   sectionHeader: {
     marginTop: 8,
   },
