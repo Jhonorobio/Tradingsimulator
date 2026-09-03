@@ -34,7 +34,9 @@ export const useWs = create<WsState>((set, get) => ({
 
   subscribeTrenches: (tab: string) => {
     const topic = `trenches:${tab}`;
-    if (trenchesCleanups.has(tab)) return;
+    // Clean up previous listener if still registered (e.g. screen remounted)
+    const prev = trenchesCleanups.get(tab);
+    if (prev) { prev(); trenchesCleanups.delete(tab); }
     client.subscribe(topic);
     const unsub = client.on('trenches_updated', (msg: any) => {
       if (msg.tab !== tab) return;
@@ -58,7 +60,8 @@ export const useWs = create<WsState>((set, get) => ({
   subscribeTokenPrice: (chain: string, address: string) => {
     const key = `${chain}:${address}`;
     const topic = `token:${key}`;
-    if (tokenCleanups.has(key)) return;
+    const prev = tokenCleanups.get(key);
+    if (prev) { prev(); tokenCleanups.delete(key); }
     client.subscribe(topic);
     const unsub = client.on('token_price', (msg: any) => {
       if (msg.chain === chain && msg.address === address) {
@@ -78,7 +81,7 @@ export const useWs = create<WsState>((set, get) => ({
   },
 
   subscribeSolPrice: () => {
-    if (solPriceCleanup) return;
+    if (solPriceCleanup) { solPriceCleanup(); solPriceCleanup = null; }
     client.subscribe('sol_price');
     solPriceCleanup = client.on('sol_price', (msg: any) => {
       set({ solPrice: msg.data?.price ?? null });
@@ -92,7 +95,8 @@ export const useWs = create<WsState>((set, get) => ({
 
   subscribeNotifications: (deviceId: string) => {
     const topic = `notifications:${deviceId}`;
-    if (notificationCleanups.has(deviceId)) return;
+    const prev = notificationCleanups.get(deviceId);
+    if (prev) { prev(); notificationCleanups.delete(deviceId); }
     client.subscribe(topic);
     const unsub = client.on('notification_new', (msg: any) => {
       if (msg.data) {

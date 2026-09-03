@@ -1,3 +1,4 @@
+import { AppState, AppStateStatus } from 'react-native';
 import { getServerUrl, getDeviceId } from './client';
 
 type MessageHandler = (data: any) => void;
@@ -19,10 +20,28 @@ const listeners = new Map<string, Set<MessageHandler>>();
 const connectionListeners = new Set<(connected: boolean) => void>();
 let connected = false;
 
-function getWsUrl(): string {
-  // Convert http(s) → ws(s)
-  // This is async in theory but getServerUrl returns a cached value
-  return ''; // placeholder, resolved in connect()
+// ─── Heartbeat ───
+const HEARTBEAT_INTERVAL = 25_000; // 25s — must be < typical NAT timeout (30-60s)
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let lastPong = 0;
+
+function startHeartbeat() {
+  stopHeartbeat();
+  lastPong = Date.now();
+  heartbeatTimer = setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // If no pong received in 2 heartbeat cycles, connection is dead
+    if (Date.now() - lastPong > HEARTBEAT_INTERVAL * 2.5) {
+      console.log('[ws] heartbeat timeout — reconnecting');
+      ws.close();
+      return;
+    }
+    ws.send(JSON.stringify({ action: 'ping' }));
+  }, HEARTBEAT_INTERVAL);
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
 }
 
 async function buildWsUrl(): Promise<string> {
@@ -38,7 +57,6 @@ function emit(event: string, data: any) {
       try { h(data); } catch { /* ignore */ }
     }
   }
-  // Also emit to wildcard '*' listeners
   const wildcardHandlers = listeners.get('*');
   if (wildcardHandlers) {
     for (const h of wildcardHandlers) {
@@ -51,6 +69,13 @@ function setConnected(val: boolean) {
   connected = val;
   for (const h of connectionListeners) {
     try { h(val); } catch { /* ignore */ }
+  }
+}
+
+function resubscribeAll() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  for (const topic of subscriptions) {
+    ws.send(JSON.stringify({ action: 'subscribe', topic }));
   }
 }
 
@@ -71,20 +96,23 @@ async function connect() {
     connected = true;
     reconnectAttempts = 0;
     setConnected(true);
-    // Re-subscribe to all topics
-    for (const topic of subscriptions) {
-      ws!.send(JSON.stringify({ action: 'subscribe', topic }));
-    }
+    startHeartbeat();
+    resubscribeAll();
   };
 
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
+      if (msg.event === 'pong') {
+        lastPong = Date.now();
+        return;
+      }
       if (msg.event) emit(msg.event, msg);
     } catch { /* ignore */ }
   };
 
   ws.onclose = () => {
+    stopHeartbeat();
     setConnected(false);
     scheduleReconnect();
   };
@@ -102,6 +130,25 @@ function scheduleReconnect() {
     reconnectTimer = null;
     connect();
   }, delay);
+}
+
+// ─── AppState: reconnect when app returns to foreground ───
+let appStateSub: { remove(): void } | null = null;
+
+function handleAppStateChange(state: AppStateStatus) {
+  if (state === 'active') {
+    // App came to foreground — check if connection is dead
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.log('[ws] app foreground — reconnecting');
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      reconnectAttempts = 0; // reset backoff for quick reconnect
+      connect();
+    } else {
+      // Connection exists — send a ping to verify it's alive
+      lastPong = Date.now();
+      ws.send(JSON.stringify({ action: 'ping' }));
+    }
+  }
 }
 
 export function getWsClient(): WsClient {
@@ -131,6 +178,7 @@ export function getWsClient(): WsClient {
       }
     },
     disconnect() {
+      stopHeartbeat();
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (ws) { ws.close(); ws = null; }
       setConnected(false);
@@ -143,6 +191,10 @@ export function getWsClient(): WsClient {
  */
 export function initWs() {
   connect();
+  // Listen for AppState changes to detect background→foreground transitions
+  if (!appStateSub) {
+    appStateSub = AppState.addEventListener('change', handleAppStateChange);
+  }
 }
 
 /**
