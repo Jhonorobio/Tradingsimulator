@@ -77,7 +77,7 @@ export default function HistoryScreen() {
             <ThemedText style={styles.empty}>No hay notificaciones aún</ThemedText>
           ) : (
             history.map((item) => (
-              <Pressable key={item.id} onPress={() => goToToken(item)}>
+              <Pressable key={`${item.address}-${item.notified_at}`} onPress={() => goToToken(item)}>
                 <Card style={[styles.card, { borderColor: theme.border }]}>
                   <View style={styles.cardHeader}>
                     {item.logo ? (

@@ -97,8 +97,8 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
             bot_degen_rate: t.bot_degen_rate ?? null,
             notified_at: new Date().toISOString(),
           };
-          notificationHistory.add(historyEntry);
-          broadcast(`notifications:${entry.device_id}`, { event: 'notification_new', data: historyEntry });
+          const saved = notificationHistory.add(historyEntry);
+          broadcast(`notifications:${entry.device_id}`, { event: 'notification_new', data: saved });
           // Cap history at 500 entries per device
           const allEntries = notificationHistory.filter((e) => e.device_id === entry.device_id);
           if (allEntries.length > 500) {
