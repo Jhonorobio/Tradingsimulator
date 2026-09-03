@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 import { getWsClient, onWsConnectionChange } from '@/api/ws-client';
-import type { TrenchesItem } from '@/api/types';
+import type { NotificationHistoryItem, TrenchesItem } from '@/api/types';
 
 interface WsState {
   connected: boolean;
   trenches: Record<string, TrenchesItem[]>;
   tokenPrices: Record<string, any>;
   solPrice: number | null;
+  notifications: NotificationHistoryItem[];
   subscribeTrenches: (tab: string) => void;
   unsubscribeTrenches: (tab: string) => void;
   setTrenchesFilters: (filters: unknown) => void;
@@ -14,11 +15,14 @@ interface WsState {
   unsubscribeTokenPrice: (chain: string, address: string) => void;
   subscribeSolPrice: () => void;
   unsubscribeSolPrice: () => void;
+  subscribeNotifications: (deviceId: string) => void;
+  unsubscribeNotifications: (deviceId: string) => void;
 }
 
 const client = getWsClient();
 const trenchesCleanups = new Map<string, () => void>();
 const tokenCleanups = new Map<string, () => void>();
+const notificationCleanups = new Map<string, () => void>();
 let solPriceCleanup: (() => void) | null = null;
 
 export const useWs = create<WsState>((set, get) => ({
@@ -26,6 +30,7 @@ export const useWs = create<WsState>((set, get) => ({
   trenches: { new_creation: [], completed: [], new_creation_robinhood: [], completed_robinhood: [] },
   tokenPrices: {},
   solPrice: null,
+  notifications: [],
 
   subscribeTrenches: (tab: string) => {
     const topic = `trenches:${tab}`;
@@ -83,6 +88,26 @@ export const useWs = create<WsState>((set, get) => ({
   unsubscribeSolPrice: () => {
     if (solPriceCleanup) { solPriceCleanup(); solPriceCleanup = null; }
     client.unsubscribe('sol_price');
+  },
+
+  subscribeNotifications: (deviceId: string) => {
+    const topic = `notifications:${deviceId}`;
+    if (notificationCleanups.has(deviceId)) return;
+    client.subscribe(topic);
+    const unsub = client.on('notification_new', (msg: any) => {
+      if (msg.data) {
+        set((state) => ({
+          notifications: [msg.data, ...state.notifications].slice(0, 200),
+        }));
+      }
+    });
+    notificationCleanups.set(deviceId, unsub);
+  },
+
+  unsubscribeNotifications: (deviceId: string) => {
+    const unsub = notificationCleanups.get(deviceId);
+    if (unsub) { unsub(); notificationCleanups.delete(deviceId); }
+    client.unsubscribe(`notifications:${deviceId}`);
   },
 }));
 

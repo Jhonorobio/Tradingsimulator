@@ -1,6 +1,7 @@
 import { notificationConfig, notifiedTokens, notificationHistory } from '../stores.js';
 import { getAllTokens, storeSize, onTokensInserted } from './trenches-store.js';
 import { sendPush, checkReceipts } from './push.js';
+import { broadcast } from './ws-server.js';
 
 const CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'];
 
@@ -79,7 +80,7 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
             tickets.push({ ticketId, deviceId: entry.device_id });
           }
           // Save to notification history
-          notificationHistory.add({
+          const historyEntry = {
             device_id: entry.device_id,
             address: t.address,
             chain: t.chain || 'sol',
@@ -90,7 +91,9 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
             liq: t.liquidity ?? null,
             logo: t.logo || null,
             notified_at: new Date().toISOString(),
-          });
+          };
+          notificationHistory.add(historyEntry);
+          broadcast(`notifications:${entry.device_id}`, { event: 'notification_new', data: historyEntry });
           // Cap history at 500 entries per device
           const allEntries = notificationHistory.filter((e) => e.device_id === entry.device_id);
           if (allEntries.length > 500) {

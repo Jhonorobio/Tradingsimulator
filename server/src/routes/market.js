@@ -248,6 +248,11 @@ router.get('/trenches', async (req, res) => {
       const entry = trenchesFilters.get(id);
       config = entry?.filters ?? null;
     }
+    // Fallback to global config (saved via WebSocket)
+    if (!config) {
+      const global = trenchesFilters.get('global');
+      config = global?.filters ?? null;
+    }
     const result = await fetchTrenches(buildParamsFromConfig(config, tab), {
       ...(connectionForTab(tab) || {}),
       ttl: 2,

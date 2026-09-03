@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
@@ -8,6 +8,8 @@ import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
 import { getNotificationHistory } from '@/api/notifications';
+import { useSettings } from '@/store/settings';
+import { useWs } from '@/store/ws';
 import type { NotificationHistoryItem } from '@/api/types';
 import { fmtUsd, shortAddress } from '@/utils/format';
 
@@ -21,6 +23,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 export default function HistoryScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { deviceId } = useSettings();
+  const { notifications: wsNotifications, subscribeNotifications, unsubscribeNotifications } = useWs();
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -32,6 +36,24 @@ export default function HistoryScreen() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Subscribe to real-time notifications via WebSocket
+  useEffect(() => {
+    if (!deviceId) return;
+    subscribeNotifications(deviceId);
+    return () => { unsubscribeNotifications(deviceId); };
+  }, [deviceId, subscribeNotifications, unsubscribeNotifications]);
+
+  // Merge WS notifications into history (dedupe by address+notified_at)
+  useEffect(() => {
+    if (wsNotifications.length === 0) return;
+    setHistory((prev) => {
+      const seen = new Set(prev.map((h) => `${h.address}:${h.notified_at}`));
+      const newItems = wsNotifications.filter((n) => !seen.has(`${n.address}:${n.notified_at}`));
+      if (newItems.length === 0) return prev;
+      return [...newItems, ...prev].slice(0, 200);
+    });
+  }, [wsNotifications]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -48,11 +70,13 @@ export default function HistoryScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ThemedText type="subtitle" style={styles.title}>Historial de Notificaciones</ThemedText>
 
-        {history.length === 0 ? (
-          <ThemedText style={styles.empty}>No hay notificaciones aún</ThemedText>
-        ) : (
-          <View style={styles.list}>
-            {history.map((item) => (
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}>
+          {history.length === 0 ? (
+            <ThemedText style={styles.empty}>No hay notificaciones aún</ThemedText>
+          ) : (
+            history.map((item) => (
               <Pressable key={item.id} onPress={() => goToToken(item)}>
                 <Card style={[styles.card, { borderColor: theme.border }]}>
                   <View style={styles.cardHeader}>
@@ -85,11 +109,9 @@ export default function HistoryScreen() {
                   </ThemedText>
                 </Card>
               </Pressable>
-            ))}
-          </View>
-        )}
-
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />
+            ))
+          )}
+        </ScrollView>
       </SafeAreaView>
     </ThemedView>
   );
@@ -100,7 +122,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   title: { marginHorizontal: 16, marginTop: 12, marginBottom: 8 },
   empty: { textAlign: 'center', marginTop: 40, opacity: 0.5 },
-  list: { paddingHorizontal: 16 },
+  scroll: { paddingHorizontal: 16, paddingBottom: 40 },
   card: { marginBottom: 8, padding: 12 },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
   logo: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
