@@ -34,7 +34,7 @@ const QUOTE_ADDRESS_TYPES = {
 // Robinhood launchpad platforms — explicit list ensures all supported
 // launchpads are included (GMGN may not return all by default).
 const ROBINHOOD_LAUNCHPADS = [
-  'pons',
+  'pons_v2',
   'longxyz',
   'o1',
   'bankr',

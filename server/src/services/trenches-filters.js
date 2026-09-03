@@ -91,7 +91,7 @@ export function buildParamsFromConfig(config, tab) {
 
   // Robinhood needs explicit launchpad_platform to include all supported launchpads
   if (chain === 'robinhood') {
-    p.launchpadPlatform = ['pons', 'longxyz', 'o1', 'bankr', 'flap', 'trench', 'livo'];
+    p.launchpadPlatform = ['pons_v2', 'longxyz', 'o1', 'bankr', 'flap', 'trench', 'livo'];
   }
 
   const vals = config?.[tab];
