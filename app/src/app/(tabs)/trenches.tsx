@@ -309,7 +309,7 @@ export default function TrenchesScreen() {
             <FlatList
               data={activeTokens}
               keyExtractor={(item, i) => `t-${item.address}-${i}`}
-              renderItem={({ item }) => <TokenRow token={item} chain="sol" />}
+              renderItem={({ item }) => <TokenRow token={item} chain={activeTab.includes('robinhood') ? 'robinhood' : 'sol'} />}
               contentContainerStyle={styles.list}
               ListEmptyComponent={
                 !wsConnected ? (

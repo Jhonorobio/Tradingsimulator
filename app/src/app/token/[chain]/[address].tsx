@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
@@ -150,7 +150,6 @@ export default function TokenScreen() {
   if (!detail) return null;
   const d = detail;
   const symbol = d.symbol ?? 'TOKEN';
-  const pc = d.priceChange;
 
   return (
     <ThemedView style={styles.container}>
@@ -194,31 +193,6 @@ export default function TokenScreen() {
           </View>
         </Card>
 
-        {/* ─── Price Changes ─── */}
-        <Card>
-          <ThemedText type="smallBold">Cambios de Precio</ThemedText>
-          <View style={styles.metrics}>
-            <Metric label="5m" value={v(pc?.m5, { pct: true })} />
-            <Metric label="1h" value={v(pc?.h1, { pct: true })} />
-            <Metric label="6h" value={v(pc?.h6, { pct: true })} />
-            <Metric label="24h" value={v(pc?.h24, { pct: true })} />
-          </View>
-        </Card>
-
-        {/* ─── Volume & Activity ─── */}
-        <Card>
-          <ThemedText type="smallBold">Volumen y Actividad</ThemedText>
-          <View style={styles.metrics}>
-            <Metric label="Vol 24h" value={v(d.volume24h, { compact: true })} />
-            <Metric label="Vol 1h" value={v(d.volume1h, { compact: true })} />
-            <Metric label="Swaps 24h" value={v(d.swaps24h)} />
-            <Metric label="Swaps 1h" value={v(d.swaps1h)} />
-            <Metric label="Buys" value={v(d.buys24h)} />
-            <Metric label="Sells" value={v(d.sells24h)} />
-            <Metric label="Net Buy" value={v(d.netBuy24h, { compact: true })} />
-          </View>
-        </Card>
-
         {/* ─── Holder Info ─── */}
         <Card>
           <ThemedText type="smallBold">Información de Holders</ThemedText>
@@ -240,60 +214,6 @@ export default function TokenScreen() {
             <Metric label="Honeypot" value={d.isHoneypot != null ? (String(d.isHoneypot) === '1' || String(d.isHoneypot) === 'yes' ? 'Sí' : 'No') : '—'} good={d.isHoneypot != null && !(String(d.isHoneypot) === '1' || String(d.isHoneypot) === 'yes')} warn={d.isHoneypot != null && (String(d.isHoneypot) === '1' || String(d.isHoneypot) === 'yes')} />
             <Metric label="Bundler Rate" value={d.bundlerRate != null ? `${(d.bundlerRate * 100).toFixed(1)}%` : '—'} />
             <Metric label="Buy Tax" value={d.buyTax != null ? `${(d.buyTax * 100).toFixed(1)}%` : '—'} />
-          </View>
-        </Card>
-
-        {/* ─── Creator ─── */}
-        <Card>
-          <ThemedText type="smallBold">Creador / Dev</ThemedText>
-          <View style={styles.metrics}>
-            <Metric label="Dev Hold" value={d.devTeamHoldRate != null ? `${(d.devTeamHoldRate * 100).toFixed(1)}%` : '—'} />
-            <Metric label="Creator Balance" value={d.creatorBalanceRate != null ? `${(d.creatorBalanceRate * 100).toFixed(1)}%` : '—'} />
-            <Metric label="Status" value={d.creatorTokenStatus ?? '—'} good={d.creatorTokenStatus === 'creator_close'} />
-            <Metric label="Mint Renounced" value={d.renouncedMint != null ? (d.renouncedMint ? 'Sí' : 'No') : '—'} good={d.renouncedMint != null && !!d.renouncedMint} />
-            <Metric label="Freeze Renounced" value={d.renouncedFreeze != null ? (d.renouncedFreeze ? 'Sí' : 'No') : '—'} good={d.renouncedFreeze != null && !!d.renouncedFreeze} />
-          </View>
-        </Card>
-
-        {/* ─── Social Links ─── */}
-        <Card>
-          <ThemedText type="smallBold">Redes Sociales</ThemedText>
-          <View style={styles.socialRow}>
-            {d.twitter ? (
-              <Pressable onPress={() => Linking.openURL(d.twitter!)} style={styles.socialBtn}>
-                <Ionicons name="logo-twitter" size={16} color={theme.accent} />
-                <ThemedText type="small" style={{ color: theme.accent }}>
-                  Twitter {d.xFollowers != null ? `(${fmtNum(d.xFollowers)})` : ''}
-                </ThemedText>
-              </Pressable>
-            ) : (
-              <View style={styles.socialBtn}>
-                <Ionicons name="logo-twitter" size={16} color={theme.textSecondary} />
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>Twitter —</ThemedText>
-              </View>
-            )}
-            {d.telegram ? (
-              <Pressable onPress={() => Linking.openURL(d.telegram!)} style={styles.socialBtn}>
-                <Ionicons name="paper-plane" size={16} color={theme.accent} />
-                <ThemedText type="small" style={{ color: theme.accent }}>Telegram</ThemedText>
-              </Pressable>
-            ) : (
-              <View style={styles.socialBtn}>
-                <Ionicons name="paper-plane" size={16} color={theme.textSecondary} />
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>Telegram —</ThemedText>
-              </View>
-            )}
-            {d.website ? (
-              <Pressable onPress={() => Linking.openURL(d.website!)} style={styles.socialBtn}>
-                <Ionicons name="globe" size={16} color={theme.accent} />
-                <ThemedText type="small" style={{ color: theme.accent }}>Website</ThemedText>
-              </Pressable>
-            ) : (
-              <View style={styles.socialBtn}>
-                <Ionicons name="globe" size={16} color={theme.textSecondary} />
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>Website —</ThemedText>
-              </View>
-            )}
           </View>
         </Card>
 

@@ -107,6 +107,23 @@ export default function HistoryScreen() {
                   <ThemedText type="tiny" style={{ color: theme.textSecondary, marginTop: 4 }}>
                     {shortAddress(item.address)}
                   </ThemedText>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                    {item.smart_degen_count != null && item.smart_degen_count > 0 && (
+                      <ThemedText type="tiny" style={{ color: theme.accent }}>SM {item.smart_degen_count}</ThemedText>
+                    )}
+                    {item.renowned_count != null && item.renowned_count > 0 && (
+                      <ThemedText type="tiny" style={{ color: theme.accent }}>KOL {item.renowned_count}</ThemedText>
+                    )}
+                    {item.fresh_wallet_rate != null && item.fresh_wallet_rate > 0 && (
+                      <ThemedText type="tiny" style={{ color: theme.positive }}>Fresh {(item.fresh_wallet_rate * 100).toFixed(0)}%</ThemedText>
+                    )}
+                    {item.bot_degen_count != null && item.bot_degen_count > 0 && (
+                      <ThemedText type="tiny" style={{ color: theme.warn }}>Bot {item.bot_degen_count}</ThemedText>
+                    )}
+                    {item.bot_degen_rate != null && item.bot_degen_rate > 0 && (
+                      <ThemedText type="tiny" style={{ color: theme.warn }}>Bot% {(item.bot_degen_rate * 100).toFixed(1)}%</ThemedText>
+                    )}
+                  </View>
                 </Card>
               </Pressable>
             ))

@@ -226,6 +226,11 @@ export interface NotificationHistoryItem {
   mcap: number | null;
   liq: number | null;
   logo: string | null;
+  smart_degen_count: number | null;
+  renowned_count: number | null;
+  fresh_wallet_rate: number | null;
+  bot_degen_count: number | null;
+  bot_degen_rate: number | null;
   notified_at: string;
 }
 
