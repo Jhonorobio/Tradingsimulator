@@ -88,7 +88,7 @@ router.get('/config', (req, res) => {
 router.get('/history', (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
-    const entries = notificationHistory
+    const entries = notificationHistory.getAll()
       .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''))
       .slice(0, limit);
     res.json({ history: entries });
