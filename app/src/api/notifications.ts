@@ -9,6 +9,6 @@ export function getNotificationConfig() {
   return api.get<NotificationConfig>('/api/notifications/config');
 }
 
-export function getNotificationHistory(limit = 50) {
+export function getNotificationHistory(limit = 500) {
   return api.get<{ history: NotificationHistoryItem[] }>(`/api/notifications/history?limit=${limit}`);
 }

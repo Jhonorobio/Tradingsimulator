@@ -99,10 +99,10 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
           };
           const saved = notificationHistory.add(historyEntry);
           broadcast(`notifications:${entry.device_id}`, { event: 'notification_new', data: saved });
-          // Cap history at 500 entries per device
-          const allEntries = notificationHistory.filter((e) => e.device_id === entry.device_id);
-          if (allEntries.length > 500) {
-            const toRemove = allEntries.slice(0, allEntries.length - 500);
+          // Cap global history at 1000 entries
+          const allEntries = notificationHistory.getAll();
+          if (allEntries.length > 1000) {
+            const toRemove = allEntries.slice(0, allEntries.length - 1000);
             for (const old of toRemove) {
               notificationHistory.delete((e) => e.id === old.id);
             }
