@@ -24,7 +24,7 @@ function StatsBar({ stats }: { stats: StatItem[] }) {
   return (
     <View style={styles.statsBar}>
       {visible.map((s, i) => (
-        <View key={i} style={[styles.statPill, { backgroundColor: `${s.color}18` }]}>
+        <View key={i} style={styles.statItem}>
           <Ionicons name={s.icon} size={13} color={s.color} />
           <ThemedText style={[styles.statValue, { color: s.color }]}>
             {((s.value ?? 0) * 100).toFixed(0)}%
@@ -160,19 +160,16 @@ const styles = StyleSheet.create({
   statsBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 10,
     backgroundColor: '#1a1a1a',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  statPill: {
+  statItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    gap: 3,
   },
   statValue: {
     fontSize: 12,
