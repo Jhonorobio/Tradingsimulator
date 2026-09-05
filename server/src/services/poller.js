@@ -61,9 +61,11 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
         const title = `${t.symbol || t.name || 'Token'} — ${cat.replace('_', ' ')}`;
         const body = [
           `MCap ${fmtUsd(t.usd_market_cap ?? t.market_cap)}`,
-          `Liq ${fmtUsd(t.liquidity)}`,
           `Vol24h ${fmtUsd(t.volume_24h)}`,
           `SM ${fmtNum(t.smart_degen_count)}`,
+          `KOL ${fmtNum(t.renowned_count)}`,
+          `Fresh ${t.fresh_wallet_rate != null ? (t.fresh_wallet_rate * 100).toFixed(0) + '%' : 'n/a'}`,
+          `Bot ${fmtNum(t.bot_degen_count)} (${t.bot_degen_rate != null ? (t.bot_degen_rate * 100).toFixed(1) + '%' : 'n/a'})`,
           `Rug ${t.rug_ratio != null ? t.rug_ratio.toFixed(2) : 'n/a'}`,
         ].join(' · ');
 
@@ -89,6 +91,7 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
             category: cat,
             mcap: t.usd_market_cap ?? t.market_cap ?? null,
             liq: t.liquidity ?? null,
+            vol24h: t.volume_24h ?? null,
             logo: t.logo || null,
             smart_degen_count: t.smart_degen_count ?? null,
             renowned_count: t.renowned_count ?? null,

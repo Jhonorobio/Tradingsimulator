@@ -117,6 +117,11 @@ export default function HistoryScreen() {
                           MCap {fmtUsd(item.mcap)}
                         </ThemedText>
                       ) : null}
+                      {item.vol24h != null ? (
+                        <ThemedText type="tiny" style={{ color: theme.textSecondary }}>
+                          Vol {fmtUsd(item.vol24h)}
+                        </ThemedText>
+                      ) : null}
                       <ThemedText type="tiny" style={{ color: theme.textSecondary }}>
                         {new Date(item.notified_at).toLocaleDateString()} {new Date(item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </ThemedText>

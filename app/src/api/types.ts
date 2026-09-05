@@ -225,6 +225,7 @@ export interface NotificationHistoryItem {
   category: string;
   mcap: number | null;
   liq: number | null;
+  vol24h: number | null;
   logo: string | null;
   smart_degen_count: number | null;
   renowned_count: number | null;
