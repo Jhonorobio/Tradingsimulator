@@ -14,12 +14,13 @@ const AMBER = '#f59e0b';
 
 interface StatItem {
   icon: keyof typeof Ionicons.glyphMap;
-  value: number | null | undefined;
+  label: string;
+  value: string | null;
   color: string;
 }
 
 function StatsBar({ stats }: { stats: StatItem[] }) {
-  const visible = stats.filter((s) => s.value != null && s.value > 0);
+  const visible = stats.filter((s) => s.value != null);
   if (visible.length === 0) return null;
   return (
     <View style={styles.statsBar}>
@@ -27,7 +28,7 @@ function StatsBar({ stats }: { stats: StatItem[] }) {
         <View key={i} style={styles.statItem}>
           <Ionicons name={s.icon} size={13} color={s.color} />
           <ThemedText style={[styles.statValue, { color: s.color }]}>
-            {((s.value ?? 0) * 100).toFixed(0)}%
+            {s.value}
           </ThemedText>
         </View>
       ))}
@@ -43,12 +44,18 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
   const volume = token.volume_24h ?? token.volume_1h ?? 0;
   const age = timeAgo(token.created_timestamp ?? token.open_timestamp);
 
+  const fmt = (n: number | null | undefined, pct = true) => {
+    if (n == null) return null;
+    return pct ? `${(n * 100).toFixed(0)}%` : String(n);
+  };
+
   const stats: StatItem[] = [
-    { icon: 'people', value: token.top_10_holder_rate, color: PINK },
-    { icon: 'cube', value: token.bundler_trader_amount_rate, color: GREEN },
-    { icon: 'fish', value: token.dev_team_hold_rate ?? token.creator_balance_rate, color: PINK },
-    { icon: 'leaf', value: token.rat_trader_amount_rate, color: PINK },
-    { icon: 'shield-checkmark', value: token.rug_ratio, color: GREEN },
+    { icon: 'leaf', label: 'Fresh', value: fmt(token.fresh_wallet_rate), color: GREEN },
+    { icon: 'star', label: 'KOL', value: fmt(token.renowned_count, false), color: PINK },
+    { icon: 'flash', label: 'Smart', value: fmt(token.smart_degen_count, false), color: BLUE },
+    { icon: 'bug', label: 'Bot', value: token.bot_degen_rate != null ? `${fmt(token.bot_degen_rate)} (${fmt(token.bot_degen_count, false)})` : fmt(token.bot_degen_count, false), color: AMBER },
+    { icon: 'shield-checkmark', label: 'Rug', value: fmt(token.rug_ratio), color: GREEN },
+    { icon: 'warning', label: 'Phish', value: token.is_honeypot != null ? (Number(token.is_honeypot) === 1 ? 'Yes' : 'No') : null, color: Number(token.is_honeypot) === 1 ? '#ef4444' : GREEN },
   ];
 
   return (
