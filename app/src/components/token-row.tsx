@@ -1,13 +1,39 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from '@/components/themed-text';
 import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
 import { fmtUsd, timeAgo } from '@/utils/format';
 import type { TrenchesItem } from '@/api/types';
 
+const PINK = '#f472b6';
 const GREEN = '#22c55e';
+const BLUE = '#38bdf8';
 const AMBER = '#f59e0b';
+
+interface StatItem {
+  icon: keyof typeof Ionicons.glyphMap;
+  value: number | null | undefined;
+  color: string;
+}
+
+function StatsBar({ stats }: { stats: StatItem[] }) {
+  const visible = stats.filter((s) => s.value != null && s.value > 0);
+  if (visible.length === 0) return null;
+  return (
+    <View style={styles.statsBar}>
+      {visible.map((s, i) => (
+        <View key={i} style={[styles.statPill, { backgroundColor: `${s.color}18` }]}>
+          <Ionicons name={s.icon} size={13} color={s.color} />
+          <ThemedText style={[styles.statValue, { color: s.color }]}>
+            {((s.value ?? 0) * 100).toFixed(0)}%
+          </ThemedText>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?: string }) {
   const router = useRouter();
@@ -17,6 +43,14 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
   const volume = token.volume_24h ?? token.volume_1h ?? 0;
   const age = timeAgo(token.created_timestamp ?? token.open_timestamp);
 
+  const stats: StatItem[] = [
+    { icon: 'people', value: token.top_10_holder_rate, color: PINK },
+    { icon: 'cube', value: token.bundler_trader_amount_rate, color: GREEN },
+    { icon: 'fish', value: token.dev_team_hold_rate ?? token.creator_balance_rate, color: PINK },
+    { icon: 'leaf', value: token.rat_trader_amount_rate, color: PINK },
+    { icon: 'shield-checkmark', value: token.rug_ratio, color: GREEN },
+  ];
+
   return (
     <Pressable
       onPress={() => router.push(`/token/${chain}/${token.address}`)}
@@ -24,12 +58,18 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
       <View style={styles.mainRow}>
         {/* Avatar */}
         <View style={[styles.avatarWrap, { borderColor: GREEN }]}>
-          <TokenAvatar logo={token.logo} symbol={token.symbol} size={54} borderRadius={13} />
+          <TokenAvatar
+            logo={token.logo}
+            symbol={token.symbol}
+            size={54}
+            borderRadius={13}
+            launchpad={token.launchpad_platform ?? token.exchange}
+          />
         </View>
 
-        {/* Two clean rows to the right of the avatar */}
+        {/* Content */}
         <View style={styles.contentCol}>
-          {/* Row 1: symbol + name (left) · MC (right) */}
+          {/* Row 1: symbol + name · MC */}
           <View style={styles.row}>
             <View style={styles.leftGroup}>
               <ThemedText
@@ -52,20 +92,23 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
             </View>
           </View>
 
-          {/* Row 2: time (left) · V (right) */}
+          {/* Row 2: time · V */}
           <View style={styles.row}>
             <View style={styles.leftGroup}>
               <ThemedText style={[styles.ageText, { color: GREEN }]}>{age}</ThemedText>
             </View>
             <View style={styles.rightGroup}>
               <ThemedText style={[styles.valueLabel, { color: theme.textSecondary }]}>V</ThemedText>
-              <ThemedText type="smallBold" style={[styles.valueText, { color: AMBER }]}>
+              <ThemedText type="smallBold" style={[styles.valueText, { color: BLUE }]}>
                 {fmtUsd(volume, { compact: true })}
               </ThemedText>
             </View>
           </View>
         </View>
       </View>
+
+      {/* Stats bar */}
+      <StatsBar stats={stats} />
     </Pressable>
   );
 }
@@ -75,6 +118,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#111111',
     borderRadius: 12,
     padding: 10,
+    gap: 8,
   },
   mainRow: {
     flexDirection: 'row',
@@ -88,18 +132,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     position: 'relative',
     flexShrink: 0,
-  },
-  badge: {
-    position: 'absolute',
-    bottom: -4,
-    right: -4,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#111111',
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   contentCol: { flex: 1, gap: 7 },
   row: {
@@ -125,4 +157,25 @@ const styles = StyleSheet.create({
   ageText: { fontSize: 13, fontWeight: '700' },
   valueLabel: { fontSize: 11 },
   valueText: { fontSize: 13 },
+  statsBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  statPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  statValue: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
 });

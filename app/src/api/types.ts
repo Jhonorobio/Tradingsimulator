@@ -102,6 +102,9 @@ export interface TrenchesItem {
   top_10_holder_rate?: number;
   rat_trader_amount_rate?: number;
   bundler_trader_amount_rate?: number;
+  fresh_wallet_rate?: number;
+  bot_degen_rate?: number;
+  insider_ratio?: number;
   is_wash_trading?: boolean;
   sniper_count?: number;
   open_source?: string;
