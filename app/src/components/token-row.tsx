@@ -7,10 +7,8 @@ import { useTheme } from '@/hooks/use-theme';
 import { fmtUsd, timeAgo } from '@/utils/format';
 import type { TrenchesItem } from '@/api/types';
 
-const PINK = '#f472b6';
 const GREEN = '#22c55e';
-const BLUE = '#38bdf8';
-const AMBER = '#f59e0b';
+const RED = '#ef4444';
 
 interface StatItem {
   icon: keyof typeof Ionicons.glyphMap;
@@ -49,13 +47,21 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
     return pct ? `${(n * 100).toFixed(0)}%` : String(n);
   };
 
+  const fresh = token.fresh_wallet_rate;
+  const kol = token.renowned_count;
+  const smart = token.smart_degen_count;
+  const botRate = token.bot_degen_rate;
+  const botCount = token.bot_degen_count;
+  const rug = token.rug_ratio;
+  const phish = token.entrapment_ratio;
+
   const stats: StatItem[] = [
-    { icon: 'leaf', label: 'Fresh', value: fmt(token.fresh_wallet_rate), color: GREEN },
-    { icon: 'star', label: 'KOL', value: fmt(token.renowned_count, false), color: PINK },
-    { icon: 'flash', label: 'Smart', value: fmt(token.smart_degen_count, false), color: BLUE },
-    { icon: 'bug', label: 'Bot', value: token.bot_degen_rate != null ? `${fmt(token.bot_degen_rate)} (${fmt(token.bot_degen_count, false)})` : fmt(token.bot_degen_count, false), color: AMBER },
-    { icon: 'shield-checkmark', label: 'Rug', value: fmt(token.rug_ratio), color: GREEN },
-    { icon: 'warning', label: 'Phish', value: fmt(token.entrapment_ratio), color: (token.entrapment_ratio ?? 0) > 0.1 ? '#ef4444' : GREEN },
+    { icon: 'leaf', label: 'Fresh', value: fmt(fresh), color: (fresh ?? 0) >= 0.2 ? GREEN : RED },
+    { icon: 'star', label: 'KOL', value: fmt(kol, false), color: (kol ?? 0) > 0 ? GREEN : RED },
+    { icon: 'flash', label: 'Smart', value: fmt(smart, false), color: (smart ?? 0) > 0 ? GREEN : RED },
+    { icon: 'bug', label: 'Bot', value: botRate != null ? `${fmt(botRate)} (${fmt(botCount, false)})` : fmt(botCount, false), color: (botRate ?? 0) < 0.15 ? GREEN : RED },
+    { icon: 'shield-checkmark', label: 'Rug', value: fmt(rug), color: (rug ?? 0) < 0.2 ? GREEN : RED },
+    { icon: 'warning', label: 'Phish', value: fmt(phish), color: (phish ?? 0) < 0.1 ? GREEN : RED },
   ];
 
   return (
