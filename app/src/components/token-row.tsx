@@ -55,7 +55,7 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
     { icon: 'flash', label: 'Smart', value: fmt(token.smart_degen_count, false), color: BLUE },
     { icon: 'bug', label: 'Bot', value: token.bot_degen_rate != null ? `${fmt(token.bot_degen_rate)} (${fmt(token.bot_degen_count, false)})` : fmt(token.bot_degen_count, false), color: AMBER },
     { icon: 'shield-checkmark', label: 'Rug', value: fmt(token.rug_ratio), color: GREEN },
-    { icon: 'warning', label: 'Phish', value: token.is_honeypot != null ? (Number(token.is_honeypot) === 1 ? 'Yes' : 'No') : null, color: Number(token.is_honeypot) === 1 ? '#ef4444' : GREEN },
+    { icon: 'warning', label: 'Phish', value: fmt(token.entrapment_ratio), color: (token.entrapment_ratio ?? 0) > 0.1 ? '#ef4444' : GREEN },
   ];
 
   return (
