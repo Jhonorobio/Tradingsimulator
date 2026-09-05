@@ -9,6 +9,7 @@ import type { TrenchesItem } from '@/api/types';
 
 const GREEN = '#22c55e';
 const RED = '#ef4444';
+const BLUE = '#38bdf8';
 
 interface StatItem {
   icon: keyof typeof Ionicons.glyphMap;
