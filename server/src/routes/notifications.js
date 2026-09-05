@@ -4,7 +4,7 @@ import { isValidPushToken } from '../services/push.js';
 
 const router = Router();
 
-const VALID_CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'];
+const VALID_CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
 
 function deviceId(req) {
   const id = req.headers['x-device-id'] || req.params.deviceId;
@@ -67,7 +67,7 @@ router.get('/config', (req, res) => {
     if (!entry) {
       return res.json({
         push_token: null,
-        categories: { new_creation: false, completed: false, new_creation_robinhood: false, completed_robinhood: false },
+        categories: { new_creation: false, completed: false, new_creation_robinhood: false, completed_robinhood: false, new_creation_bsc: false, completed_bsc: false },
       });
     }
     res.json({

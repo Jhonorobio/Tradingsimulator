@@ -8,7 +8,7 @@ export const CHAINS = new Set(['sol', 'bsc', 'base', 'eth', 'robinhood', 'arc', 
 // GMGN API accepts only these types (not the robinhood variants)
 const GMGN_TYPES = ['new_creation', 'completed'];
 // All tab names (including robinhood variants)
-export const TRENCH_TYPES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'];
+export const TRENCH_TYPES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
 const PRESETS = new Set(['safe', 'smart-money', 'strict']);
 const SORT_FIELDS = new Set([
   'smart_degen_count', 'renowned_count', 'volume_24h', 'volume_1h', 'swaps_24h', 'swaps_1h',

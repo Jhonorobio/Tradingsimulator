@@ -7,7 +7,7 @@
 
 import { broadcast } from './ws-server.js';
 
-const ALL_TABS = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'];
+const ALL_TABS = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
 
 // Separate maps per category to prevent cross-contamination
 const byCategory = {};

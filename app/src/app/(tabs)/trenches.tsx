@@ -22,12 +22,14 @@ import { useWs } from '@/store/ws';
 import { getSavedTrenchesFilters } from '@/api/market';
 import type { TrenchesItem } from '@/api/types';
 
-type TabKey = 'new_creation' | 'completed' | 'new_creation_robinhood' | 'completed_robinhood';
+type TabKey = 'new_creation' | 'completed' | 'new_creation_robinhood' | 'completed_robinhood' | 'new_creation_bsc' | 'completed_bsc';
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'new_creation', label: 'Nueva' },
   { key: 'completed', label: 'Hecha' },
   { key: 'new_creation_robinhood', label: 'Nueva RH' },
   { key: 'completed_robinhood', label: 'Hecha RH' },
+  { key: 'new_creation_bsc', label: 'Nueva BSC' },
+  { key: 'completed_bsc', label: 'Hecha BSC' },
 ];
 
 type RangeValues = { min: string; max: string };
@@ -87,6 +89,8 @@ function normalizeFilters(raw: unknown): Record<TabKey, Filters> {
     completed: emptyFilters(),
     new_creation_robinhood: emptyFilters(),
     completed_robinhood: emptyFilters(),
+    new_creation_bsc: emptyFilters(),
+    completed_bsc: emptyFilters(),
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const obj = raw as Record<string, unknown>;
@@ -166,6 +170,8 @@ export default function TrenchesScreen() {
     completed: emptyFilters(),
     new_creation_robinhood: emptyFilters(),
     completed_robinhood: emptyFilters(),
+    new_creation_bsc: emptyFilters(),
+    completed_bsc: emptyFilters(),
   });
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [draft, setDraft] = useState<Filters>(emptyFilters());
@@ -175,6 +181,8 @@ export default function TrenchesScreen() {
     completed: [],
     new_creation_robinhood: [],
     completed_robinhood: [],
+    new_creation_bsc: [],
+    completed_bsc: [],
   });
 
   // Subscribe to WS trenches for all tabs on mount.
@@ -309,7 +317,7 @@ export default function TrenchesScreen() {
             <FlatList
               data={activeTokens}
               keyExtractor={(item, i) => `t-${item.address}-${i}`}
-              renderItem={({ item }) => <TokenRow token={item} chain={activeTab.includes('robinhood') ? 'robinhood' : 'sol'} />}
+              renderItem={({ item }) => <TokenRow token={item} chain={activeTab.includes('robinhood') ? 'robinhood' : activeTab.includes('bsc') ? 'bsc' : 'sol'} />}
               contentContainerStyle={styles.list}
               ListEmptyComponent={
                 !wsConnected ? (

@@ -5,7 +5,7 @@
  * logic lives in the app.
  */
 
-export const TRENCH_TABS = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'];
+export const TRENCH_TABS = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
 
 export const DEFAULT_TRENCH_PARAMS = { chain: 'sol', types: ['new_creation'], limit: 50 };
 
@@ -15,6 +15,8 @@ const TAB_CHAIN = {
   completed: 'sol',
   new_creation_robinhood: 'robinhood',
   completed_robinhood: 'robinhood',
+  new_creation_bsc: 'bsc',
+  completed_bsc: 'bsc',
 };
 
 // Map tab name → GMGN trench type (the API category parameter)
@@ -23,6 +25,8 @@ const TAB_TYPE = {
   completed: 'completed',
   new_creation_robinhood: 'new_creation',
   completed_robinhood: 'completed',
+  new_creation_bsc: 'new_creation',
+  completed_bsc: 'completed',
 };
 
 // Field key -> interpretation scale. Mirrors what the app renders.

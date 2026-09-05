@@ -21,15 +21,19 @@ const TAB_LABELS: Record<string, string> = {
   completed: 'Completado (SOL)',
   new_creation_robinhood: 'Nueva creación (Robinhood)',
   completed_robinhood: 'Completado (Robinhood)',
+  new_creation_bsc: 'Nueva creación (BSC)',
+  completed_bsc: 'Completado (BSC)',
   token_info: 'Token Info (Detalle)',
 };
-const TAB_ORDER = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'token_info'];
-const NOTIF_CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'] as const;
+const TAB_ORDER = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc', 'token_info'];
+const NOTIF_CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'] as const;
 const NOTIF_LABELS: Record<string, string> = {
   new_creation: 'Nueva creación (SOL)',
   completed: 'Completado (SOL)',
   new_creation_robinhood: 'Nueva creación (Robinhood)',
   completed_robinhood: 'Completado (Robinhood)',
+  new_creation_bsc: 'Nueva creación (BSC)',
+  completed_bsc: 'Completado (BSC)',
 };
 
 export default function SettingsScreen() {
@@ -49,6 +53,8 @@ export default function SettingsScreen() {
     completed: { url: '', apiKey: '' },
     new_creation_robinhood: { url: '', apiKey: '' },
     completed_robinhood: { url: '', apiKey: '' },
+    new_creation_bsc: { url: '', apiKey: '' },
+    completed_bsc: { url: '', apiKey: '' },
     token_info: { url: '', apiKey: '' },
   });
   const [proxyTesting, setProxyTesting] = useState<Record<string, boolean>>({});
@@ -60,6 +66,8 @@ export default function SettingsScreen() {
     completed: false,
     new_creation_robinhood: false,
     completed_robinhood: false,
+    new_creation_bsc: false,
+    completed_bsc: false,
   });
 
   useEffect(() => {

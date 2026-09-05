@@ -159,7 +159,7 @@ export function connectionForTab(tab) {
   if (!stored?.apiKey) return null;
   // new_creation (sol): directo sin proxy (solo necesita API key)
   if (tab === 'new_creation') return { proxy: '', apiKey: stored.apiKey };
-  //Robinhood tabs + completed: requieren proxy configurado
+  //Robinhood tabs, BSC tabs + completed: requieren proxy configurado
   if (stored?.url) return { proxy: stored.url, apiKey: stored.apiKey };
   return null;
 }

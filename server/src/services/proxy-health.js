@@ -88,7 +88,7 @@ export function getTabStatus(tab) {
  * Returns the cached status for all tabs.
  */
 export function getAllStatus() {
-  const tabs = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood'];
+  const tabs = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
   return tabs.map((tab) => getTabStatus(tab));
 }
 
@@ -104,7 +104,7 @@ export function setTabStatus(tab, status) {
  * @param {import('../stores.js').proxyConfigs} proxyConfigsStore
  */
 export async function checkAllProxies(proxyConfigsStore) {
-  const tabs = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'token_info'];
+  const tabs = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc', 'token_info'];
   const results = [];
   for (const tab of tabs) {
     const config = proxyConfigsStore.get(tab);
