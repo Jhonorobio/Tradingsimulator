@@ -171,7 +171,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a1a',
     borderRadius: 20,
     paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
   },
   statItem: {
     flexDirection: 'row',
