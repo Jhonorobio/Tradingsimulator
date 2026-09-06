@@ -47,7 +47,7 @@ export function upsertTrenches(data, source = 'refresher', tab = null) {
     }
     updatedTabs.push(key);
     const canBroadcast = now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS;
-    if (canBroadcast && list.length > 0) {
+    if (canBroadcast) {
       lastBroadcast[key] = now;
       broadcast(`trenches:${key}`, { event: 'trenches_updated', tab: key, data: list });
     }

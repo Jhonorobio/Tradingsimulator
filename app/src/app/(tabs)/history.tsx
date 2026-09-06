@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
@@ -73,6 +73,63 @@ export default function HistoryScreen() {
       })
     : history;
 
+  const renderItem = useCallback(({ item }: { item: NotificationHistoryItem }) => (
+    <Pressable onPress={() => goToToken(item)}>
+      <Card style={[styles.card, { borderColor: theme.border }]}>
+        <View style={styles.cardHeader}>
+          {item.logo ? (
+            <View style={[styles.logo, { backgroundColor: theme.backgroundSelected }]}>
+              <ThemedText type="small">{item.symbol?.charAt(0) || '?'}</ThemedText>
+            </View>
+          ) : null}
+          <View style={styles.cardInfo}>
+            <ThemedText type="smallBold" style={{ color: theme.text }}>
+              {item.symbol || item.name || shortAddress(item.address)}
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              {item.chain.toUpperCase()} · {CATEGORY_LABELS[item.category] || item.category}
+            </ThemedText>
+          </View>
+          <View style={styles.cardRight}>
+            {item.mcap != null ? (
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                MCap {fmtUsd(item.mcap)}
+              </ThemedText>
+            ) : null}
+            {item.vol24h != null ? (
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Vol {fmtUsd(item.vol24h)}
+              </ThemedText>
+            ) : null}
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              {new Date(item.notified_at).toLocaleDateString()} {new Date(item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </ThemedText>
+          </View>
+        </View>
+        <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
+          {shortAddress(item.address)}
+        </ThemedText>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+          {item.smart_degen_count != null && item.smart_degen_count > 0 && (
+            <ThemedText type="small" style={{ color: theme.accent }}>SM {item.smart_degen_count}</ThemedText>
+          )}
+          {item.renowned_count != null && item.renowned_count > 0 && (
+            <ThemedText type="small" style={{ color: theme.accent }}>KOL {item.renowned_count}</ThemedText>
+          )}
+          {item.fresh_wallet_rate != null && item.fresh_wallet_rate > 0 && (
+            <ThemedText type="small" style={{ color: theme.positive }}>Fresh {(item.fresh_wallet_rate * 100).toFixed(0)}%</ThemedText>
+          )}
+          {item.bot_degen_count != null && item.bot_degen_count > 0 && (
+            <ThemedText type="small" style={{ color: theme.warn }}>Bot {item.bot_degen_count}</ThemedText>
+          )}
+          {item.bot_degen_rate != null && item.bot_degen_rate > 0 && (
+            <ThemedText type="small" style={{ color: theme.warn }}>Bot% {(item.bot_degen_rate * 100).toFixed(1)}%</ThemedText>
+          )}
+        </View>
+      </Card>
+    </Pressable>
+  ), [theme, goToToken]);
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
@@ -88,70 +145,16 @@ export default function HistoryScreen() {
           />
         </View>
 
-        <ScrollView
+        <FlatList
+          data={filtered}
+          keyExtractor={(item, i) => `${item.address}-${item.notified_at}-${i}`}
+          renderItem={renderItem}
           contentContainerStyle={styles.scroll}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}>
-          {filtered.length === 0 ? (
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
+          ListEmptyComponent={
             <ThemedText style={styles.empty}>{history.length === 0 ? 'No hay notificaciones aún' : 'Sin resultados'}</ThemedText>
-          ) : (
-            filtered.map((item) => (
-              <Pressable key={`${item.address}-${item.notified_at}`} onPress={() => goToToken(item)}>
-                <Card style={[styles.card, { borderColor: theme.border }]}>
-                  <View style={styles.cardHeader}>
-                    {item.logo ? (
-                      <View style={[styles.logo, { backgroundColor: theme.backgroundSelected }]}>
-                        <ThemedText type="small">{item.symbol?.charAt(0) || '?'}</ThemedText>
-                      </View>
-                    ) : null}
-                    <View style={styles.cardInfo}>
-                      <ThemedText type="smallBold" style={{ color: theme.text }}>
-                        {item.symbol || item.name || shortAddress(item.address)}
-                      </ThemedText>
-                      <ThemedText type="tiny" style={{ color: theme.textSecondary }}>
-                        {item.chain.toUpperCase()} · {CATEGORY_LABELS[item.category] || item.category}
-                      </ThemedText>
-                    </View>
-                    <View style={styles.cardRight}>
-                      {item.mcap != null ? (
-                        <ThemedText type="tiny" style={{ color: theme.textSecondary }}>
-                          MCap {fmtUsd(item.mcap)}
-                        </ThemedText>
-                      ) : null}
-                      {item.vol24h != null ? (
-                        <ThemedText type="tiny" style={{ color: theme.textSecondary }}>
-                          Vol {fmtUsd(item.vol24h)}
-                        </ThemedText>
-                      ) : null}
-                      <ThemedText type="tiny" style={{ color: theme.textSecondary }}>
-                        {new Date(item.notified_at).toLocaleDateString()} {new Date(item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </ThemedText>
-                    </View>
-                  </View>
-                  <ThemedText type="tiny" style={{ color: theme.textSecondary, marginTop: 4 }}>
-                    {shortAddress(item.address)}
-                  </ThemedText>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-                    {item.smart_degen_count != null && item.smart_degen_count > 0 && (
-                      <ThemedText type="tiny" style={{ color: theme.accent }}>SM {item.smart_degen_count}</ThemedText>
-                    )}
-                    {item.renowned_count != null && item.renowned_count > 0 && (
-                      <ThemedText type="tiny" style={{ color: theme.accent }}>KOL {item.renowned_count}</ThemedText>
-                    )}
-                    {item.fresh_wallet_rate != null && item.fresh_wallet_rate > 0 && (
-                      <ThemedText type="tiny" style={{ color: theme.positive }}>Fresh {(item.fresh_wallet_rate * 100).toFixed(0)}%</ThemedText>
-                    )}
-                    {item.bot_degen_count != null && item.bot_degen_count > 0 && (
-                      <ThemedText type="tiny" style={{ color: theme.warn }}>Bot {item.bot_degen_count}</ThemedText>
-                    )}
-                    {item.bot_degen_rate != null && item.bot_degen_rate > 0 && (
-                      <ThemedText type="tiny" style={{ color: theme.warn }}>Bot% {(item.bot_degen_rate * 100).toFixed(1)}%</ThemedText>
-                    )}
-                  </View>
-                </Card>
-              </Pressable>
-            ))
-          )}
-        </ScrollView>
+          }
+        />
       </SafeAreaView>
     </ThemedView>
   );

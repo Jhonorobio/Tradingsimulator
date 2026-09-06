@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -20,86 +21,86 @@ import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
 import { getSavedTrenchesFilters } from '@/api/market';
-import { getServerFilters } from '@/api/ws-client';
 import type { TrenchesItem } from '@/api/types';
 
 type MainTab = 'new' | 'completed';
-type ChainFilter = 'solana' | 'robinhood' | 'bsc' | 'todas';
+type ChainKey = 'solana' | 'robinhood' | 'bsc';
 type TabKey = 'new_creation' | 'completed' | 'new_creation_robinhood' | 'completed_robinhood' | 'new_creation_bsc' | 'completed_bsc';
 
 const MAIN_TABS: { key: MainTab; label: string }[] = [
-  { key: 'new', label: 'Nuevo' },
+  { key: 'new', label: 'Nueva' },
   { key: 'completed', label: 'Completado' },
 ];
 
-const CHAIN_OPTIONS: { key: ChainFilter; label: string }[] = [
-  { key: 'solana', label: 'Solana' },
-  { key: 'robinhood', label: 'Robinhood' },
-  { key: 'bsc', label: 'BSC' },
-  { key: 'todas', label: 'Todas' },
+const CHAIN_OPTIONS: { key: ChainKey; label: string; icon: any; color: string }[] = [
+  { key: 'solana', label: 'SOL', icon: require('@/assets/images/chains/solana.png'), color: '#a855f7' },
+  { key: 'bsc', label: 'BSC', icon: require('@/assets/images/chains/bsc.webp'), color: '#f97316' },
+  { key: 'robinhood', label: 'HOOD', icon: require('@/assets/images/chains/robinhood.png'), color: '#CCFF00' },
 ];
 
 const ALL_TABS: TabKey[] = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
 
-function getTabKeysForSelection(main: MainTab, chain: ChainFilter): TabKey[] {
-  if (chain === 'todas') {
-    return main === 'new'
-      ? ['new_creation', 'new_creation_robinhood', 'new_creation_bsc']
-      : ['completed', 'completed_robinhood', 'completed_bsc'];
+function getTabKeysForSelection(main: MainTab, chains: ChainKey[]): TabKey[] {
+  const tabs: TabKey[] = [];
+  for (const chain of chains) {
+    const suffix = chain === 'robinhood' ? '_robinhood' : chain === 'bsc' ? '_bsc' : '';
+    tabs.push((main === 'new' ? `new_creation${suffix}` : `completed${suffix}`) as TabKey);
   }
-  const suffix = chain === 'robinhood' ? '_robinhood' : chain === 'bsc' ? '_bsc' : '';
-  return [main === 'new' ? `new_creation${suffix}` : `completed${suffix}`] as TabKey[];
+  return tabs;
 }
 
-function getChainForTab(tab: TabKey): string {
+function getChainForTab(tab: TabKey): ChainKey {
   if (tab.includes('robinhood')) return 'robinhood';
   if (tab.includes('bsc')) return 'bsc';
   return 'solana';
 }
 
+function getTabKeyForChainFilter(main: MainTab, chain: ChainKey): TabKey {
+  const suffix = chain === 'robinhood' ? '_robinhood' : chain === 'bsc' ? '_bsc' : '';
+  return (main === 'new' ? `new_creation${suffix}` : `completed${suffix}`) as TabKey;
+}
+
 type RangeValues = { min: string; max: string };
 type Filters = Record<string, RangeValues>;
 
-type FieldScale = 'none' | 'percent' | 'thousand' | 'minute';
 interface FilterField {
   key: string;
   label: string;
   unit: string;
-  scale: FieldScale;
 }
 
 const FILTER_FIELDS: FilterField[] = [
-  { key: 'progress', label: 'Progreso', unit: '%', scale: 'percent' },
-  { key: 'created', label: 'Fecha de creación', unit: 'm', scale: 'minute' },
-  { key: 'liquidity', label: 'Pool de liquidez', unit: 'K', scale: 'thousand' },
-  { key: 'marketcap', label: 'Capitalización de Mercado ($)', unit: 'K', scale: 'thousand' },
-  { key: 'topHolderRate', label: 'Participación de los 10 mayores tenedores', unit: '%', scale: 'percent' },
-  { key: 'creatorBalanceRate', label: 'Porcentaje en manos de los desarrolladores', unit: '%', scale: 'percent' },
-  { key: 'totalFee', label: 'Comisiones totales', unit: 'SOL', scale: 'none' },
-  { key: 'bundlerRate', label: 'Bundler', unit: '%', scale: 'percent' },
-  { key: 'rugRatio', label: 'Rug ratio', unit: '%', scale: 'percent' },
-  { key: 'insiderRatio', label: 'Insider', unit: '%', scale: 'percent' },
-  { key: 'entrapmentRatio', label: 'Entrapment', unit: '%', scale: 'percent' },
-  { key: 'privateVaultHoldRate', label: 'Private vault', unit: '%', scale: 'percent' },
-  { key: 'top70SniperHoldRate', label: 'Top70 sniper', unit: '%', scale: 'percent' },
-  { key: 'botDegenRate', label: 'Bot degen', unit: '%', scale: 'percent' },
-  { key: 'freshWalletRate', label: 'Fresh wallet', unit: '%', scale: 'percent' },
-  { key: 'creatorCreatedOpenRatio', label: 'Ratio de graduación del creador', unit: '%', scale: 'percent' },
-  { key: 'volume24h', label: 'Volumen 24h', unit: '$', scale: 'none' },
-  { key: 'netBuy24h', label: 'Compras netas 24h', unit: '$', scale: 'none' },
-  { key: 'swaps24h', label: 'Swaps 24h', unit: '', scale: 'none' },
-  { key: 'buys24h', label: 'Compras 24h', unit: '', scale: 'none' },
-  { key: 'sells24h', label: 'Ventas 24h', unit: '', scale: 'none' },
-  { key: 'visitingCount', label: 'Visitantes', unit: '', scale: 'none' },
-  { key: 'holderCount', label: 'Tenedores', unit: '', scale: 'none' },
-  { key: 'botCount', label: 'Bots', unit: '', scale: 'none' },
-  { key: 'smartDegen', label: 'Smart degen', unit: '', scale: 'none' },
-  { key: 'renowned', label: 'Renombrados', unit: '', scale: 'none' },
-  { key: 'creatorCreatedCount', label: 'Creador · tokens creados', unit: '', scale: 'none' },
-  { key: 'creatorCreatedOpenCount', label: 'Creador · tokens graduados', unit: '', scale: 'none' },
-  { key: 'xFollowers', label: 'Seguidores X', unit: '', scale: 'none' },
-  { key: 'twitterRenameCount', label: 'Renombres Twitter', unit: '', scale: 'none' },
-  { key: 'tgCallCount', label: 'Llamadas Telegram', unit: '', scale: 'none' },
+  { key: 'progress', label: 'Progreso', unit: '%' },
+  { key: 'created', label: 'Fecha de creación', unit: 'm' },
+  { key: 'liquidity', label: 'Pool de liquidez', unit: 'K' },
+  { key: 'marketcap', label: 'Capitalización de Mercado ($)', unit: 'K' },
+  { key: 'topHolderRate', label: 'Participación de los 10 mayores tenedores', unit: '%' },
+  { key: 'creatorBalanceRate', label: 'Porcentaje en manos de los desarrolladores', unit: '%' },
+  { key: 'totalFee', label: 'Comisiones totales', unit: 'SOL' },
+  { key: 'bundlerRate', label: 'Bundler', unit: '%' },
+  { key: 'rugRatio', label: 'Rug ratio', unit: '%' },
+  { key: 'insiderRatio', label: 'Insider', unit: '%' },
+  { key: 'entrapmentRatio', label: 'Entrapment', unit: '%' },
+  { key: 'privateVaultHoldRate', label: 'Private vault', unit: '%' },
+  { key: 'top70SniperHoldRate', label: 'Top70 sniper', unit: '%' },
+  { key: 'botDegenRate', label: 'Bot degen', unit: '%' },
+  { key: 'freshWalletRate', label: 'Fresh wallet', unit: '%' },
+  { key: 'creatorCreatedOpenRatio', label: 'Ratio de graduación del creador', unit: '%' },
+  { key: 'volume24h', label: 'Volumen 24h', unit: '$' },
+  { key: 'netBuy24h', label: 'Compras netas 24h', unit: '$' },
+  { key: 'swaps24h', label: 'Swaps 24h', unit: '' },
+  { key: 'buys24h', label: 'Compras 24h', unit: '' },
+  { key: 'sells24h', label: 'Ventas 24h', unit: '' },
+  { key: 'visitingCount', label: 'Visitantes', unit: '' },
+  { key: 'holderCount', label: 'Tenedores', unit: '' },
+  { key: 'botCount', label: 'Bots', unit: '' },
+  { key: 'smartDegen', label: 'Smart degen', unit: '' },
+  { key: 'renowned', label: 'Renombrados', unit: '' },
+  { key: 'creatorCreatedCount', label: 'Creador · tokens creados', unit: '' },
+  { key: 'creatorCreatedOpenCount', label: 'Creador · tokens graduados', unit: '' },
+  { key: 'xFollowers', label: 'Seguidores X', unit: '' },
+  { key: 'twitterRenameCount', label: 'Renombres Twitter', unit: '' },
+  { key: 'tgCallCount', label: 'Llamadas Telegram', unit: '' },
 ];
 
 function emptyFilters(): Filters {
@@ -134,6 +135,17 @@ function normalizeFilters(raw: unknown): Record<TabKey, Filters> {
     }
   }
   return fallback;
+}
+
+function ChainIcon({ chain, size = 24 }: { chain: ChainKey; size?: number }) {
+  const opt = CHAIN_OPTIONS.find((c) => c.key === chain)!;
+  return (
+    <Image
+      source={opt.icon}
+      style={{ width: size, height: size, borderRadius: size / 2 }}
+      contentFit="contain"
+    />
+  );
 }
 
 function RangeField({
@@ -189,7 +201,7 @@ export default function TrenchesScreen() {
   const { proxyStatuses, loadProxyStatuses } = useSettings();
   const { connected: wsConnected, trenches: wsTrenches, subscribeTrenches, unsubscribeTrenches, setTrenchesFilters } = useWs();
   const [activeMainTab, setActiveMainTab] = useState<MainTab>('new');
-  const [activeChain, setActiveChain] = useState<ChainFilter>('todas');
+  const [selectedChains, setSelectedChains] = useState<ChainKey[]>(['solana']);
 
   const [filters, setFilters] = useState<Record<TabKey, Filters>>({
     new_creation: emptyFilters(),
@@ -199,7 +211,13 @@ export default function TrenchesScreen() {
     new_creation_bsc: emptyFilters(),
     completed_bsc: emptyFilters(),
   });
-  const [filtersVisible, setFiltersVisible] = useState(false);
+
+  const [chainSheetVisible, setChainSheetVisible] = useState(false);
+  const [tempSelectedChains, setTempSelectedChains] = useState<ChainKey[]>([]);
+
+  const [filterChainVisible, setFilterChainVisible] = useState(false);
+  const [filterEditChain, setFilterEditChain] = useState<ChainKey | null>(null);
+  const [filterEditorVisible, setFilterEditorVisible] = useState(false);
   const [draft, setDraft] = useState<Filters>(emptyFilters());
 
   const [data, setData] = useState<Record<TabKey, TrenchesItem[]>>({
@@ -211,7 +229,6 @@ export default function TrenchesScreen() {
     completed_bsc: [],
   });
 
-  // Subscribe to WS trenches for all tabs on mount.
   useEffect(() => {
     for (const tab of ALL_TABS) {
       subscribeTrenches(tab);
@@ -231,17 +248,8 @@ export default function TrenchesScreen() {
     };
   }, [subscribeTrenches, unsubscribeTrenches]);
 
-  // Load saved filters on mount and sync with server
   useEffect(() => {
     let cancelled = false;
-    // First: check if server already has filters (sent on WS connect)
-    const serverF = getServerFilters();
-    if (serverF) {
-      const parsed = normalizeFilters(serverF);
-      setFilters(parsed);
-      return;
-    }
-    // Fallback: fetch from HTTP API
     getSavedTrenchesFilters()
       .then((res) => {
         if (cancelled || !res.filters) return;
@@ -257,15 +265,13 @@ export default function TrenchesScreen() {
     loadProxyStatuses();
   }, [loadProxyStatuses]);
 
-  // Compute active tab keys based on selection
   const activeTabKeys = useMemo(
-    () => getTabKeysForSelection(activeMainTab, activeChain),
-    [activeMainTab, activeChain]
+    () => getTabKeysForSelection(activeMainTab, selectedChains),
+    [activeMainTab, selectedChains]
   );
 
-  // Merge tokens from selected tabs and sort by time
   const activeTokens = useMemo(() => {
-    const merged: (TrenchesItem & { _chain: string })[] = [];
+    const merged: (TrenchesItem & { _chain: ChainKey })[] = [];
     for (const key of activeTabKeys) {
       const chain = getChainForTab(key);
       const items = data[key] ?? [];
@@ -281,15 +287,42 @@ export default function TrenchesScreen() {
     return merged;
   }, [data, activeTabKeys]);
 
-  // Filter button uses the first tab key for config
-  const filterTabKey = activeTabKeys[0];
+  const openChainSheet = useCallback(() => {
+    setTempSelectedChains([...selectedChains]);
+    setChainSheetVisible(true);
+  }, [selectedChains]);
 
-  const openFilters = useCallback(() => {
-    setDraft(filters[filterTabKey]);
-    setFiltersVisible(true);
-  }, [filters, filterTabKey]);
+  const toggleTempChain = useCallback((chain: ChainKey) => {
+    setTempSelectedChains((prev) => {
+      if (prev.includes(chain)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((c) => c !== chain);
+      }
+      return [...prev, chain];
+    });
+  }, []);
 
-  const closeFilters = useCallback(() => setFiltersVisible(false), []);
+  const confirmChainSelection = useCallback(() => {
+    setSelectedChains(tempSelectedChains);
+    setChainSheetVisible(false);
+  }, [tempSelectedChains]);
+
+  const openFilterChainPicker = useCallback(() => {
+    setFilterChainVisible(true);
+  }, []);
+
+  const selectFilterChain = useCallback((chain: ChainKey) => {
+    setFilterChainVisible(false);
+    setFilterEditChain(chain);
+    const tabKey = getTabKeyForChainFilter(activeMainTab, chain);
+    setDraft(filters[tabKey]);
+    setFilterEditorVisible(true);
+  }, [activeMainTab, filters]);
+
+  const closeFilterEditor = useCallback(() => {
+    setFilterEditorVisible(false);
+    setFilterEditChain(null);
+  }, []);
 
   const resetDraft = useCallback(() => setDraft(emptyFilters()), []);
 
@@ -298,115 +331,94 @@ export default function TrenchesScreen() {
   }, []);
 
   const confirmFilters = useCallback(() => {
-    const next = { ...filters, [filterTabKey]: draft };
+    if (!filterEditChain) return;
+    const tabKey = getTabKeyForChainFilter(activeMainTab, filterEditChain);
+    const next = { ...filters, [tabKey]: draft };
     setFilters(next);
-    setFiltersVisible(false);
+    setFilterEditorVisible(false);
+    setFilterEditChain(null);
     setTrenchesFilters(next);
-  }, [filterTabKey, draft, filters, setTrenchesFilters]);
+  }, [filterEditChain, activeMainTab, draft, filters, setTrenchesFilters]);
 
-  // Check proxy status for selected tabs
-  const anyProxyOk = activeTabKeys.some((key) => {
-    const s = proxyStatuses.find((p) => p.tab === key);
-    return s?.working ?? false;
-  });
+  const selectedChainOpt = CHAIN_OPTIONS.filter((c) => selectedChains.includes(c.key));
+  const filterEditLabel = filterEditChain
+    ? CHAIN_OPTIONS.find((c) => c.key === filterEditChain)?.label ?? ''
+    : '';
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
-        {/* Main tabs */}
-        <View style={styles.tabBar}>
-          {MAIN_TABS.map((tab) => (
-            <Pressable
-              key={tab.key}
-              onPress={() => setActiveMainTab(tab.key)}
-              style={styles.tab}>
-              <ThemedText
-                type="smallBold"
-                style={[
-                  styles.tabLabel,
-                  { color: activeMainTab === tab.key ? theme.text : theme.textSecondary },
-                ]}>
-                {tab.label}
-              </ThemedText>
-              {activeMainTab === tab.key && (
-                <View style={[styles.tabUnderline, { backgroundColor: theme.text }]} />
-              )}
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Chain selector */}
-        <View style={styles.chainBar}>
-          {CHAIN_OPTIONS.map((c) => {
-            const isActive = activeChain === c.key;
-            return (
+        {/* Top bar */}
+        <View style={styles.topBar}>
+          <View style={styles.tabsLeft}>
+            {MAIN_TABS.map((tab) => (
               <Pressable
-                key={c.key}
-                onPress={() => setActiveChain(c.key)}
-                style={[
-                  styles.chainBtn,
-                  { backgroundColor: isActive ? theme.accent : theme.backgroundSelected },
-                ]}>
+                key={tab.key}
+                onPress={() => setActiveMainTab(tab.key)}
+                style={styles.tab}>
                 <ThemedText
-                  type="small"
-                  style={{ color: isActive ? '#fff' : theme.textSecondary }}>
-                  {c.label}
+                  type="smallBold"
+                  style={[
+                    styles.tabLabel,
+                    { color: activeMainTab === tab.key ? theme.text : theme.textSecondary },
+                  ]}>
+                  {tab.label}
                 </ThemedText>
+                {activeMainTab === tab.key && (
+                  <View style={[styles.tabUnderline, { backgroundColor: theme.text }]} />
+                )}
               </Pressable>
-            );
-          })}
+            ))}
+          </View>
+
+          <Pressable onPress={openChainSheet} style={styles.chainSelector}>
+            <View style={styles.chainIconsRow}>
+              {selectedChainOpt.map((c, i) => (
+                <View
+                  key={c.key}
+                    style={[
+                      styles.chainIconWrap,
+                      { marginLeft: i > 0 ? -8 : 0, zIndex: selectedChainOpt.length - i },
+                    ]}>
+                  <ChainIcon chain={c.key} size={24} />
+                </View>
+              ))}
+            </View>
+            <Ionicons name="chevron-down" size={14} color={theme.textSecondary} />
+          </Pressable>
         </View>
 
         {/* Action bar */}
         <View style={styles.actionBar}>
-          <View style={styles.actionsRight}>
-            <Pressable style={styles.iconBtn}>
-              <Ionicons name="pause" size={20} color={theme.textSecondary} />
-            </Pressable>
-            <View style={styles.sortBtn}>
-              <ThemedText style={{ color: theme.textSecondary, fontSize: 13, fontWeight: '700' }}>%</ThemedText>
-              <Ionicons name="chevron-down" size={12} color={theme.textSecondary} />
-            </View>
-            <Pressable
-              onPress={openFilters}
-              style={[styles.filterBtn, { borderColor: theme.border, backgroundColor: theme.backgroundElement }]}>
-              <Ionicons name="funnel" size={17} color={theme.textSecondary} />
-            </Pressable>
-          </View>
+          <Pressable
+            onPress={openFilterChainPicker}
+            style={[styles.filterBtn, { borderColor: theme.border, backgroundColor: theme.backgroundElement }]}>
+            <Ionicons name="funnel" size={17} color={theme.textSecondary} />
+          </Pressable>
         </View>
 
-        {!anyProxyOk ? (
-          <View style={styles.emptyCard}>
-            <ThemedText type="smallBold" style={{ color: theme.negative, marginBottom: 4 }}>
-              Proxy no configurado
-            </ThemedText>
-            <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>
-              Configura el proxy en Settings → Proxies GMGN para las cadenas que quieras usar.
-            </ThemedText>
-          </View>
-        ) : (
-          <FlatList
-            data={activeTokens}
-            keyExtractor={(item, i) => `t-${item._chain}-${item.address}-${i}`}
-            renderItem={({ item }) => <TokenRow token={item} chain={item._chain} />}
-            contentContainerStyle={styles.list}
-            ListEmptyComponent={
-              !wsConnected ? (
-                <View style={styles.emptyCard}>
-                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                    Conectando al servidor...
-                  </ThemedText>
-                </View>
-              ) : (
-                <View style={styles.emptyCard}>
-                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                    Sin resultados con estos filtros.
-                  </ThemedText>
-                </View>
-              )
-            }
-          />
-        )}
+        {/* Token list */}
+        <FlatList
+          data={activeTokens}
+          keyExtractor={(item, i) => `t-${item._chain}-${item.address}-${i}`}
+          renderItem={({ item }) => <TokenRow token={item} chain={item._chain} />}
+          contentContainerStyle={styles.list}
+          ListEmptyComponent={
+            !wsConnected ? (
+              <View style={styles.emptyCard}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  Conectando al servidor...
+                </ThemedText>
+              </View>
+            ) : (
+              <View style={styles.emptyCard}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  Sin resultados con estos filtros.
+                </ThemedText>
+              </View>
+            )
+          }
+        />
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
@@ -415,35 +427,89 @@ export default function TrenchesScreen() {
         </View>
       </SafeAreaView>
 
-      {/* Bottom Sheet Modal */}
-      <Modal
-        visible={filtersVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={closeFilters}>
+      {/* ── Chain selector sheet ── */}
+      <Modal visible={chainSheetVisible} transparent animationType="slide" onRequestClose={() => setChainSheetVisible(false)}>
         <View style={styles.modalBackdrop}>
-          <Pressable style={styles.backdropTouch} onPress={closeFilters} />
+          <Pressable style={styles.backdropTouch} onPress={() => setChainSheetVisible(false)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <ThemedText type="smallBold" style={styles.sheetTitle}>Seleccionar red</ThemedText>
+              <Pressable onPress={() => setTempSelectedChains(CHAIN_OPTIONS.map((c) => c.key))} hitSlop={8}>
+                <ThemedText type="small" style={styles.resetText}>Seleccionar todo</ThemedText>
+              </Pressable>
+            </View>
+            <View style={styles.chainGrid}>
+              {CHAIN_OPTIONS.map((c) => {
+                const sel = tempSelectedChains.includes(c.key);
+                return (
+                  <Pressable
+                    key={c.key}
+                    onPress={() => toggleTempChain(c.key)}
+                    style={[styles.chainCard, { borderColor: sel ? c.color : theme.border, backgroundColor: theme.backgroundSelected }]}>
+                    <ChainIcon chain={c.key} size={40} />
+                    <ThemedText type="small" style={{ color: theme.text }}>{c.label}</ThemedText>
+                    {sel && (
+                      <View style={[styles.chainCheck, { backgroundColor: c.color }]}>
+                        <Ionicons name="checkmark" size={12} color="#000" />
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.sheetFooter}>
+              <Pressable onPress={() => setChainSheetVisible(false)} style={styles.cancelBtn}>
+                <ThemedText type="smallBold" style={{ color: '#ffffff' }}>Cancelar</ThemedText>
+              </Pressable>
+              <Pressable onPress={confirmChainSelection} style={styles.confirmBtn}>
+                <ThemedText type="smallBold" style={{ color: '#000000' }}>Confirmar</ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Filter chain picker sheet ── */}
+      <Modal visible={filterChainVisible} transparent animationType="slide" onRequestClose={() => setFilterChainVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable style={styles.backdropTouch} onPress={() => setFilterChainVisible(false)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <ThemedText type="smallBold" style={styles.sheetTitle}>Editar filtros</ThemedText>
+            </View>
+            {CHAIN_OPTIONS.filter((c) => selectedChains.includes(c.key)).map((c) => (
+              <Pressable
+                key={c.key}
+                onPress={() => selectFilterChain(c.key)}
+                style={[styles.filterChainRow, { borderBottomColor: theme.border }]}>
+                <ChainIcon chain={c.key} size={28} />
+                <ThemedText type="smallBold" style={{ color: theme.text }}>
+                  {c.label} Configuraciones
+                </ThemedText>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Filter editor sheet ── */}
+      <Modal visible={filterEditorVisible} transparent animationType="slide" onRequestClose={closeFilterEditor}>
+        <View style={styles.modalBackdrop}>
+          <Pressable style={styles.backdropTouch} onPress={closeFilterEditor} />
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={styles.sheet}>
             <View style={styles.sheetHandle} />
-
             <View style={styles.sheetHeader}>
               <ThemedText type="smallBold" style={styles.sheetTitle}>
-                Configuración de pantalla
+                Filtros — {filterEditLabel}
               </ThemedText>
               <Pressable onPress={resetDraft} hitSlop={8}>
-                <ThemedText type="small" style={styles.resetText}>
-                  Restablecer
-                </ThemedText>
+                <ThemedText type="small" style={styles.resetText}>Restablecer</ThemedText>
               </Pressable>
             </View>
-
-            <View style={styles.sectionHeader}>
-              <ThemedText type="smallBold" style={styles.sectionTitle}>Filtrado</ThemedText>
-              <View style={[styles.sectionIndicator, { backgroundColor: theme.text }]} />
-            </View>
-
             <ScrollView
               style={styles.sheetBody}
               contentContainerStyle={styles.sheetBodyContent}
@@ -458,9 +524,8 @@ export default function TrenchesScreen() {
                 />
               ))}
             </ScrollView>
-
             <View style={styles.sheetFooter}>
-              <Pressable onPress={closeFilters} style={styles.cancelBtn}>
+              <Pressable onPress={closeFilterEditor} style={styles.cancelBtn}>
                 <ThemedText type="smallBold" style={{ color: '#ffffff' }}>Cancelar</ThemedText>
               </Pressable>
               <Pressable onPress={confirmFilters} style={styles.confirmBtn}>
@@ -477,66 +542,55 @@ export default function TrenchesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d0d' },
   safe: { flex: 1 },
-  tabBar: {
+
+  /* ── Top bar ── */
+  topBar: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
     paddingTop: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#333',
-    marginHorizontal: 16,
   },
+  tabsLeft: { flexDirection: 'row' },
   tab: {
-    flex: 1,
     alignItems: 'center',
     paddingVertical: 10,
+    paddingHorizontal: 14,
     position: 'relative',
   },
-  tabLabel: { fontSize: 14 },
+  tabLabel: { fontSize: 15 },
   tabUnderline: {
     position: 'absolute',
     bottom: 0,
-    left: '25%',
-    width: '50%',
+    left: '15%',
+    width: '70%',
     height: 2,
     borderRadius: 1,
   },
-  chainBar: {
+  chainSelector: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 6,
-  },
-  chainBtn: {
-    paddingHorizontal: 12,
+    alignItems: 'center',
+    gap: 4,
     paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  chainIconsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chainIconWrap: {
     borderRadius: 14,
   },
+
+  /* ── Action bar ── */
   actionBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
     paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  iconBtn: {
-    width: 34,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-  },
-  actionsRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  sortBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    backgroundColor: '#1e1e1e',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    height: 32,
+    paddingVertical: 6,
   },
   filterBtn: {
     width: 32,
@@ -546,6 +600,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  /* ── List ── */
   list: { padding: 10, gap: 8, paddingBottom: 40 },
   emptyCard: {
     backgroundColor: '#111111',
@@ -560,7 +616,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#1e1e1e',
   },
 
-  /* Bottom Sheet */
+  /* ── Sheets ── */
   modalBackdrop: {
     flex: 1,
     backgroundColor: '#00000088',
@@ -591,22 +647,69 @@ const styles = StyleSheet.create({
   },
   sheetTitle: { fontSize: 16, color: '#ffffff' },
   resetText: { color: '#9a9a9a', fontSize: 14 },
-  sectionHeader: {
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  sectionTitle: { fontSize: 16, color: '#ffffff' },
-  sectionIndicator: {
-    width: 28,
-    height: 2,
-    borderRadius: 1,
-    marginTop: 6,
-  },
   sheetBody: { flexGrow: 0 },
   sheetBodyContent: { paddingBottom: 8 },
-  fieldRow: {
-    marginBottom: 14,
+  sheetFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingVertical: 14,
+    paddingBottom: 20,
   },
+  cancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#2c2c2e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* ── Chain grid ── */
+  chainGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  chainCard: {
+    width: '30%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  chainCheck: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* ── Filter chain picker ── */
+  filterChainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+
+  /* ── Filter editor ── */
+  fieldRow: { marginBottom: 14 },
   fieldLabel: { fontSize: 12, marginBottom: 6 },
   fieldInputs: {
     flexDirection: 'row',
@@ -630,26 +733,4 @@ const styles = StyleSheet.create({
   },
   inputUnit: { fontSize: 12, marginLeft: 6 },
   rangeSep: { fontSize: 13 },
-  sheetFooter: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingVertical: 14,
-    paddingBottom: 20,
-  },
-  cancelBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#2c2c2e',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  confirmBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 });

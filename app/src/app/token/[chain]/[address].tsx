@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
@@ -97,7 +97,14 @@ export default function TokenScreen() {
 
   const openGmgn = useCallback(async () => {
     if (!address) return;
-    await WebBrowser.openBrowserAsync(`https://gmgn.ai/${chain || 'sol'}/token/${address}`).catch(() => {});
+    const chainSlug = chain === 'solana' ? 'sol' : chain || 'sol';
+    const url = `https://gmgn.ai/${chainSlug}/token/${address}`;
+    const supported = await Linking.canOpenURL(url);
+    if (supported) {
+      await Linking.openURL(url);
+    } else {
+      await WebBrowser.openBrowserAsync(url).catch(() => {});
+    }
   }, [address, chain]);
 
   const doBuy = async () => {

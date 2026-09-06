@@ -71,9 +71,7 @@ function handleMessage(client, msg) {
     if (msg.topic.startsWith('trenches:')) {
       const tab = msg.topic.replace('trenches:', '');
       const data = getCurrentData(tab);
-      if (data.length > 0) {
-        sendTo(client, { event: 'trenches_updated', tab, data });
-      }
+      sendTo(client, { event: 'trenches_updated', tab, data });
     }
   } else if (msg.action === 'unsubscribe' && typeof msg.topic === 'string') {
     client.subscriptions.delete(msg.topic);
@@ -102,8 +100,12 @@ async function handleSetTrenchesFilters(client, msg) {
   // Fetch each tab that has a configured proxy and push results
   for (const tab of TRENCH_TABS) {
     const stored = proxyConfigs.get(tab);
-    if (!stored?.url || !stored?.apiKey) continue;
-    const connection = { proxy: stored.url, apiKey: stored.apiKey };
+    if (!stored?.apiKey) continue;
+    // new_creation (sol): directo sin proxy, solo necesita API key
+    const connection = tab === 'new_creation'
+      ? { proxy: '', apiKey: stored.apiKey }
+      : stored?.url ? { proxy: stored.url, apiKey: stored.apiKey } : null;
+    if (!connection) continue;
     const params = buildParamsFromConfig(rawFilters, tab);
     try {
       const result = await fetchTrenches(params, { ...connection, tab, source: 'ws', force: true });

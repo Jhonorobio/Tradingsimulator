@@ -98,6 +98,15 @@ export function buildParamsFromConfig(config, tab) {
     p.launchpadPlatform = ['pons_v2', 'longxyz', 'o1', 'bankr', 'flap', 'trench', 'livo'];
   }
 
+  // BSC also needs explicit launchpad_platform for trenches to return tokens
+  if (chain === 'bsc') {
+    p.launchpadPlatform = [
+      'fourmeme', 'fourmeme_agent', 'bn_fourmeme', 'four_xmode_agent',
+      'cubepeg', 'likwid', 'goplus_creator', 'goplus_skills', 'openfour',
+      'flap', 'flap_stocks', 'flap_aioracle', 'clanker', 'lunafun',
+    ];
+  }
+
   const vals = config?.[tab];
   if (!vals || typeof vals !== 'object') return p;
   for (const [key, scale] of Object.entries(FIELD_SCALES)) {
