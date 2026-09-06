@@ -5,11 +5,9 @@ import { ThemedText } from '@/components/themed-text';
 import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
 import { fmtUsd, timeAgo } from '@/utils/format';
+import { useSettings, DEFAULT_RANGES, getColorForValue } from '@/store/settings';
+import type { ColorRanges } from '@/store/settings';
 import type { TrenchesItem } from '@/api/types';
-
-const GREEN = '#22c55e';
-const RED = '#ef4444';
-const BLUE = '#38bdf8';
 
 interface StatItem {
   icon: keyof typeof Ionicons.glyphMap;
@@ -35,9 +33,10 @@ function StatsBar({ stats }: { stats: StatItem[] }) {
   );
 }
 
-export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?: string }) {
+export function TokenRow({ token, chain = 'sol', colorRanges }: { token: TrenchesItem; chain?: string; colorRanges?: ColorRanges }) {
   const router = useRouter();
   const theme = useTheme();
+  const c = colorRanges ?? DEFAULT_RANGES;
 
   const mcap = token.usd_market_cap ?? token.market_cap ?? 0;
   const volume = token.volume_24h ?? token.volume_1h ?? 0;
@@ -57,12 +56,12 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
   const phish = token.entrapment_ratio;
 
   const stats: StatItem[] = [
-    { icon: 'leaf', label: 'Fresh', value: fmt(fresh), color: (fresh ?? 0) >= 0.2 ? GREEN : RED },
-    { icon: 'star', label: 'KOL', value: fmt(kol, false), color: (kol ?? 0) > 0 ? GREEN : RED },
-    { icon: 'flash', label: 'Smart', value: fmt(smart, false), color: (smart ?? 0) > 0 ? GREEN : RED },
-    { icon: 'bug', label: 'Bot', value: botRate != null ? `${fmt(botRate)} (${fmt(botCount, false)})` : fmt(botCount, false), color: (botRate ?? 0) < 0.15 ? GREEN : RED },
-    { icon: 'shield-checkmark', label: 'Rug', value: fmt(rug), color: (rug ?? 0) < 0.2 ? GREEN : RED },
-    { icon: 'warning', label: 'Phish', value: fmt(phish), color: (phish ?? 0) < 0.1 ? GREEN : RED },
+    { icon: 'leaf', label: 'Fresh', value: fmt(fresh), color: getColorForValue(c.fresh, fresh != null ? fresh * 100 : null) },
+    { icon: 'star', label: 'KOL', value: fmt(kol, false), color: getColorForValue(c.kol, kol) },
+    { icon: 'flash', label: 'Smart', value: fmt(smart, false), color: getColorForValue(c.smart, smart) },
+    { icon: 'bug', label: 'Bot', value: botRate != null ? `${fmt(botRate)} (${fmt(botCount, false)})` : fmt(botCount, false), color: getColorForValue(c.bot, botRate != null ? botRate * 100 : botCount) },
+    { icon: 'shield-checkmark', label: 'Rug', value: fmt(rug), color: getColorForValue(c.rug, rug != null ? rug * 100 : null) },
+    { icon: 'warning', label: 'Phish', value: fmt(phish), color: getColorForValue(c.phish, phish != null ? phish * 100 : null) },
   ];
 
   return (
@@ -71,7 +70,7 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]}>
       <View style={styles.mainRow}>
         {/* Avatar */}
-        <View style={[styles.avatarWrap, { borderColor: GREEN }]}>
+        <View style={[styles.avatarWrap, { borderColor: getColorForValue(c.fresh, fresh != null ? fresh * 100 : null) }]}>
           <TokenAvatar
             logo={token.logo}
             symbol={token.symbol}
@@ -100,7 +99,7 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
             </View>
             <View style={styles.rightGroup}>
               <ThemedText style={[styles.valueLabel, { color: theme.textSecondary }]}>MC</ThemedText>
-              <ThemedText type="smallBold" style={[styles.valueText, { color: GREEN }]}>
+              <ThemedText type="smallBold" style={[styles.valueText, { color: getColorForValue(c.mcap, mcap) }]}>
                 {fmtUsd(mcap, { compact: true })}
               </ThemedText>
             </View>
@@ -109,11 +108,11 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
           {/* Row 2: time · V */}
           <View style={styles.row}>
             <View style={styles.leftGroup}>
-              <ThemedText style={[styles.ageText, { color: GREEN }]}>{age}</ThemedText>
+              <ThemedText style={[styles.ageText, { color: getColorForValue(c.fresh, fresh != null ? fresh * 100 : null) }]}>{age}</ThemedText>
             </View>
             <View style={styles.rightGroup}>
               <ThemedText style={[styles.valueLabel, { color: theme.textSecondary }]}>V</ThemedText>
-              <ThemedText type="smallBold" style={[styles.valueText, { color: BLUE }]}>
+              <ThemedText type="smallBold" style={[styles.valueText, { color: getColorForValue(c.volume, volume) }]}>
                 {fmtUsd(volume, { compact: true })}
               </ThemedText>
             </View>

@@ -161,7 +161,7 @@ function RangeField({
 
 export default function TrenchesScreen() {
   const theme = useTheme();
-  const { proxyStatuses, loadProxyStatuses } = useSettings();
+  const { proxyStatuses, loadProxyStatuses, colorRanges } = useSettings();
   const { connected: wsConnected, trenches: wsTrenches, subscribeTrenches, unsubscribeTrenches, setTrenchesFilters } = useWs();
   const [activeTab, setActiveTab] = useState<TabKey>('new_creation');
 
@@ -317,7 +317,7 @@ export default function TrenchesScreen() {
             <FlatList
               data={activeTokens}
               keyExtractor={(item, i) => `t-${item.address}-${i}`}
-              renderItem={({ item }) => <TokenRow token={item} chain={activeTab.includes('robinhood') ? 'robinhood' : activeTab.includes('bsc') ? 'bsc' : 'sol'} />}
+              renderItem={({ item }) => <TokenRow token={item} chain={activeTab.includes('robinhood') ? 'robinhood' : activeTab.includes('bsc') ? 'bsc' : 'sol'} colorRanges={colorRanges} />}
               contentContainerStyle={styles.list}
               ListEmptyComponent={
                 !wsConnected ? (

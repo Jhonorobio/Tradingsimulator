@@ -104,6 +104,7 @@ export interface TrenchesItem {
   bundler_trader_amount_rate?: number;
   fresh_wallet_rate?: number;
   bot_degen_rate?: number;
+  bot_degen_count?: number;
   insider_ratio?: number;
   entrapment_ratio?: number;
   is_wash_trading?: boolean;
