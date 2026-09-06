@@ -6,7 +6,7 @@ import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
 import { fmtUsd, timeAgo } from '@/utils/format';
 import { useSettings, DEFAULT_RANGES, getColorForValue } from '@/store/settings';
-import type { ColorRanges } from '@/store/settings';
+import type { ColorRanges, ChainKey } from '@/store/settings';
 import type { TrenchesItem } from '@/api/types';
 
 interface StatItem {
@@ -33,10 +33,13 @@ function StatsBar({ stats }: { stats: StatItem[] }) {
   );
 }
 
-export function TokenRow({ token, chain = 'sol', colorRanges }: { token: TrenchesItem; chain?: string; colorRanges?: ColorRanges }) {
+export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?: string }) {
   const router = useRouter();
   const theme = useTheme();
-  const c = colorRanges ?? DEFAULT_RANGES;
+  const { colorRangesByChain } = useSettings();
+
+  const chainKey: ChainKey = chain === 'robinhood' ? 'robinhood' : chain === 'bsc' ? 'bsc' : 'solana';
+  const c = colorRangesByChain[chainKey] ?? DEFAULT_RANGES;
 
   const mcap = token.usd_market_cap ?? token.market_cap ?? 0;
   const volume = token.volume_24h ?? token.volume_1h ?? 0;
@@ -70,13 +73,12 @@ export function TokenRow({ token, chain = 'sol', colorRanges }: { token: Trenche
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]}>
       <View style={styles.mainRow}>
         {/* Avatar */}
-        <View style={[styles.avatarWrap, { borderColor: getColorForValue(c.fresh, fresh != null ? fresh * 100 : null) }]}>
+        <View style={[styles.avatarWrap, { borderColor: chain === 'robinhood' ? '#CCFF00' : chain === 'bsc' ? '#f97316' : '#a855f7' }]}>
           <TokenAvatar
             logo={token.logo}
             symbol={token.symbol}
-            size={54}
-            borderRadius={13}
-            launchpad={token.launchpad_platform ?? token.exchange}
+            size={50}
+            borderRadius={4}
           />
         </View>
 
@@ -99,7 +101,7 @@ export function TokenRow({ token, chain = 'sol', colorRanges }: { token: Trenche
             </View>
             <View style={styles.rightGroup}>
               <ThemedText style={[styles.valueLabel, { color: theme.textSecondary }]}>MC</ThemedText>
-              <ThemedText type="smallBold" style={[styles.valueText, { color: getColorForValue(c.mcap, mcap) }]}>
+              <ThemedText type="small" style={[styles.valueText, { fontWeight: '500', color: getColorForValue(c.mcap, mcap) }]}>
                 {fmtUsd(mcap, { compact: true })}
               </ThemedText>
             </View>
@@ -112,7 +114,7 @@ export function TokenRow({ token, chain = 'sol', colorRanges }: { token: Trenche
             </View>
             <View style={styles.rightGroup}>
               <ThemedText style={[styles.valueLabel, { color: theme.textSecondary }]}>V</ThemedText>
-              <ThemedText type="smallBold" style={[styles.valueText, { color: getColorForValue(c.volume, volume) }]}>
+              <ThemedText type="small" style={[styles.valueText, { fontWeight: '500', color: getColorForValue(c.volume, volume) }]}>
                 {fmtUsd(volume, { compact: true })}
               </ThemedText>
             </View>
@@ -139,14 +141,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   avatarWrap: {
-    width: 59,
-    height: 59,
-    borderRadius: 13,
-    borderWidth: 1.5,
-    position: 'relative',
-    flexShrink: 0,
+    borderWidth: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
   },
-  contentCol: { flex: 1, gap: 7 },
+  contentCol: { flex: 1, gap: 0 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -165,28 +164,28 @@ const styles = StyleSheet.create({
     gap: 5,
     flexShrink: 0,
   },
-  symbolText: { fontSize: 17, fontWeight: '700' },
+  symbolText: { fontSize: 17, fontWeight: '600' },
   nameText: { fontSize: 13, maxWidth: 160 },
-  ageText: { fontSize: 13, fontWeight: '700' },
+  ageText: { fontSize: 13, fontWeight: '400' },
   valueLabel: { fontSize: 11 },
   valueText: { fontSize: 13 },
   statsBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 4,
     backgroundColor: '#1a1a1a',
     borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 1,
     alignSelf: 'flex-start',
   },
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 1,
   },
   statValue: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '500',
   },
 });

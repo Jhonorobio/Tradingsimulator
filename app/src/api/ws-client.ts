@@ -14,11 +14,12 @@ interface WsClient {
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_DELAY = 10000;
+const MAX_RECONNECT_DELAY = 5000;
 const subscriptions = new Set<string>();
 const listeners = new Map<string, Set<MessageHandler>>();
 const connectionListeners = new Set<(connected: boolean) => void>();
 let connected = false;
+let serverFilters: unknown | null = null;
 
 // ─── Heartbeat ───
 const HEARTBEAT_INTERVAL = 25_000; // 25s — must be < typical NAT timeout (30-60s)
@@ -107,6 +108,10 @@ async function connect() {
         lastPong = Date.now();
         return;
       }
+      // Server sends current filters on connect — store them
+      if (msg.event === 'connected' && msg.filters) {
+        serverFilters = msg.filters;
+      }
       if (msg.event) emit(msg.event, msg);
     } catch { /* ignore */ }
   };
@@ -124,7 +129,7 @@ async function connect() {
 
 function scheduleReconnect() {
   if (reconnectTimer) return;
-  const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+  const delay = Math.min(500 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
   reconnectAttempts++;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
@@ -190,6 +195,7 @@ export function getWsClient(): WsClient {
  * Connect to the WebSocket server. Call once at app startup.
  */
 export function initWs() {
+  reconnectAttempts = 0; // reset backoff for fast initial connect
   connect();
   // Listen for AppState changes to detect background→foreground transitions
   if (!appStateSub) {
@@ -202,6 +208,10 @@ export function initWs() {
  */
 export function isWsConnected() {
   return connected;
+}
+
+export function getServerFilters() {
+  return serverFilters;
 }
 
 /**

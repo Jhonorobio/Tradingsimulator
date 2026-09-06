@@ -4,6 +4,7 @@ import type { NotificationHistoryItem, TrenchesItem } from '@/api/types';
 
 interface WsState {
   connected: boolean;
+  serverFilters: unknown | null;
   trenches: Record<string, TrenchesItem[]>;
   tokenPrices: Record<string, any>;
   solPrice: number | null;
@@ -27,6 +28,7 @@ let solPriceCleanup: (() => void) | null = null;
 
 export const useWs = create<WsState>((set, get) => ({
   connected: false,
+  serverFilters: null,
   trenches: { new_creation: [], completed: [], new_creation_robinhood: [], completed_robinhood: [], new_creation_bsc: [], completed_bsc: [] },
   tokenPrices: {},
   solPrice: null,

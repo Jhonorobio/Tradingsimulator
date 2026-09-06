@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -20,17 +20,42 @@ import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
 import { getSavedTrenchesFilters } from '@/api/market';
+import { getServerFilters } from '@/api/ws-client';
 import type { TrenchesItem } from '@/api/types';
 
+type MainTab = 'new' | 'completed';
+type ChainFilter = 'solana' | 'robinhood' | 'bsc' | 'todas';
 type TabKey = 'new_creation' | 'completed' | 'new_creation_robinhood' | 'completed_robinhood' | 'new_creation_bsc' | 'completed_bsc';
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'new_creation', label: 'Nueva' },
-  { key: 'completed', label: 'Hecha' },
-  { key: 'new_creation_robinhood', label: 'Nueva RH' },
-  { key: 'completed_robinhood', label: 'Hecha RH' },
-  { key: 'new_creation_bsc', label: 'Nueva BSC' },
-  { key: 'completed_bsc', label: 'Hecha BSC' },
+
+const MAIN_TABS: { key: MainTab; label: string }[] = [
+  { key: 'new', label: 'Nuevo' },
+  { key: 'completed', label: 'Completado' },
 ];
+
+const CHAIN_OPTIONS: { key: ChainFilter; label: string }[] = [
+  { key: 'solana', label: 'Solana' },
+  { key: 'robinhood', label: 'Robinhood' },
+  { key: 'bsc', label: 'BSC' },
+  { key: 'todas', label: 'Todas' },
+];
+
+const ALL_TABS: TabKey[] = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
+
+function getTabKeysForSelection(main: MainTab, chain: ChainFilter): TabKey[] {
+  if (chain === 'todas') {
+    return main === 'new'
+      ? ['new_creation', 'new_creation_robinhood', 'new_creation_bsc']
+      : ['completed', 'completed_robinhood', 'completed_bsc'];
+  }
+  const suffix = chain === 'robinhood' ? '_robinhood' : chain === 'bsc' ? '_bsc' : '';
+  return [main === 'new' ? `new_creation${suffix}` : `completed${suffix}`] as TabKey[];
+}
+
+function getChainForTab(tab: TabKey): string {
+  if (tab.includes('robinhood')) return 'robinhood';
+  if (tab.includes('bsc')) return 'bsc';
+  return 'solana';
+}
 
 type RangeValues = { min: string; max: string };
 type Filters = Record<string, RangeValues>;
@@ -94,14 +119,14 @@ function normalizeFilters(raw: unknown): Record<TabKey, Filters> {
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const obj = raw as Record<string, unknown>;
-  for (const tab of TABS) {
-    const tabRaw = obj[tab.key];
+  for (const tab of ALL_TABS) {
+    const tabRaw = obj[tab];
     if (!tabRaw || typeof tabRaw !== 'object') continue;
     for (const f of FILTER_FIELDS) {
       const v = (tabRaw as Record<string, unknown>)[f.key];
       if (v && typeof v === 'object') {
         const rv = v as { min?: unknown; max?: unknown };
-        fallback[tab.key][f.key] = {
+        fallback[tab][f.key] = {
           min: typeof rv.min === 'string' ? rv.min : '',
           max: typeof rv.max === 'string' ? rv.max : '',
         };
@@ -161,9 +186,10 @@ function RangeField({
 
 export default function TrenchesScreen() {
   const theme = useTheme();
-  const { proxyStatuses, loadProxyStatuses, colorRanges } = useSettings();
+  const { proxyStatuses, loadProxyStatuses } = useSettings();
   const { connected: wsConnected, trenches: wsTrenches, subscribeTrenches, unsubscribeTrenches, setTrenchesFilters } = useWs();
-  const [activeTab, setActiveTab] = useState<TabKey>('new_creation');
+  const [activeMainTab, setActiveMainTab] = useState<MainTab>('new');
+  const [activeChain, setActiveChain] = useState<ChainFilter>('todas');
 
   const [filters, setFilters] = useState<Record<TabKey, Filters>>({
     new_creation: emptyFilters(),
@@ -186,48 +212,82 @@ export default function TrenchesScreen() {
   });
 
   // Subscribe to WS trenches for all tabs on mount.
-  // Server pushes current store data immediately on subscribe, then
-  // the refresher pushes live updates. No HTTP fetch needed.
   useEffect(() => {
-    for (const tab of TABS) {
-      subscribeTrenches(tab.key);
+    for (const tab of ALL_TABS) {
+      subscribeTrenches(tab);
     }
     const unsub = useWs.subscribe((state, prev) => {
-      for (const tab of TABS) {
-        if (state.trenches[tab.key] !== prev.trenches[tab.key]) {
-          setData((p) => ({ ...p, [tab.key]: state.trenches[tab.key] ?? [] }));
+      for (const tab of ALL_TABS) {
+        if (state.trenches[tab] !== prev.trenches[tab]) {
+          setData((p) => ({ ...p, [tab]: state.trenches[tab] ?? [] }));
         }
       }
     });
     return () => {
       unsub();
-      for (const tab of TABS) {
-        unsubscribeTrenches(tab.key);
+      for (const tab of ALL_TABS) {
+        unsubscribeTrenches(tab);
       }
     };
   }, [subscribeTrenches, unsubscribeTrenches]);
 
-  // Load saved filters on mount
+  // Load saved filters on mount and sync with server
   useEffect(() => {
     let cancelled = false;
+    // First: check if server already has filters (sent on WS connect)
+    const serverF = getServerFilters();
+    if (serverF) {
+      const parsed = normalizeFilters(serverF);
+      setFilters(parsed);
+      return;
+    }
+    // Fallback: fetch from HTTP API
     getSavedTrenchesFilters()
       .then((res) => {
         if (cancelled || !res.filters) return;
-        setFilters(normalizeFilters(res.filters));
+        const parsed = normalizeFilters(res.filters);
+        setFilters(parsed);
+        setTrenchesFilters(parsed);
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
-  // Load proxy statuses on mount
   useEffect(() => {
     loadProxyStatuses();
   }, [loadProxyStatuses]);
 
+  // Compute active tab keys based on selection
+  const activeTabKeys = useMemo(
+    () => getTabKeysForSelection(activeMainTab, activeChain),
+    [activeMainTab, activeChain]
+  );
+
+  // Merge tokens from selected tabs and sort by time
+  const activeTokens = useMemo(() => {
+    const merged: (TrenchesItem & { _chain: string })[] = [];
+    for (const key of activeTabKeys) {
+      const chain = getChainForTab(key);
+      const items = data[key] ?? [];
+      for (const item of items) {
+        merged.push({ ...item, _chain: chain });
+      }
+    }
+    merged.sort((a, b) => {
+      const ta = a.created_timestamp ?? a.open_timestamp ?? 0;
+      const tb = b.created_timestamp ?? b.open_timestamp ?? 0;
+      return tb - ta;
+    });
+    return merged;
+  }, [data, activeTabKeys]);
+
+  // Filter button uses the first tab key for config
+  const filterTabKey = activeTabKeys[0];
+
   const openFilters = useCallback(() => {
-    setDraft(filters[activeTab]);
+    setDraft(filters[filterTabKey]);
     setFiltersVisible(true);
-  }, [filters, activeTab]);
+  }, [filters, filterTabKey]);
 
   const closeFilters = useCallback(() => setFiltersVisible(false), []);
 
@@ -238,47 +298,66 @@ export default function TrenchesScreen() {
   }, []);
 
   const confirmFilters = useCallback(() => {
-    const next = { ...filters, [activeTab]: draft };
+    const next = { ...filters, [filterTabKey]: draft };
     setFilters(next);
     setFiltersVisible(false);
     setTrenchesFilters(next);
-  }, [activeTab, draft, filters, setTrenchesFilters]);
+  }, [filterTabKey, draft, filters, setTrenchesFilters]);
 
-  const activeTokens = data[activeTab] ?? [];
+  // Check proxy status for selected tabs
+  const anyProxyOk = activeTabKeys.some((key) => {
+    const s = proxyStatuses.find((p) => p.tab === key);
+    return s?.working ?? false;
+  });
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
-        {/* Tabs (top) */}
+        {/* Main tabs */}
         <View style={styles.tabBar}>
-          {TABS.map((tab) => {
-            const tabStatus = proxyStatuses.find((s) => s.tab === tab.key);
-            const isTabOk = tabStatus?.working ?? false;
+          {MAIN_TABS.map((tab) => (
+            <Pressable
+              key={tab.key}
+              onPress={() => setActiveMainTab(tab.key)}
+              style={styles.tab}>
+              <ThemedText
+                type="smallBold"
+                style={[
+                  styles.tabLabel,
+                  { color: activeMainTab === tab.key ? theme.text : theme.textSecondary },
+                ]}>
+                {tab.label}
+              </ThemedText>
+              {activeMainTab === tab.key && (
+                <View style={[styles.tabUnderline, { backgroundColor: theme.text }]} />
+              )}
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Chain selector */}
+        <View style={styles.chainBar}>
+          {CHAIN_OPTIONS.map((c) => {
+            const isActive = activeChain === c.key;
             return (
               <Pressable
-                key={tab.key}
-                onPress={() => setActiveTab(tab.key)}
-                style={styles.tab}>
-                <View style={styles.tabLabelRow}>
-                  <View style={[styles.tabDot, { backgroundColor: isTabOk ? theme.positive : theme.negative }]} />
-                  <ThemedText
-                    type="smallBold"
-                    style={[
-                      styles.tabLabel,
-                      { color: activeTab === tab.key ? theme.text : theme.textSecondary },
-                    ]}>
-                    {tab.label}
-                  </ThemedText>
-                </View>
-                {activeTab === tab.key && (
-                  <View style={[styles.tabUnderline, { backgroundColor: theme.text }]} />
-                )}
+                key={c.key}
+                onPress={() => setActiveChain(c.key)}
+                style={[
+                  styles.chainBtn,
+                  { backgroundColor: isActive ? theme.accent : theme.backgroundSelected },
+                ]}>
+                <ThemedText
+                  type="small"
+                  style={{ color: isActive ? '#fff' : theme.textSecondary }}>
+                  {c.label}
+                </ThemedText>
               </Pressable>
             );
           })}
         </View>
 
-        {/* Action bar: pause · % · funnel */}
+        {/* Action bar */}
         <View style={styles.actionBar}>
           <View style={styles.actionsRight}>
             <Pressable style={styles.iconBtn}>
@@ -296,47 +375,38 @@ export default function TrenchesScreen() {
           </View>
         </View>
 
-        {(() => {
-          const activeStatus = proxyStatuses.find((s) => s.tab === activeTab);
-          const isProxyOk = activeStatus?.working ?? false;
-          if (!isProxyOk) {
-            return (
-              <View style={styles.emptyCard}>
-                <ThemedText type="smallBold" style={{ color: theme.negative, marginBottom: 4 }}>
-                  Proxy no configurado
-                </ThemedText>
-                <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>
-                  {activeStatus?.error === 'Not configured'
-                    ? `Configura el proxy para "${TABS.find((t) => t.key === activeTab)?.label}" en Settings → Proxies GMGN.`
-                    : `Proxy de "${TABS.find((t) => t.key === activeTab)?.label}" no funciona. Verifica la configuración en Settings → Proxies.`}
-                </ThemedText>
-              </View>
-            );
-          }
-          return (
-            <FlatList
-              data={activeTokens}
-              keyExtractor={(item, i) => `t-${item.address}-${i}`}
-              renderItem={({ item }) => <TokenRow token={item} chain={activeTab.includes('robinhood') ? 'robinhood' : activeTab.includes('bsc') ? 'bsc' : 'sol'} colorRanges={colorRanges} />}
-              contentContainerStyle={styles.list}
-              ListEmptyComponent={
-                !wsConnected ? (
-                  <View style={styles.emptyCard}>
-                    <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                      Conectando al servidor...
-                    </ThemedText>
-                  </View>
-                ) : (
-                  <View style={styles.emptyCard}>
-                    <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                      Sin resultados con estos filtros.
-                    </ThemedText>
-                  </View>
-                )
-              }
-            />
-          );
-        })()}
+        {!anyProxyOk ? (
+          <View style={styles.emptyCard}>
+            <ThemedText type="smallBold" style={{ color: theme.negative, marginBottom: 4 }}>
+              Proxy no configurado
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>
+              Configura el proxy en Settings → Proxies GMGN para las cadenas que quieras usar.
+            </ThemedText>
+          </View>
+        ) : (
+          <FlatList
+            data={activeTokens}
+            keyExtractor={(item, i) => `t-${item._chain}-${item.address}-${i}`}
+            renderItem={({ item }) => <TokenRow token={item} chain={item._chain} />}
+            contentContainerStyle={styles.list}
+            ListEmptyComponent={
+              !wsConnected ? (
+                <View style={styles.emptyCard}>
+                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                    Conectando al servidor...
+                  </ThemedText>
+                </View>
+              ) : (
+                <View style={styles.emptyCard}>
+                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                    Sin resultados con estos filtros.
+                  </ThemedText>
+                </View>
+              )
+            }
+          />
+        )}
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
@@ -358,7 +428,6 @@ export default function TrenchesScreen() {
             style={styles.sheet}>
             <View style={styles.sheetHandle} />
 
-            {/* Header */}
             <View style={styles.sheetHeader}>
               <ThemedText type="smallBold" style={styles.sheetTitle}>
                 Configuración de pantalla
@@ -370,13 +439,11 @@ export default function TrenchesScreen() {
               </Pressable>
             </View>
 
-            {/* Section title */}
             <View style={styles.sectionHeader}>
               <ThemedText type="smallBold" style={styles.sectionTitle}>Filtrado</ThemedText>
               <View style={[styles.sectionIndicator, { backgroundColor: theme.text }]} />
             </View>
 
-            {/* Form */}
             <ScrollView
               style={styles.sheetBody}
               contentContainerStyle={styles.sheetBodyContent}
@@ -392,7 +459,6 @@ export default function TrenchesScreen() {
               ))}
             </ScrollView>
 
-            {/* Footer buttons */}
             <View style={styles.sheetFooter}>
               <Pressable onPress={closeFilters} style={styles.cancelBtn}>
                 <ThemedText type="smallBold" style={{ color: '#ffffff' }}>Cancelar</ThemedText>
@@ -424,8 +490,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     position: 'relative',
   },
-  tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  tabDot: { width: 6, height: 6, borderRadius: 3 },
   tabLabel: { fontSize: 14 },
   tabUnderline: {
     position: 'absolute',
@@ -434,6 +498,17 @@ const styles = StyleSheet.create({
     width: '50%',
     height: 2,
     borderRadius: 1,
+  },
+  chainBar: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  chainBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
   },
   actionBar: {
     flexDirection: 'row',
@@ -472,13 +547,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   list: { padding: 10, gap: 8, paddingBottom: 40 },
-  skelCard: {
-    backgroundColor: '#111111',
-    borderRadius: 12,
-    padding: 14,
-    gap: 6,
-  },
-  skelBar: { height: 12, borderRadius: 4 },
   emptyCard: {
     backgroundColor: '#111111',
     borderRadius: 12,

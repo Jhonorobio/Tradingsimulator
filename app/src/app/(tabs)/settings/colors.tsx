@@ -5,17 +5,25 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings, COLOR_OPTIONS } from '@/store/settings';
-import type { MetricKey } from '@/store/settings';
-import { METRIC_LABELS, DEFAULT_RANGES } from '@/store/settings';
+import type { MetricKey, ChainKey } from '@/store/settings';
+import { METRIC_LABELS, DEFAULT_RANGES, CHAIN_OPTIONS } from '@/store/settings';
+
+function formatNum(n: number): string {
+  if (n >= 1000000) return `${(n / 1000000).toFixed(0)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
+  return String(n);
+}
 
 export default function ColorsScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const { colorRanges, setColorRange, addColorRange, removeColorRange } = useSettings();
-  const [colorPickerTarget, setColorPickerTarget] = useState<{ metric: MetricKey; index: number } | null>(null);
+  const { colorRangesByChain, setColorRange, resetMetricRanges } = useSettings();
+  const [activeChain, setActiveChain] = useState<ChainKey>('solana');
+  const [colorPickerTarget, setColorPickerTarget] = useState<{ chain: ChainKey; metric: MetricKey; index: number } | null>(null);
+
+  const currentRanges = colorRangesByChain[activeChain] || DEFAULT_RANGES;
 
   return (
     <ThemedView style={styles.container}>
@@ -26,55 +34,80 @@ export default function ColorsScreen() {
           </Pressable>
           <ThemedText type="smallBold" style={{ color: theme.text }}>Colores de métricas</ThemedText>
         </View>
+
         <ScrollView contentContainerStyle={styles.scroll}>
-          <Card>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Define rangos de valores y sus colores para cada métrica.
-            </ThemedText>
-            {(Object.keys(METRIC_LABELS) as MetricKey[]).map((metric) => {
-              const ranges = colorRanges[metric] || DEFAULT_RANGES[metric];
-              return (
-                <View key={metric} style={[styles.rangeSection, { borderColor: theme.border }]}>
-                  <ThemedText type="smallBold" style={{ color: theme.text }}>{METRIC_LABELS[metric].unit}</ThemedText>
-                  {ranges.map((r, i) => (
-                    <View key={i} style={[styles.rangeRow, { backgroundColor: theme.background }]}>
-                      <Pressable
-                        onPress={() => setColorPickerTarget({ metric, index: i })}
-                        style={[styles.colorCircleSmall, { backgroundColor: r.color }]}
-                      />
-                      <TextInput
-                        style={[styles.rangeInput, { color: theme.text, borderColor: theme.border }]}
-                        keyboardType="numeric"
-                        placeholder="Max"
-                        placeholderTextColor={theme.textSecondary}
-                        value={r.max != null ? String(r.max) : ''}
-                        onChangeText={(t) => {
-                          const num = t === '' ? null : Number(t);
-                          setColorRange(metric, i, 'max', num);
-                        }}
-                      />
-                      <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                        {ranges[i + 1] ? ` → ` : ` → ∞`}
-                      </ThemedText>
-                      <Pressable
-                        onPress={() => removeColorRange(metric, i)}
-                        style={styles.rangeRemove}
-                      >
-                        <Ionicons name="close-circle" size={18} color={theme.negative} />
-                      </Pressable>
-                    </View>
-                  ))}
-                  <Pressable
-                    onPress={() => addColorRange(metric)}
-                    style={[styles.rangeAddBtn, { borderColor: theme.border }]}
-                  >
-                    <Ionicons name="add" size={16} color={theme.text} />
-                    <ThemedText type="small" style={{ color: theme.text }}>Agregar rango</ThemedText>
+          {/* Chain tabs */}
+          <View style={[styles.chainTabs, { backgroundColor: theme.backgroundSelected }]}>
+            {CHAIN_OPTIONS.map((c) => (
+              <Pressable
+                key={c.key}
+                onPress={() => setActiveChain(c.key)}
+                style={[
+                  styles.chainTab,
+                  activeChain === c.key && { backgroundColor: theme.accent },
+                ]}>
+                <ThemedText
+                  type="small"
+                  style={{ color: activeChain === c.key ? '#fff' : theme.textSecondary }}>
+                  {c.label}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </View>
+
+          {/* Metric sections */}
+          {(Object.keys(METRIC_LABELS) as MetricKey[]).map((metric) => {
+            const ranges = currentRanges[metric] || DEFAULT_RANGES[metric];
+            return (
+              <View key={metric} style={styles.metricSection}>
+                <View style={styles.metricHeader}>
+                  <ThemedText type="smallBold" style={{ color: theme.text }}>
+                    {METRIC_LABELS[metric].name}
+                  </ThemedText>
+                  <Pressable onPress={() => resetMetricRanges(activeChain, metric)} style={styles.resetBtn}>
+                    <Ionicons name="refresh" size={18} color={theme.textSecondary} />
                   </Pressable>
                 </View>
-              );
-            })}
-          </Card>
+
+                {/* Chips row */}
+                <View style={styles.chipsRow}>
+                  {ranges.map((r, i) => {
+                    const isLast = i === ranges.length - 1;
+                    return (
+                      <View key={i} style={[styles.chip, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+                        <View style={styles.chipTop}>
+                          {isLast ? (
+                            <ThemedText type="smallBold" style={{ color: theme.text }}>Above</ThemedText>
+                          ) : (
+                            <TextInput
+                              style={[styles.chipInput, { color: theme.text, borderColor: theme.border }]}
+                              keyboardType="numeric"
+                              placeholder="Max"
+                              placeholderTextColor={theme.textSecondary}
+                              value={r.max != null ? String(r.max) : ''}
+                              onChangeText={(t) => {
+                                const num = t === '' ? null : Number(t);
+                                setColorRange(activeChain, metric, i, 'max', num);
+                              }}
+                            />
+                          )}
+                          <Pressable
+                            onPress={() => setColorPickerTarget({ chain: activeChain, metric, index: i })}
+                            style={[styles.chipColor, { backgroundColor: r.color }]}
+                          />
+                        </View>
+                        <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 10 }}>
+                          {isLast
+                            ? `${ranges.length > 1 ? formatNum(ranges[ranges.length - 2]?.max ?? 0) : '0'}+`
+                            : `${formatNum(i > 0 ? ranges[i - 1]?.max ?? 0 : 0)} - ${formatNum(r.max ?? 0)}`}
+                        </ThemedText>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            );
+          })}
         </ScrollView>
       </SafeAreaView>
 
@@ -85,22 +118,22 @@ export default function ColorsScreen() {
             <View style={styles.colorGrid}>
               {COLOR_OPTIONS.map((opt) => {
                 const current = colorPickerTarget
-                  ? (colorRanges[colorPickerTarget.metric]?.[colorPickerTarget.index]?.color ?? '#ffffff')
+                  ? (colorRangesByChain[colorPickerTarget.chain]?.[colorPickerTarget.metric]?.[colorPickerTarget.index]?.color ?? '#ffffff')
                   : '#ffffff';
                 return (
                   <Pressable
                     key={opt.value}
                     onPress={() => {
                       if (colorPickerTarget) {
-                        setColorRange(colorPickerTarget.metric, colorPickerTarget.index, 'color', opt.value);
+                        setColorRange(colorPickerTarget.chain, colorPickerTarget.metric, colorPickerTarget.index, 'color', opt.value);
                         setColorPickerTarget(null);
                       }
                     }}
-                      style={[
-                        styles.colorCircle,
-                        { backgroundColor: opt.value as string },
-                        current === opt.value ? styles.colorSelected : undefined,
-                      ]}
+                    style={[
+                      styles.colorCircle,
+                      { backgroundColor: opt.value as string },
+                      current === opt.value ? styles.colorSelected : undefined,
+                    ]}
                   />
                 );
               })}
@@ -123,50 +156,59 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   backBtn: { padding: 4 },
-  scroll: { padding: 16, gap: 12, paddingBottom: 40 },
-  rangeSection: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 10,
-    marginTop: 4,
-    gap: 6,
-  },
-  rangeRow: {
+  scroll: { padding: 16, gap: 16, paddingBottom: 40 },
+  chainTabs: {
     flexDirection: 'row',
+    borderRadius: 10,
+    padding: 3,
+  },
+  chainTab: {
+    flex: 1,
+    paddingVertical: 8,
     alignItems: 'center',
-    gap: 8,
-    padding: 6,
     borderRadius: 8,
   },
-  colorCircleSmall: {
-    width: 20,
-    height: 20,
+  metricSection: {
+    gap: 8,
+  },
+  metricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  resetBtn: {
+    padding: 4,
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    padding: 10,
+    minWidth: 80,
+    gap: 4,
   },
-  rangeInput: {
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    fontSize: 13,
-    width: 70,
-    textAlign: 'center',
-  },
-  rangeRemove: {
-    padding: 2,
-    marginLeft: 'auto',
-  },
-  rangeAddBtn: {
+  chipTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 6,
+  },
+  chipInput: {
     borderWidth: 1,
-    borderStyle: 'dashed',
-    borderRadius: 8,
-    paddingVertical: 8,
-    marginTop: 4,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    fontSize: 13,
+    width: 60,
+    textAlign: 'center',
+  },
+  chipColor: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
   },
   modalOverlay: {
     flex: 1,

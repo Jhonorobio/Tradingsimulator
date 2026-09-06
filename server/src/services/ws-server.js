@@ -56,8 +56,9 @@ export function initWebSocket(server) {
       clients.delete(client);
     });
 
-    // Send initial connection ack
-    ws.send(JSON.stringify({ event: 'connected', clients: clients.size }));
+    // Send initial connection ack + current filters so client can sync immediately
+    const currentFilters = trenchesFilters.get('global')?.filters ?? null;
+    ws.send(JSON.stringify({ event: 'connected', clients: clients.size, filters: currentFilters }));
   });
 
   return wss;
