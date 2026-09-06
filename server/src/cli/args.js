@@ -139,7 +139,7 @@ export async function fetchTrenches(params, opts = {}) {
       const data = json?.data ?? json ?? {};
       // Map GMGN response to correct tab key (handles robinhood tabs)
       const tab = opts.tab || 'new_creation';
-      const type = tab.replace('_robinhood', '');
+      const type = tab.replace(/_(robinhood|bsc)$/, '');
       const result = {
         [tab]: data[type] ?? data.new_creation ?? [],
       };
