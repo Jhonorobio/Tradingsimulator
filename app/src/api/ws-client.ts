@@ -18,6 +18,7 @@ const MAX_RECONNECT_DELAY = 5000;
 const subscriptions = new Set<string>();
 const listeners = new Map<string, Set<MessageHandler>>();
 const connectionListeners = new Set<(connected: boolean) => void>();
+const pendingMessages: object[] = [];
 let connected = false;
 let serverFilters: unknown | null = null;
 
@@ -99,6 +100,13 @@ async function connect() {
     setConnected(true);
     startHeartbeat();
     resubscribeAll();
+    // Flush pending messages
+    while (pendingMessages.length > 0) {
+      const msg = pendingMessages.shift()!;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      }
+    }
   };
 
   ws.onmessage = (event) => {
@@ -180,6 +188,8 @@ export function getWsClient(): WsClient {
     send(msg: object) {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(msg));
+      } else {
+        pendingMessages.push(msg);
       }
     },
     disconnect() {

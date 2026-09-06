@@ -108,6 +108,30 @@ export async function checkAllProxies(proxyConfigsStore) {
   const results = [];
   for (const tab of tabs) {
     const config = proxyConfigsStore.get(tab);
+    // new_creation (sol): only needs API key, no proxy URL
+    if (tab === 'new_creation') {
+      if (!config?.apiKey) {
+        setTabStatus(tab, {
+          tab,
+          url: '',
+          egressIp: null,
+          working: false,
+          error: 'Not configured',
+        });
+        results.push(getTabStatus(tab));
+        continue;
+      }
+      // Has API key — mark as working (direct connection)
+      setTabStatus(tab, {
+        tab,
+        url: '',
+        egressIp: null,
+        working: true,
+        error: null,
+      });
+      results.push(getTabStatus(tab));
+      continue;
+    }
     if (!config?.url || !config?.apiKey) {
       setTabStatus(tab, {
         tab,
