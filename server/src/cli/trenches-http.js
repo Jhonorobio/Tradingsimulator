@@ -43,6 +43,12 @@ const ROBINHOOD_LAUNCHPADS = [
   'livo',
 ];
 
+const BSC_LAUNCHPADS = [
+  'fourmeme', 'fourmeme_agent', 'bn_fourmeme', 'four_xmode_agent',
+  'cubepeg', 'likwid', 'goplus_creator', 'goplus_skills', 'openfour',
+  'flap', 'flap_stocks', 'flap_aioracle', 'clanker', 'lunafun',
+];
+
 const PRESETS = {
   safe: { max_rug_ratio: 0.3, max_bundler_rate: 0.3, max_insider_ratio: 0.3 },
   'smart-money': { min_smart_degen_count: 1 },
@@ -134,6 +140,8 @@ function buildBodyFromArgs(args) {
     section.launchpad_platform = platforms;
   } else if (chain === 'robinhood') {
     section.launchpad_platform = ROBINHOOD_LAUNCHPADS;
+  } else if (chain === 'bsc') {
+    section.launchpad_platform = BSC_LAUNCHPADS;
   }
   if (chain !== 'robinhood') {
     const quote = QUOTE_ADDRESS_TYPES[chain] ?? [];
