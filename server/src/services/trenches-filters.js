@@ -104,6 +104,7 @@ export function buildParamsFromConfig(config, tab) {
       'fourmeme', 'fourmeme_agent', 'bn_fourmeme', 'four_xmode_agent',
       'cubepeg', 'likwid', 'goplus_creator', 'goplus_skills', 'openfour',
       'flap', 'flap_stocks', 'flap_aioracle', 'clanker', 'lunafun',
+      'stoxes', 'stoxes_rwa',
     ];
   }
 

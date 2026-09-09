@@ -47,6 +47,7 @@ const BSC_LAUNCHPADS = [
   'fourmeme', 'fourmeme_agent', 'bn_fourmeme', 'four_xmode_agent',
   'cubepeg', 'likwid', 'goplus_creator', 'goplus_skills', 'openfour',
   'flap', 'flap_stocks', 'flap_aioracle', 'clanker', 'lunafun',
+  'stoxes', 'stoxes_rwa',
 ];
 
 const PRESETS = {
