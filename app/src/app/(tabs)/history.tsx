@@ -47,12 +47,12 @@ export default function HistoryScreen() {
     return () => { unsubscribeNotifications(deviceId); };
   }, [deviceId, subscribeNotifications, unsubscribeNotifications]);
 
-  // Merge WS notifications into history (dedupe by address only)
+  // Merge WS notifications into history (dedupe by address+notified_at so both new_creation and completed show)
   useEffect(() => {
     if (wsNotifications.length === 0) return;
     setHistory((prev) => {
-      const seen = new Set(prev.map((h) => h.address));
-      const newItems = wsNotifications.filter((n) => !seen.has(n.address));
+      const seen = new Set(prev.map((h) => `${h.address}:${h.notified_at}`));
+      const newItems = wsNotifications.filter((n) => !seen.has(`${n.address}:${n.notified_at}`));
       if (newItems.length === 0) return prev;
       return [...newItems, ...prev].slice(0, 200);
     });
@@ -149,7 +149,7 @@ export default function HistoryScreen() {
 
         <FlatList
           data={filtered}
-          keyExtractor={(item, i) => `${item.address}-${item.notified_at}-${i}`}
+          keyExtractor={(item, i) => `${item.address}-${item.category}-${item.notified_at}-${i}`}
           renderItem={renderItem}
           contentContainerStyle={styles.scroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
