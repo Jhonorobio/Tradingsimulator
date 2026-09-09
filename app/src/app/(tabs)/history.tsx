@@ -13,6 +13,13 @@ import { useWs } from '@/store/ws';
 import type { NotificationHistoryItem } from '@/api/types';
 import { fmtUsd, shortAddress } from '@/utils/format';
 
+const CHAIN_TABS = [
+  { key: 'all', label: 'Todos' },
+  { key: 'sol', label: 'SOL' },
+  { key: 'bsc', label: 'BSC' },
+  { key: 'robinhood', label: 'RH' },
+];
+
 const CATEGORY_LABELS: Record<string, string> = {
   new_creation: 'Nueva',
   completed: 'Completada',
@@ -29,6 +36,7 @@ export default function HistoryScreen() {
   const { notifications: wsNotifications, subscribeNotifications, unsubscribeNotifications } = useWs();
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
   const [search, setSearch] = useState('');
+  const [chainFilter, setChainFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
@@ -68,12 +76,14 @@ export default function HistoryScreen() {
     router.push(`/token/${item.chain}/${item.address}`);
   };
 
-  const filtered = search.trim()
-    ? history.filter((h) => {
-        const q = search.trim().toLowerCase();
-        return (h.symbol?.toLowerCase().includes(q)) || (h.name?.toLowerCase().includes(q));
-      })
-    : history;
+  const filtered = history.filter((h) => {
+    if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return (h.symbol?.toLowerCase().includes(q)) || (h.name?.toLowerCase().includes(q));
+    }
+    return true;
+  });
 
   const renderItem = useCallback(({ item }: { item: NotificationHistoryItem }) => (
     <Pressable onPress={() => goToToken(item)}>
@@ -137,6 +147,20 @@ export default function HistoryScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ThemedText type="subtitle" style={styles.title}>Historial de Notificaciones</ThemedText>
 
+        <View style={styles.chainTabs}>
+          {CHAIN_TABS.map((tab) => (
+            <Pressable
+              key={tab.key}
+              onPress={() => setChainFilter(tab.key)}
+              style={[styles.chainTab, chainFilter === tab.key && { backgroundColor: theme.accent }]}
+            >
+              <ThemedText type="small" style={{ color: chainFilter === tab.key ? '#000' : theme.textSecondary }}>
+                {tab.label}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </View>
+
         <View style={styles.searchWrap}>
           <TextInput
             value={search}
@@ -166,6 +190,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d0d' },
   safe: { flex: 1 },
   title: { marginHorizontal: 16, marginTop: 12, marginBottom: 8 },
+  chainTabs: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, gap: 6 },
+  chainTab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, backgroundColor: '#1a1a1a' },
   searchWrap: { marginHorizontal: 16, marginBottom: 8 },
   searchInput: { borderWidth: 1, borderRadius: 10, padding: 10, fontSize: 14 },
   empty: { textAlign: 'center', marginTop: 40, opacity: 0.5 },
