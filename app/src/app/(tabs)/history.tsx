@@ -18,6 +18,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   completed: 'Completada',
   new_creation_robinhood: 'Nueva RH',
   completed_robinhood: 'Completada RH',
+  new_creation_bsc: 'Nueva BSC',
+  completed_bsc: 'Completada BSC',
 };
 
 export default function HistoryScreen() {
@@ -45,12 +47,12 @@ export default function HistoryScreen() {
     return () => { unsubscribeNotifications(deviceId); };
   }, [deviceId, subscribeNotifications, unsubscribeNotifications]);
 
-  // Merge WS notifications into history (dedupe by address+notified_at)
+  // Merge WS notifications into history (dedupe by address only)
   useEffect(() => {
     if (wsNotifications.length === 0) return;
     setHistory((prev) => {
-      const seen = new Set(prev.map((h) => `${h.address}:${h.notified_at}`));
-      const newItems = wsNotifications.filter((n) => !seen.has(`${n.address}:${n.notified_at}`));
+      const seen = new Set(prev.map((h) => h.address));
+      const newItems = wsNotifications.filter((n) => !seen.has(n.address));
       if (newItems.length === 0) return prev;
       return [...newItems, ...prev].slice(0, 200);
     });

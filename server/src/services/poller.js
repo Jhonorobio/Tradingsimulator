@@ -44,7 +44,7 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
       if (!CATEGORIES.includes(cat)) continue;
       if (!categories[cat]) continue;
 
-      const notifiedKey = `${entry.device_id}:${cat}`;
+      const notifiedKey = entry.device_id;
       const alreadyNotified = new Set(notifiedTokens.get(notifiedKey) || []);
 
       const tokens = getTokensFromStore(cat);
@@ -149,9 +149,7 @@ export function startNotificationWatcher({ onError = () => {} } = {}) {
           const invalidDevices = await checkReceipts(ticketIds, ticketToDevice);
           for (const deviceId of invalidDevices) {
             notificationConfig.delete(deviceId);
-            for (const cat of CATEGORIES) {
-              notifiedTokens.delete(`${deviceId}:${cat}`);
-            }
+            notifiedTokens.delete(deviceId);
             console.log(`[poller] Removed dead push token for device ${deviceId}`);
           }
         } catch (err) {
