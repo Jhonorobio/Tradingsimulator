@@ -25,7 +25,7 @@ async function getDispatcher(proxyUrl) {
 
 const QUOTE_ADDRESS_TYPES = {
   sol: [4, 5, 3, 1, 13, 0],
-  bsc: [6, 7, 1, 16, 8, 3, 9, 10, 2, 17, 18, 0],
+  bsc: [0, 1, 7, 8, 9, 10, 16, 19, 26, 27],
   base: [11, 3, 12, 13, 0],
   eth: [20, 11, 8, 3, 12, 1, 0],
   robinhood: [11, 20, 24, 12, 0],
