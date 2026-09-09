@@ -72,9 +72,9 @@ export default function HistoryScreen() {
     setRefreshing(false);
   }, [load]);
 
-  const goToToken = (item: NotificationHistoryItem) => {
+  const goToToken = useCallback((item: NotificationHistoryItem) => {
     router.push(`/token/${item.chain}/${item.address}`);
-  };
+  }, [router]);
 
   const filtered = history.filter((h) => {
     if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
@@ -85,7 +85,7 @@ export default function HistoryScreen() {
     return true;
   });
 
-  const renderItem = useCallback(({ item }: { item: NotificationHistoryItem }) => (
+  const renderCard = useCallback(({ item }: { item: NotificationHistoryItem }) => (
     <Pressable onPress={() => goToToken(item)}>
       <Card style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.cardHeader}>
@@ -174,7 +174,10 @@ export default function HistoryScreen() {
         <FlatList
           data={filtered}
           keyExtractor={(item, i) => `${item.address}-${item.category}-${item.notified_at}-${i}`}
-          renderItem={renderItem}
+          renderItem={renderCard}
+          removeClippedSubviews
+          maxToRenderPerBatch={15}
+          windowSize={11}
           contentContainerStyle={styles.scroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
           ListEmptyComponent={
