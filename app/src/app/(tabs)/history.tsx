@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -29,64 +29,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   completed_bsc: 'Completada BSC',
 };
 
-export default function HistoryScreen() {
-  const theme = useTheme();
-  const router = useRouter();
-  const { deviceId } = useSettings();
-  const { notifications: wsNotifications, subscribeNotifications, unsubscribeNotifications } = useWs();
-  const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
-  const [search, setSearch] = useState('');
-  const [chainFilter, setChainFilter] = useState('all');
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const res = await getNotificationHistory(500);
-      setHistory(res.history);
-    } catch {}
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  // Subscribe to real-time notifications via WebSocket
-  useEffect(() => {
-    if (!deviceId) return;
-    subscribeNotifications(deviceId);
-    return () => { unsubscribeNotifications(deviceId); };
-  }, [deviceId, subscribeNotifications, unsubscribeNotifications]);
-
-  // Merge WS notifications into history (dedupe by address+notified_at so both new_creation and completed show)
-  useEffect(() => {
-    if (wsNotifications.length === 0) return;
-    setHistory((prev) => {
-      const seen = new Set(prev.map((h) => `${h.address}:${h.notified_at}`));
-      const newItems = wsNotifications.filter((n) => !seen.has(`${n.address}:${n.notified_at}`));
-      if (newItems.length === 0) return prev;
-      return [...newItems, ...prev].slice(0, 200);
-    });
-  }, [wsNotifications]);
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
-
-  const goToToken = useCallback((item: NotificationHistoryItem) => {
-    router.push(`/token/${item.chain}/${item.address}`);
-  }, [router]);
-
-  const filtered = history.filter((h) => {
-    if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      return (h.symbol?.toLowerCase().includes(q)) || (h.name?.toLowerCase().includes(q));
-    }
-    return true;
-  });
-
-  const renderCard = useCallback(({ item }: { item: NotificationHistoryItem }) => (
-    <Pressable onPress={() => goToToken(item)}>
+const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress }: { item: NotificationHistoryItem; theme: any; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress}>
       <Card style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.cardHeader}>
           {item.logo ? (
@@ -140,7 +85,65 @@ export default function HistoryScreen() {
         </View>
       </Card>
     </Pressable>
-  ), [theme, goToToken]);
+  );
+});
+
+export default function HistoryScreen() {
+  const theme = useTheme();
+  const router = useRouter();
+  const { deviceId } = useSettings();
+  const { notifications: wsNotifications, subscribeNotifications, unsubscribeNotifications } = useWs();
+  const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
+  const [search, setSearch] = useState('');
+  const [chainFilter, setChainFilter] = useState('all');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await getNotificationHistory(500);
+      setHistory(res.history);
+    } catch {}
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!deviceId) return;
+    subscribeNotifications(deviceId);
+    return () => { unsubscribeNotifications(deviceId); };
+  }, [deviceId, subscribeNotifications, unsubscribeNotifications]);
+
+  useEffect(() => {
+    if (wsNotifications.length === 0) return;
+    setHistory((prev) => {
+      const seen = new Set(prev.map((h) => `${h.address}:${h.notified_at}`));
+      const newItems = wsNotifications.filter((n) => !seen.has(`${n.address}:${n.notified_at}`));
+      if (newItems.length === 0) return prev;
+      return [...newItems, ...prev].slice(0, 200);
+    });
+  }, [wsNotifications]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  const searchLower = search.trim().toLowerCase();
+
+  const filtered = useMemo(() => {
+    return history.filter((h) => {
+      if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
+      if (searchLower) {
+        return (h.symbol?.toLowerCase().includes(searchLower)) || (h.name?.toLowerCase().includes(searchLower));
+      }
+      return true;
+    });
+  }, [history, chainFilter, searchLower]);
+
+  const renderItem = useCallback(({ item }: { item: NotificationHistoryItem }) => (
+    <HistoryCard item={item} theme={theme} onPress={() => router.push(`/token/${item.chain}/${item.address}`)} />
+  ), [theme, router]);
 
   return (
     <ThemedView style={styles.container}>
@@ -174,10 +177,11 @@ export default function HistoryScreen() {
         <FlatList
           data={filtered}
           keyExtractor={(item, i) => `${item.address}-${item.category}-${item.notified_at}-${i}`}
-          renderItem={renderCard}
-          removeClippedSubviews
-          maxToRenderPerBatch={15}
-          windowSize={11}
+          renderItem={renderItem}
+          initialNumToRender={15}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          getItemLayout={(_, index) => ({ length: 120, offset: 120 * index, index })}
           contentContainerStyle={styles.scroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
           ListEmptyComponent={
