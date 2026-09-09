@@ -1,8 +1,8 @@
 import { api } from './client';
-import type { NotificationConfig, NotificationHistoryItem } from './types';
+import type { NotificationConfig, NotificationHistoryItem, NotificationCategoryFilters } from './types';
 
-export function saveNotificationConfig(push_token: string, categories: NotificationConfig['categories']) {
-  return api.put<{ ok: boolean }>('/api/notifications/config', { push_token, categories });
+export function saveNotificationConfig(push_token: string, categories: NotificationConfig['categories'], filters?: Record<string, NotificationCategoryFilters>) {
+  return api.put<{ ok: boolean }>('/api/notifications/config', { push_token, categories, filters });
 }
 
 export function getNotificationConfig() {

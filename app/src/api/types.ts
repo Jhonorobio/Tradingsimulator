@@ -207,6 +207,15 @@ export interface TradeResult {
   price_source: string;
 }
 
+export interface NotificationFilterRange {
+  min?: number | string;
+  max?: number | string;
+}
+
+export type NotificationFilterFields = 'smart_degen_count' | 'renowned_count' | 'bot_degen_count' | 'bot_degen_rate' | 'fresh_wallet_rate' | 'rug_ratio' | 'volume_24h' | 'usd_market_cap' | 'liquidity';
+
+export type NotificationCategoryFilters = Partial<Record<NotificationFilterFields, NotificationFilterRange>>;
+
 export interface NotificationConfig {
   push_token: string | null;
   categories: {
@@ -217,6 +226,7 @@ export interface NotificationConfig {
     new_creation_bsc: boolean;
     completed_bsc: boolean;
   };
+  filters?: Record<string, NotificationCategoryFilters>;
 }
 
 export interface GmgnStatus {

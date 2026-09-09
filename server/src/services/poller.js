@@ -8,6 +8,18 @@ const CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'comp
 // How many insert cycles between receipt checks (e.g., 60 ≈ 5 min depending on frequency)
 const RECEIPT_CHECK_INTERVAL = 60;
 
+function matchesFilters(token, filters) {
+  if (!filters || typeof filters !== 'object') return true;
+  for (const [field, range] of Object.entries(filters)) {
+    if (!range || typeof range !== 'object') continue;
+    const val = token[field];
+    if (val == null || isNaN(val)) continue; // no data = skip filter (don't block)
+    if (range.min != null && val < range.min) return false;
+    if (range.max != null && val > range.max) return false;
+  }
+  return true;
+}
+
 function fmtUsd(n) {
   if (n == null || isNaN(n)) return 'n/a';
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
@@ -46,11 +58,13 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
 
       const notifiedKey = `${entry.device_id}:${cat}`;
       const alreadyNotified = new Set(notifiedTokens.get(notifiedKey) || []);
+      const catFilters = entry.filters?.[cat];
 
       const tokens = getTokensFromStore(cat);
 
       for (const t of tokens) {
         if (!t.address || alreadyNotified.has(t.address)) continue;
+        if (!matchesFilters(t, catFilters)) continue;
         alreadyNotified.add(t.address);
 
         const list = notifiedTokens.get(notifiedKey) || [];

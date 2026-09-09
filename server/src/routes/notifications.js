@@ -6,6 +6,30 @@ const router = Router();
 
 const VALID_CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
 
+const FILTER_FIELDS = [
+  'smart_degen_count', 'renowned_count', 'bot_degen_count', 'bot_degen_rate',
+  'fresh_wallet_rate', 'rug_ratio', 'volume_24h', 'usd_market_cap', 'liquidity',
+];
+
+function sanitizeFilters(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const out = {};
+  for (const [cat, f] of Object.entries(raw)) {
+    if (!VALID_CATEGORIES.includes(cat) || !f || typeof f !== 'object') continue;
+    const clean = {};
+    for (const field of FILTER_FIELDS) {
+      const v = f[field];
+      if (v && typeof v === 'object') {
+        const min = v.min != null && v.min !== '' ? Number(v.min) : undefined;
+        const max = v.max != null && v.max !== '' ? Number(v.max) : undefined;
+        if (min != null || max != null) clean[field] = { min, max };
+      }
+    }
+    if (Object.keys(clean).length > 0) out[cat] = clean;
+  }
+  return out;
+}
+
 function deviceId(req) {
   const id = req.headers['x-device-id'] || req.params.deviceId;
   if (!id || typeof id !== 'string' || id.length > 128) {
@@ -28,7 +52,7 @@ function fail(res, err, status = 500) {
 router.put('/config', (req, res) => {
   try {
     const id = deviceId(req);
-    const { push_token, categories } = req.body || {};
+    const { push_token, categories, filters } = req.body || {};
 
     if (!isValidPushToken(push_token)) {
       throw Object.assign(new Error('Invalid Expo push token'), { status: 400 });
@@ -42,10 +66,18 @@ router.put('/config', (req, res) => {
       cats[key] = !!categories[key];
     }
 
+    const existing = notificationConfig.get(id);
+    const mergedFilters = { ...(existing?.filters || {}), ...sanitizeFilters(filters) };
+    // Remove filters for disabled categories
+    for (const key of VALID_CATEGORIES) {
+      if (!cats[key]) delete mergedFilters[key];
+    }
+
     notificationConfig.set(id, {
       device_id: id,
       push_token,
       categories: cats,
+      filters: mergedFilters,
       updated_at: new Date().toISOString(),
     });
 
@@ -68,11 +100,13 @@ router.get('/config', (req, res) => {
       return res.json({
         push_token: null,
         categories: { new_creation: false, completed: false, new_creation_robinhood: false, completed_robinhood: false, new_creation_bsc: false, completed_bsc: false },
+        filters: {},
       });
     }
     res.json({
       push_token: entry.push_token,
       categories: entry.categories,
+      filters: entry.filters || {},
     });
   } catch (err) {
     fail(res, err);
