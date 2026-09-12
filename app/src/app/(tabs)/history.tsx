@@ -48,7 +48,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
   // Use first snapshot if available, otherwise use notification data
   const snap = item.snapshots?.[0] ?? null;
   const mcap = snap?.usd_market_cap ?? snap?.market_cap ?? item.mcap;
-  const vol = snap?.volume_24h ?? item.vol24h;
+  const vol = snap?.volume_24h ?? item.vol24h ?? 0;
   const sm = snap?.smart_degen_count ?? item.smart_degen_count;
   const kol = snap?.renowned_count ?? item.renowned_count;
   const fresh = snap?.fresh_wallet_rate ?? item.fresh_wallet_rate;
@@ -58,6 +58,14 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
   const bundler = snap?.bundler_rate ?? snap?.bundler_trader_amount_rate ?? item.bundler_rate ?? item.bundler_trader_amount_rate;
   const entrap = snap?.entrapment_ratio ?? item.entrapment_ratio;
   const snapCount = item.snapshots?.length ?? 0;
+
+  // Calculate gain: first mcap vs highest mcap in timeline
+  const firstMcap = item.snapshots?.[0]?.usd_market_cap ?? item.snapshots?.[0]?.market_cap ?? item.mcap;
+  const maxMcap = item.snapshots?.reduce((max, s) => {
+    const v = s.usd_market_cap ?? s.market_cap;
+    return v != null && v > max ? v : max;
+  }, firstMcap ?? 0);
+  const gainPct = firstMcap && firstMcap > 0 && maxMcap != null ? ((maxMcap - firstMcap) / firstMcap) * 100 : null;
 
   const stat = (icon: string, value: string, color: string) => (
     <View style={styles.statItem}>
@@ -85,9 +93,16 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
           </View>
           <View style={styles.cardRight}>
             {mcap != null && (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>{fmtUsd(mcap, { compact: true })}</ThemedText>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>{fmtUsd(mcap, { compact: true })}</ThemedText>
+                {gainPct != null && gainPct !== 0 && (
+                  <ThemedText type="small" style={{ color: gainPct > 0 ? theme.positive : theme.negative, fontWeight: '600' }}>
+                    {gainPct > 0 ? '+' : ''}{gainPct.toFixed(0)}%
+                  </ThemedText>
+                )}
+              </View>
             )}
-            {vol != null && (
+            {vol != null && vol > 0 && (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>Vol {fmtUsd(vol, { compact: true })}</ThemedText>
             )}
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
