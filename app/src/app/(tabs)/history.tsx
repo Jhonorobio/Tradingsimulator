@@ -86,9 +86,9 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
         </View>
 
         <View style={styles.statsRow}>
-          {sm != null && sm > 0 && stat('flash', `${sm}`, theme.accent)}
+          {sm != null && sm > 0 && stat('wallet', `${sm}`, theme.accent)}
           {kol != null && kol > 0 && stat('people', `${kol}`, theme.accent)}
-          {fresh != null && fresh > 0 && stat('wallet', `${(fresh * 100).toFixed(0)}%`, theme.positive)}
+          {fresh != null && fresh > 0 && stat('leaf', `${(fresh * 100).toFixed(0)}%`, theme.positive)}
           {((botCount != null && botCount > 0) || (botRate != null && botRate > 0)) &&
             stat('hardware-chip', `${botCount ?? 0}/${(botRate != null ? (botRate * 100).toFixed(0) : '0')}%`, theme.warn)}
           {rug != null && rug > 0 && stat('skull', `${(rug * 100).toFixed(0)}%`, theme.negative)}
@@ -134,9 +134,9 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
                   </ThemedText>
                   {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 42, fontSize: 10 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
                   {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 42, fontSize: 10 }}>{fmtUsd(sVol, { compact: true })}</ThemedText>}
-                  {sSm != null && sSm > 0 && snapStat('flash', `${sSm}`, theme.accent)}
+                  {sSm != null && sSm > 0 && snapStat('wallet', `${sSm}`, theme.accent)}
                   {sKol != null && sKol > 0 && snapStat('people', `${sKol}`, theme.accent)}
-                  {sFresh != null && sFresh > 0 && snapStat('wallet', `${(sFresh * 100).toFixed(0)}%`, theme.positive)}
+                  {sFresh != null && sFresh > 0 && snapStat('leaf', `${(sFresh * 100).toFixed(0)}%`, theme.positive)}
                   {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
                     snapStat('hardware-chip', `${sBotCount ?? 0}/${(sBot != null ? (sBot * 100).toFixed(0) : '0')}%`, theme.warn)}
                   {sRug != null && sRug > 0 && snapStat('skull', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
