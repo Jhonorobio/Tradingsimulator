@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +18,12 @@ const SORT_OPTIONS = [
   { key: 'recent', label: 'Reciente' },
   { key: 'snaps', label: '# Snapshots' },
   { key: 'gain', label: 'Ganancia' },
+];
+
+const CATEGORY_OPTIONS = [
+  { key: 'all', label: 'Todas' },
+  { key: 'new', label: 'Nuevas' },
+  { key: 'completed', label: 'Completadas' },
 ];
 
 function calcGain(item: NotificationHistoryItem): number {
@@ -193,7 +199,9 @@ export default function HistoryScreen() {
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
   const [search, setSearch] = useState('');
   const [chainFilter, setChainFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortBy, setSortBy] = useState('recent');
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -233,6 +241,8 @@ export default function HistoryScreen() {
   const filtered = useMemo(() => {
     let result = history.filter((h) => {
       if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
+      if (categoryFilter === 'new' && !h.category.startsWith('new_creation')) return false;
+      if (categoryFilter === 'completed' && !h.category.startsWith('completed')) return false;
       if (searchLower) {
         return (h.symbol?.toLowerCase().includes(searchLower)) || (h.name?.toLowerCase().includes(searchLower));
       }
@@ -248,7 +258,7 @@ export default function HistoryScreen() {
       });
     }
     return result;
-  }, [history, chainFilter, sortBy, searchLower]);
+  }, [history, chainFilter, categoryFilter, sortBy, searchLower]);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -292,6 +302,15 @@ export default function HistoryScreen() {
         </View>
 
         <View style={styles.filterRow}>
+          <Pressable
+            onPress={() => setShowCategoryModal(true)}
+            style={[styles.chainTab, { backgroundColor: theme.backgroundSelected }]}
+          >
+            <Ionicons name="filter" size={14} color={theme.accent} />
+            <ThemedText type="small" style={{ color: theme.accent }}>
+              {CATEGORY_OPTIONS.find((o) => o.key === categoryFilter)?.label ?? 'Filtro'}
+            </ThemedText>
+          </Pressable>
           <View style={styles.sortTabs}>
             {SORT_OPTIONS.map((opt) => (
               <Pressable
@@ -306,6 +325,25 @@ export default function HistoryScreen() {
             ))}
           </View>
         </View>
+
+        <Modal visible={showCategoryModal} transparent animationType="fade" onRequestClose={() => setShowCategoryModal(false)}>
+          <Pressable style={styles.modalOverlay} onPress={() => setShowCategoryModal(false)}>
+            <View style={[styles.modalContent, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+              {CATEGORY_OPTIONS.map((opt) => (
+                <Pressable
+                  key={opt.key}
+                  onPress={() => { setCategoryFilter(opt.key); setShowCategoryModal(false); }}
+                  style={[styles.modalItem, categoryFilter === opt.key && { backgroundColor: theme.accent + '20' }]}
+                >
+                  <ThemedText type="small" style={{ color: categoryFilter === opt.key ? theme.accent : theme.text }}>
+                    {opt.label}
+                  </ThemedText>
+                  {categoryFilter === opt.key && <Ionicons name="checkmark" size={16} color={theme.accent} />}
+                </Pressable>
+              ))}
+            </View>
+          </Pressable>
+        </Modal>
 
         <View style={styles.searchWrap}>
           <TextInput
@@ -360,4 +398,7 @@ const styles = StyleSheet.create({
   timeline: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
   snapRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 1, borderBottomWidth: StyleSheet.hairlineWidth, gap: 2 },
   snapStatItem: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { borderRadius: 12, borderWidth: 1, padding: 8, width: 200 },
+  modalItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 },
 });
