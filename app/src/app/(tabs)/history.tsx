@@ -125,11 +125,11 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
               );
               return (
                 <View key={i} style={[styles.snapRow, { borderBottomColor: theme.border }]}>
-                  <ThemedText type="small" style={{ color: theme.textSecondary, width: 40, fontSize: 10 }}>
+                  <ThemedText type="small" style={{ color: theme.textSecondary, width: 34, fontSize: 10 }}>
                     {new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
                   </ThemedText>
-                  {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 55, fontSize: 10 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
-                  {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 50, fontSize: 10 }}>{fmtUsd(sVol, { compact: true })}</ThemedText>}
+                  {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 42, fontSize: 10 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
+                  {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 42, fontSize: 10 }}>{fmtUsd(sVol, { compact: true })}</ThemedText>}
                   {sSm != null && sSm > 0 && snapStat('flash', `${sSm}`, theme.accent)}
                   {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
                     snapStat('hardware-chip', `${sBotCount ?? 0}/${(sBot != null ? (sBot * 100).toFixed(0) : '0')}%`, theme.warn)}
@@ -288,6 +288,6 @@ const styles = StyleSheet.create({
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   snapToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   timeline: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
-  snapRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 2, borderBottomWidth: StyleSheet.hairlineWidth, gap: 4 },
+  snapRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 1, borderBottomWidth: StyleSheet.hairlineWidth, gap: 2 },
   snapStatItem: { flexDirection: 'row', alignItems: 'center', gap: 2 },
 });
