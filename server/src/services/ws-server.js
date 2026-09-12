@@ -4,6 +4,7 @@ import { getCurrentData } from './trenches-store.js';
 import { trenchesFilters, proxyConfigs } from '../stores.js';
 import { buildParamsFromConfig, TRENCH_TABS } from './trenches-filters.js';
 import { fetchTrenches } from '../cli/args.js';
+import { ensureWorkers } from './trenches-refresher.js';
 
 /**
  * WebSocket server for real-time data push to connected clients.
@@ -96,6 +97,9 @@ async function handleSetTrenchesFilters(client, msg) {
 
   // Save filters under fixed 'global' key — single config for all tabs
   trenchesFilters.set('global', { filters: rawFilters, updated_at: new Date().toISOString() });
+
+  // Ensure refresher workers are running for all tabs with proxy configs
+  ensureWorkers();
 
   // Fetch each tab that has a configured proxy and push results
   for (const tab of TRENCH_TABS) {

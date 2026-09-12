@@ -11,6 +11,17 @@ const MIN_INTERVAL_MS = 1050;
 // Set of tabs that have a running worker
 const runningWorkers = new Set();
 
+// Keep a reference to spawnWorkers so it can be called externally
+let _spawnWorkers = null;
+
+/**
+ * Ensure workers are running for all tabs with proxy configs.
+ * Called from WS handler when filters are set.
+ */
+export function ensureWorkers() {
+  if (_spawnWorkers) _spawnWorkers();
+}
+
 /**
  * Background refresher for the Trenches views. Runs one dedicated worker per
  * tab (new_creation / completed). Each worker fetches that
@@ -52,6 +63,9 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
       setTimeout(() => tabWorker(tab, connection, rebuildQueue, delay, onError), 0);
     }
   };
+
+  // Export for external calls
+  _spawnWorkers = spawnWorkers;
 
   // Initial spawn
   spawnWorkers();
