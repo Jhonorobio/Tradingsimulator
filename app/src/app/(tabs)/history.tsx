@@ -44,7 +44,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
   const botCount = snap?.bot_degen_count ?? item.bot_degen_count;
   const botRate = snap?.bot_degen_rate ?? item.bot_degen_rate;
   const rug = snap?.rug_ratio ?? item.rug_ratio;
-  const bundler = snap?.bundler_rate ?? item.bundler_rate;
+  const bundler = snap?.bundler_rate ?? snap?.bundler_trader_amount_rate ?? item.bundler_rate ?? item.bundler_trader_amount_rate;
   const entrap = snap?.entrapment_ratio ?? item.entrapment_ratio;
   const snapCount = item.snapshots?.length ?? 0;
 
@@ -119,7 +119,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
               const sBotCount = s.bot_degen_count;
               const sBot = s.bot_degen_rate;
               const sRug = s.rug_ratio;
-              const sBundler = s.bundler_rate;
+              const sBundler = s.bundler_rate ?? s.bundler_trader_amount_rate;
               const sEntrap = s.entrapment_ratio;
               const snapStat = (icon: string, value: string, color: string) => (
                 <View style={styles.snapStatItem}>

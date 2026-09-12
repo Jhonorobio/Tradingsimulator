@@ -114,7 +114,7 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
             bot_degen_count: t.bot_degen_count ?? null,
             bot_degen_rate: t.bot_degen_rate ?? null,
             rug_ratio: t.rug_ratio ?? null,
-            bundler_rate: t.bundler_rate ?? null,
+            bundler_rate: t.bundler_rate ?? t.bundler_trader_amount_rate ?? null,
             entrapment_ratio: t.entrapment_ratio ?? null,
             snapshots: getSnapshots(t.address, cat),
             notified_at: new Date().toISOString(),

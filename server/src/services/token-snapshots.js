@@ -21,7 +21,7 @@ const SNAPSHOT_FIELDS = [
   'usd_market_cap', 'market_cap', 'liquidity', 'volume_24h',
   'smart_degen_count', 'renowned_count', 'fresh_wallet_rate',
   'bot_degen_count', 'bot_degen_rate', 'rug_ratio',
-  'bundler_rate', 'entrapment_ratio',
+  'bundler_rate', 'bundler_trader_amount_rate', 'entrapment_ratio',
 ];
 
 function load() {
