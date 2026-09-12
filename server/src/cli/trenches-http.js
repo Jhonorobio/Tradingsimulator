@@ -274,6 +274,12 @@ export async function fetchTrenchesHttp(args, connection) {
     new_creation: data.new_creation ?? [],
     completed: data.completed ?? [],
   };
+  // Debug: log first token keys to verify field names (one-time)
+  const firstToken = result.new_creation?.[0] || result.completed?.[0];
+  if (firstToken && !globalThis.__loggedTrenchKeys) {
+    console.log('[trenches-http] First token keys:', Object.keys(firstToken).sort().join(', '));
+    globalThis.__loggedTrenchKeys = true;
+  }
   return sortResult(result, extractSort(args), extractDirection(args));
 }
 

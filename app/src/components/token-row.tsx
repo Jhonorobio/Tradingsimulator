@@ -57,6 +57,7 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
   const botCount = token.bot_degen_count;
   const rug = token.rug_ratio;
   const phish = token.entrapment_ratio;
+  const bundler = token.bundler_rate ?? token.bundler_trader_amount_rate;
 
   const stats: StatItem[] = [
     { icon: 'leaf', label: 'Fresh', value: fmt(fresh), color: getColorForValue(c.fresh, fresh != null ? fresh * 100 : null) },
@@ -64,6 +65,7 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
     { icon: 'flash', label: 'Smart', value: fmt(smart, false), color: getColorForValue(c.smart, smart) },
     { icon: 'bug', label: 'Bot', value: botRate != null ? `${fmt(botRate)} (${fmt(botCount, false)})` : fmt(botCount, false), color: getColorForValue(c.bot, botRate != null ? botRate * 100 : botCount) },
     { icon: 'shield-checkmark', label: 'Rug', value: fmt(rug), color: getColorForValue(c.rug, rug != null ? rug * 100 : null) },
+    { icon: 'layers', label: 'Bundle', value: fmt(bundler), color: getColorForValue(c.phish, bundler != null ? bundler * 100 : null) },
     { icon: 'warning', label: 'Phish', value: fmt(phish), color: getColorForValue(c.phish, phish != null ? phish * 100 : null) },
   ];
 
