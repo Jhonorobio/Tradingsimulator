@@ -214,12 +214,12 @@ export function getAllTracksFiltered(opts = {}) {
 
       const first = track.snapshots[0];
       const peak = track.snapshots.reduce((max, s) =>
-        (s.usd_market_cap ?? 0) > (max.usd_market_cap ?? 0) ? s : max
+        snapshotMcap(s) > snapshotMcap(max) ? s : max
       , first);
       const last = track.snapshots[track.snapshots.length - 1];
 
-      const firstMcap = first.usd_market_cap ?? first.market_cap ?? 0;
-      const peakMcap = peak.usd_market_cap ?? peak.market_cap ?? 0;
+      const firstMcap = snapshotMcap(first);
+      const peakMcap = snapshotMcap(peak);
       const gainPct = firstMcap > 0 ? ((peakMcap - firstMcap) / firstMcap) * 100 : 0;
 
       if (gainPct < minGainPct) continue;
@@ -296,6 +296,11 @@ function pickSnapshotFields(snap) {
     out[f] = snap[f] ?? null;
   }
   return out;
+}
+
+function snapshotMcap(snap) {
+  if (!snap) return 0;
+  return snap.usd_market_cap ?? snap.market_cap ?? 0;
 }
 
 function aggregateMetrics(tracks) {
