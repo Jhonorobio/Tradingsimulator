@@ -112,6 +112,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
           <View style={[styles.timeline, { borderTopColor: theme.border }]}>
             {item.snapshots.map((s: TokenSnapshot, i: number) => {
               const sMcap = s.usd_market_cap ?? s.market_cap;
+              const sVol = s.volume_24h;
               const sSm = s.smart_degen_count;
               const sBot = s.bot_degen_rate;
               const sRug = s.rug_ratio;
@@ -121,6 +122,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
                     {new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </ThemedText>
                   {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 70 }}>{fmtUsd(sMcap)}</ThemedText>}
+                  {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 60 }}>V {fmtUsd(sVol)}</ThemedText>}
                   {sSm != null && sSm > 0 && <ThemedText type="small" style={{ color: theme.accent, width: 30 }}>SM{sSm}</ThemedText>}
                   {sBot != null && sBot > 0 && <ThemedText type="small" style={{ color: theme.warn, width: 40 }}>{(sBot * 100).toFixed(0)}%bot</ThemedText>}
                   {sRug != null && sRug > 0 && <ThemedText type="small" style={{ color: theme.negative, width: 40 }}>{(sRug * 100).toFixed(0)}%rug</ThemedText>}
