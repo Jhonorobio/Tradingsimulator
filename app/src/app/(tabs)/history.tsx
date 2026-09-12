@@ -120,7 +120,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
               return (
                 <View key={i} style={[styles.snapRow, { borderBottomColor: theme.border }]}>
                   <ThemedText type="small" style={{ color: theme.textSecondary, width: 50 }}>
-                    {new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
                   </ThemedText>
                   {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 70 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
                   {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 60 }}>V {fmtUsd(sVol, { compact: true })}</ThemedText>}
