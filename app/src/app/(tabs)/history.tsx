@@ -14,16 +14,12 @@ import { useWs } from '@/store/ws';
 import type { NotificationHistoryItem, TokenSnapshot } from '@/api/types';
 import { fmtUsd, shortAddress } from '@/utils/format';
 
-const SORT_OPTIONS = [
-  { key: 'recent', label: 'Reciente' },
-  { key: 'snaps', label: '# Snapshots' },
-  { key: 'gain', label: 'Ganancia' },
-];
-
 const CATEGORY_OPTIONS = [
-  { key: 'all', label: 'Todas' },
+  { key: 'recent', label: 'Reciente' },
   { key: 'new', label: 'Nuevas' },
   { key: 'completed', label: 'Completadas' },
+  { key: 'snaps', label: 'Snapshots' },
+  { key: 'gain', label: 'Ganancia' },
 ];
 
 function calcGain(item: NotificationHistoryItem): number {
@@ -199,8 +195,7 @@ export default function HistoryScreen() {
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
   const [search, setSearch] = useState('');
   const [chainFilter, setChainFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('recent');
+  const [categoryFilter, setCategoryFilter] = useState('recent');
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -248,17 +243,13 @@ export default function HistoryScreen() {
       }
       return true;
     });
-    if (sortBy === 'snaps') {
+    if (categoryFilter === 'snaps') {
       result = [...result].sort((a, b) => (b.snapshots?.length ?? 0) - (a.snapshots?.length ?? 0));
-    } else if (sortBy === 'gain') {
-      result = [...result].sort((a, b) => {
-        const gainA = calcGain(a);
-        const gainB = calcGain(b);
-        return gainB - gainA;
-      });
+    } else if (categoryFilter === 'gain') {
+      result = [...result].sort((a, b) => calcGain(b) - calcGain(a));
     }
     return result;
-  }, [history, chainFilter, categoryFilter, sortBy, searchLower]);
+  }, [history, chainFilter, categoryFilter, searchLower]);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -311,19 +302,6 @@ export default function HistoryScreen() {
               {CATEGORY_OPTIONS.find((o) => o.key === categoryFilter)?.label ?? 'Filtro'}
             </ThemedText>
           </Pressable>
-          <View style={styles.sortTabs}>
-            {SORT_OPTIONS.map((opt) => (
-              <Pressable
-                key={opt.key}
-                onPress={() => setSortBy(opt.key)}
-                style={[styles.chainTab, sortBy === opt.key && { backgroundColor: theme.accent }]}
-              >
-                <ThemedText type="small" style={{ color: sortBy === opt.key ? '#000' : theme.textSecondary }}>
-                  {opt.label}
-                </ThemedText>
-              </Pressable>
-            ))}
-          </View>
         </View>
 
         <Modal visible={showCategoryModal} transparent animationType="fade" onRequestClose={() => setShowCategoryModal(false)}>
@@ -380,7 +358,6 @@ const styles = StyleSheet.create({
   title: { marginHorizontal: 16, marginTop: 12, marginBottom: 8 },
   chainTabs: { flexDirection: 'row', marginBottom: 8, gap: 6 },
   filterRow: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, gap: 8, alignItems: 'center' },
-  sortTabs: { flexDirection: 'row', gap: 6 },
   chainTab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, backgroundColor: '#1a1a1a' },
   searchWrap: { marginHorizontal: 16, marginBottom: 8 },
   searchInput: { borderWidth: 1, borderRadius: 10, padding: 10, fontSize: 14 },
