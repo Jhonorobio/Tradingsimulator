@@ -98,6 +98,19 @@ export function buildParamsFromConfig(config, tab) {
     p.launchpadPlatform = ['pons_v2', 'longxyz', 'o1', 'bankr', 'flap', 'trench', 'livo'];
   }
 
+  // SOL also needs explicit launchpad_platform for trenches to return all tokens
+  if (chain === 'sol') {
+    p.launchpadPlatform = [
+      'Pump.fun', 'pump_mayhem', 'pump_mayhem_agent', 'pump_agent',
+      'letsbonk', 'bonkers', 'bags', 'memoo', 'liquid', 'bankr',
+      'zora', 'surge', 'anoncoin', 'moonshot_app', 'wendotdev', 'heaven',
+      'sugar', 'token_mill', 'believe', 'trendsfun', 'trends_fun',
+      'jup_studio', 'Moonshot', 'boop', 'ray_launchpad',
+      'meteora_virtual_curve', 'xstocks',
+      'pool_ray', 'pool_meteora', 'pool_pump_amm', 'pool_orca',
+    ];
+  }
+
   // BSC also needs explicit launchpad_platform for trenches to return tokens
   if (chain === 'bsc') {
     p.launchpadPlatform = [
