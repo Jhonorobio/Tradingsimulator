@@ -117,17 +117,23 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
               const sBotCount = s.bot_degen_count;
               const sBot = s.bot_degen_rate;
               const sRug = s.rug_ratio;
+              const snapStat = (icon: string, value: string, color: string) => (
+                <View style={styles.snapStatItem}>
+                  <Ionicons name={icon as any} size={10} color={color} />
+                  <ThemedText type="small" style={{ color, fontSize: 10 }}>{value}</ThemedText>
+                </View>
+              );
               return (
                 <View key={i} style={[styles.snapRow, { borderBottomColor: theme.border }]}>
-                  <ThemedText type="small" style={{ color: theme.textSecondary, width: 50 }}>
+                  <ThemedText type="small" style={{ color: theme.textSecondary, width: 40, fontSize: 10 }}>
                     {new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
                   </ThemedText>
-                  {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 70 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
-                  {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 60 }}>V {fmtUsd(sVol, { compact: true })}</ThemedText>}
-                  {sSm != null && sSm > 0 && <ThemedText type="small" style={{ color: theme.accent, width: 30 }}>SM{sSm}</ThemedText>}
+                  {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 55, fontSize: 10 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
+                  {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 50, fontSize: 10 }}>{fmtUsd(sVol, { compact: true })}</ThemedText>}
+                  {sSm != null && sSm > 0 && snapStat('flash', `${sSm}`, theme.accent)}
                   {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
-                    <ThemedText type="small" style={{ color: theme.warn, width: 60 }}>{sBotCount ?? 0}/{(sBot != null ? (sBot * 100).toFixed(0) : '0')}%</ThemedText>}
-                  {sRug != null && sRug > 0 && <ThemedText type="small" style={{ color: theme.negative, width: 40 }}>{(sRug * 100).toFixed(0)}%rug</ThemedText>}
+                    snapStat('hardware-chip', `${sBotCount ?? 0}/${(sBot != null ? (sBot * 100).toFixed(0) : '0')}%`, theme.warn)}
+                  {sRug != null && sRug > 0 && snapStat('skull', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
                 </View>
               );
             })}
@@ -282,5 +288,6 @@ const styles = StyleSheet.create({
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   snapToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   timeline: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
-  snapRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 3, borderBottomWidth: StyleSheet.hairlineWidth },
+  snapRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 2, borderBottomWidth: StyleSheet.hairlineWidth, gap: 4 },
+  snapStatItem: { flexDirection: 'row', alignItems: 'center', gap: 2 },
 });
