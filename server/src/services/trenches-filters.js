@@ -106,7 +106,7 @@ export function buildParamsFromConfig(config, tab) {
       'zora', 'surge', 'anoncoin', 'moonshot_app', 'wendotdev', 'heaven',
       'sugar', 'token_mill', 'believe', 'trendsfun', 'trends_fun',
       'jup_studio', 'Moonshot', 'boop', 'ray_launchpad',
-      'meteora_virtual_curve', 'xstocks',
+      'meteora_virtual_curve', 'xstocks', 'stonkfun',
       'pool_ray', 'pool_meteora', 'pool_pump_amm', 'pool_orca',
     ];
   }
