@@ -64,9 +64,9 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
     { icon: 'star', label: 'KOL', value: fmt(kol, false), color: getColorForValue(c.kol, kol) },
     { icon: 'wallet', label: 'Smart', value: fmt(smart, false), color: getColorForValue(c.smart, smart) },
     { icon: 'bug', label: 'Bot', value: botRate != null ? `${fmt(botRate)} (${fmt(botCount, false)})` : fmt(botCount, false), color: getColorForValue(c.bot, botRate != null ? botRate * 100 : botCount) },
-    { icon: 'shield-checkmark', label: 'Rug', value: fmt(rug), color: getColorForValue(c.rug, rug != null ? rug * 100 : null) },
+    { icon: 'warning', label: 'Rug', value: fmt(rug), color: getColorForValue(c.rug, rug != null ? rug * 100 : null) },
     { icon: 'layers', label: 'Bundle', value: fmt(bundler), color: getColorForValue(c.phish, bundler != null ? bundler * 100 : null) },
-    { icon: 'warning', label: 'Phish', value: fmt(phish), color: getColorForValue(c.phish, phish != null ? phish * 100 : null) },
+    { icon: 'fish', label: 'Phish', value: fmt(phish), color: getColorForValue(c.phish, phish != null ? phish * 100 : null) },
   ];
 
   return (

@@ -91,9 +91,9 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
           {fresh != null && fresh > 0 && stat('leaf', `${(fresh * 100).toFixed(0)}%`, theme.positive)}
           {((botCount != null && botCount > 0) || (botRate != null && botRate > 0)) &&
             stat('hardware-chip', `${botCount ?? 0}/${(botRate != null ? (botRate * 100).toFixed(0) : '0')}%`, theme.warn)}
-          {rug != null && rug > 0 && stat('skull', `${(rug * 100).toFixed(0)}%`, theme.negative)}
+          {rug != null && rug > 0 && stat('warning', `${(rug * 100).toFixed(0)}%`, theme.negative)}
           {bundler != null && bundler > 0 && stat('layers', `${(bundler * 100).toFixed(0)}%`, '#f97316')}
-          {entrap != null && entrap > 0 && stat('shield-checkmark', `${(entrap * 100).toFixed(0)}%`, '#ef4444')}
+          {entrap != null && entrap > 0 && stat('fish', `${(entrap * 100).toFixed(0)}%`, '#ef4444')}
         </View>
 
         <View style={styles.cardFooter}>
@@ -139,9 +139,9 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
                   {sFresh != null && sFresh > 0 && snapStat('leaf', `${(sFresh * 100).toFixed(0)}%`, theme.positive)}
                   {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
                     snapStat('hardware-chip', `${sBotCount ?? 0}/${(sBot != null ? (sBot * 100).toFixed(0) : '0')}%`, theme.warn)}
-                  {sRug != null && sRug > 0 && snapStat('skull', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
+                  {sRug != null && sRug > 0 && snapStat('warning', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
                   {sBundler != null && sBundler > 0 && snapStat('layers', `${(sBundler * 100).toFixed(0)}%`, '#f97316')}
-                  {sEntrap != null && sEntrap > 0 && snapStat('shield-checkmark', `${(sEntrap * 100).toFixed(0)}%`, '#ef4444')}
+                  {sEntrap != null && sEntrap > 0 && snapStat('fish', `${(sEntrap * 100).toFixed(0)}%`, '#ef4444')}
                 </View>
               );
             })}
