@@ -121,11 +121,11 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
           };
           const saved = notificationHistory.add(historyEntry);
           broadcast(`notifications:${entry.device_id}`, { event: 'notification_new', data: saved });
-          // Cap history at 500 entries per chain
+          // Cap history at 1000 entries per chain
           const allEntries = notificationHistory.getAll();
           const chainEntries = allEntries.filter((e) => e.chain === (t.chain || 'sol'));
-          if (chainEntries.length > 500) {
-            const toRemove = chainEntries.slice(0, chainEntries.length - 500);
+          if (chainEntries.length > 1000) {
+            const toRemove = chainEntries.slice(0, chainEntries.length - 1000);
             for (const old of toRemove) {
               notificationHistory.delete((e) => e.id === old.id);
             }

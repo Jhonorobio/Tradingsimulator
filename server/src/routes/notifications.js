@@ -121,7 +121,7 @@ router.get('/config', (req, res) => {
  */
 router.get('/history', (req, res) => {
   try {
-    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 1000);
     const entries = notificationHistory.getAll()
       .filter((e, i, arr) => arr.findIndex(x => x.address === e.address && x.category === e.category) === i)
       .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''))
