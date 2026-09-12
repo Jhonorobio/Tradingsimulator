@@ -114,9 +114,13 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
               const sMcap = s.usd_market_cap ?? s.market_cap;
               const sVol = s.volume_24h;
               const sSm = s.smart_degen_count;
+              const sKol = s.renowned_count;
+              const sFresh = s.fresh_wallet_rate;
               const sBotCount = s.bot_degen_count;
               const sBot = s.bot_degen_rate;
               const sRug = s.rug_ratio;
+              const sBundler = s.bundler_rate;
+              const sEntrap = s.entrapment_ratio;
               const snapStat = (icon: string, value: string, color: string) => (
                 <View style={styles.snapStatItem}>
                   <Ionicons name={icon as any} size={10} color={color} />
@@ -131,9 +135,13 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
                   {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 42, fontSize: 10 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
                   {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 42, fontSize: 10 }}>{fmtUsd(sVol, { compact: true })}</ThemedText>}
                   {sSm != null && sSm > 0 && snapStat('flash', `${sSm}`, theme.accent)}
+                  {sKol != null && sKol > 0 && snapStat('people', `${sKol}`, theme.accent)}
+                  {sFresh != null && sFresh > 0 && snapStat('wallet', `${(sFresh * 100).toFixed(0)}%`, theme.positive)}
                   {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
                     snapStat('hardware-chip', `${sBotCount ?? 0}/${(sBot != null ? (sBot * 100).toFixed(0) : '0')}%`, theme.warn)}
                   {sRug != null && sRug > 0 && snapStat('skull', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
+                  {sBundler != null && sBundler > 0 && snapStat('layers', `${(sBundler * 100).toFixed(0)}%`, '#f97316')}
+                  {sEntrap != null && sEntrap > 0 && snapStat('shield-checkmark', `${(sEntrap * 100).toFixed(0)}%`, '#ef4444')}
                 </View>
               );
             })}
