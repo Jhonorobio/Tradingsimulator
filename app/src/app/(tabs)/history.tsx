@@ -89,8 +89,8 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
           {sm != null && sm > 0 && stat('flash', `${sm}`, theme.accent)}
           {kol != null && kol > 0 && stat('people', `${kol}`, theme.accent)}
           {fresh != null && fresh > 0 && stat('wallet', `${(fresh * 100).toFixed(0)}%`, theme.positive)}
-          {botCount != null && botCount > 0 && stat('hardware-chip', `${botCount}`, theme.warn)}
-          {botRate != null && botRate > 0 && stat('pulse', `${(botRate * 100).toFixed(0)}%`, theme.warn)}
+          {((botCount != null && botCount > 0) || (botRate != null && botRate > 0)) &&
+            stat('hardware-chip', `${botCount ?? 0}/${(botRate != null ? (botRate * 100).toFixed(0) : '0')}%`, theme.warn)}
           {rug != null && rug > 0 && stat('skull', `${(rug * 100).toFixed(0)}%`, theme.negative)}
           {bundler != null && bundler > 0 && stat('layers', `${(bundler * 100).toFixed(0)}%`, '#f97316')}
           {entrap != null && entrap > 0 && stat('shield-checkmark', `${(entrap * 100).toFixed(0)}%`, '#ef4444')}
@@ -114,6 +114,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
               const sMcap = s.usd_market_cap ?? s.market_cap;
               const sVol = s.volume_24h;
               const sSm = s.smart_degen_count;
+              const sBotCount = s.bot_degen_count;
               const sBot = s.bot_degen_rate;
               const sRug = s.rug_ratio;
               return (
@@ -124,7 +125,8 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
                   {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 70 }}>{fmtUsd(sMcap)}</ThemedText>}
                   {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 60 }}>V {fmtUsd(sVol)}</ThemedText>}
                   {sSm != null && sSm > 0 && <ThemedText type="small" style={{ color: theme.accent, width: 30 }}>SM{sSm}</ThemedText>}
-                  {sBot != null && sBot > 0 && <ThemedText type="small" style={{ color: theme.warn, width: 40 }}>{(sBot * 100).toFixed(0)}%bot</ThemedText>}
+                  {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
+                    <ThemedText type="small" style={{ color: theme.warn, width: 60 }}>{sBotCount ?? 0}/{(sBot != null ? (sBot * 100).toFixed(0) : '0')}%</ThemedText>}
                   {sRug != null && sRug > 0 && <ThemedText type="small" style={{ color: theme.negative, width: 40 }}>{(sRug * 100).toFixed(0)}%rug</ThemedText>}
                 </View>
               );
