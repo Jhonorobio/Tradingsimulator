@@ -74,10 +74,10 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
           </View>
           <View style={styles.cardRight}>
             {mcap != null && (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>{fmtUsd(mcap)}</ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>{fmtUsd(mcap, { compact: true })}</ThemedText>
             )}
             {vol != null && (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>Vol {fmtUsd(vol)}</ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>Vol {fmtUsd(vol, { compact: true })}</ThemedText>
             )}
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {new Date(item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -122,8 +122,8 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
                   <ThemedText type="small" style={{ color: theme.textSecondary, width: 50 }}>
                     {new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </ThemedText>
-                  {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 70 }}>{fmtUsd(sMcap)}</ThemedText>}
-                  {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 60 }}>V {fmtUsd(sVol)}</ThemedText>}
+                  {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 70 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
+                  {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 60 }}>V {fmtUsd(sVol, { compact: true })}</ThemedText>}
                   {sSm != null && sSm > 0 && <ThemedText type="small" style={{ color: theme.accent, width: 30 }}>SM{sSm}</ThemedText>}
                   {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
                     <ThemedText type="small" style={{ color: theme.warn, width: 60 }}>{sBotCount ?? 0}/{(sBot != null ? (sBot * 100).toFixed(0) : '0')}%</ThemedText>}
