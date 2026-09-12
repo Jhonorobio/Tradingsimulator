@@ -8,34 +8,28 @@ import { proxyEgressIp } from './proxy-tunnel.js';
 // Each proxy has its own key, so each worker can do 1 req/s independently.
 const MIN_INTERVAL_MS = 1050;
 
+// Set of tabs that have a running worker
+const runningWorkers = new Set();
+
 /**
  * Background refresher for the Trenches views. Runs one dedicated worker per
  * tab (new_creation / completed). Each worker fetches that
  * tab's params on its own adaptive loop: it measures the actual GMGN response
  * time and sleeps only as long as needed to stay within the rate limit.
  *
- * Each tab can be pinned to its own proxy+key with TRENCHES_PINS (JSON, keyed
- * by tab). With separate proxies per tab, each tab has its own 20-token/s
- * bucket — they never compete for rate-limit capacity.
- *
- * At startup we resolve each proxy's real egress IP and de-duplicate: only
- * genuinely distinct IPs get a parallel worker. If all configured proxies
- * share one egress IP, we fall back to one safe worker that round-robins
- * across tabs.
+ * Dynamically detects new tabs every 5 seconds and spawns workers for them.
  */
 export async function startTrenchesRefresher(_intervalSeconds, { onError = () => {} } = {}) {
   const connectionFor = (tab) => connectionForTab(tab);
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const rebuildQueue = () => {
-    // Single global config — one shared filter set for all tabs (like old project)
     const entry = trenchesFilters.get('global');
     const config = entry?.filters ?? null;
     const seen = new Set();
     const queue = [];
     if (config) {
       for (const tab of TRENCH_TABS) {
-        // Skip tabs without a configured proxy
         if (!connectionFor(tab)) continue;
         const params = buildParamsFromConfig(config, tab);
         const key = JSON.stringify({ t: tab, p: params });
@@ -47,7 +41,25 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
     return queue;
   };
 
-  // Resolve distinct proxy IPs from the store
+  // Spawn workers for tabs that have a proxy configured NOW
+  const spawnWorkers = () => {
+    for (const tab of TRENCH_TABS) {
+      if (runningWorkers.has(tab)) continue;
+      const connection = connectionFor(tab);
+      if (!connection) continue;
+      runningWorkers.add(tab);
+      console.log(`[refresher] Spawning worker for ${tab}`);
+      setTimeout(() => tabWorker(tab, connection, rebuildQueue, delay, onError), 0);
+    }
+  };
+
+  // Initial spawn
+  spawnWorkers();
+
+  // Re-check for new tabs every 5 seconds
+  const checkInterval = setInterval(spawnWorkers, 5000);
+
+  // Resolve distinct proxy IPs for info
   const allProxyUrls = [];
   for (const tab of TRENCH_TABS) {
     const conn = connectionFor(tab);
@@ -57,20 +69,13 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
   const distinct = uniqueUrls.length ? await resolveDistinctProxies(uniqueUrls) : [];
   const WORKERS = Math.max(distinct.length, 1);
 
-  // Each proxy has its own API key → independent rate limit buckets.
-  // Always run dedicated workers per tab (one request per tab every ~1s).
-  for (const tab of TRENCH_TABS) {
-    const connection = connectionFor(tab);
-    if (!connection) continue;
-    setTimeout(() => tabWorker(tab, connection, rebuildQueue, delay, onError), 0);
-  }
-
   return {
     workers: WORKERS,
     egressIps: distinct.map((d) => d.ip),
     pinnedTabs: TRENCH_TABS.filter((tab) => connectionFor(tab)?.proxy),
     skippedTabs: TRENCH_TABS.filter((tab) => !connectionFor(tab)?.proxy),
     mode: WORKERS >= TRENCH_TABS.length ? 'dedicated' : 'shared',
+    stop: () => clearInterval(checkInterval),
   };
 }
 
