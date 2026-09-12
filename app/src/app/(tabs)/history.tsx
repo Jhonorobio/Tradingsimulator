@@ -14,6 +14,17 @@ import { useWs } from '@/store/ws';
 import type { NotificationHistoryItem, TokenSnapshot } from '@/api/types';
 import { fmtUsd, shortAddress } from '@/utils/format';
 
+const CATEGORY_FILTER_TABS = [
+  { key: 'all', label: 'Todas' },
+  { key: 'new', label: 'Nuevas' },
+  { key: 'completed', label: 'Completadas' },
+];
+
+const SORT_OPTIONS = [
+  { key: 'recent', label: 'Reciente' },
+  { key: 'snaps', label: '# Snapshots' },
+];
+
 const CHAIN_TABS = [
   { key: 'all', label: 'Todos' },
   { key: 'sol', label: 'SOL' },
@@ -160,6 +171,8 @@ export default function HistoryScreen() {
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
   const [search, setSearch] = useState('');
   const [chainFilter, setChainFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('recent');
   const [refreshing, setRefreshing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -197,14 +210,20 @@ export default function HistoryScreen() {
   const searchLower = search.trim().toLowerCase();
 
   const filtered = useMemo(() => {
-    return history.filter((h) => {
+    let result = history.filter((h) => {
       if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
+      if (categoryFilter === 'new' && !h.category.startsWith('new_creation')) return false;
+      if (categoryFilter === 'completed' && !h.category.startsWith('completed')) return false;
       if (searchLower) {
         return (h.symbol?.toLowerCase().includes(searchLower)) || (h.name?.toLowerCase().includes(searchLower));
       }
       return true;
     });
-  }, [history, chainFilter, searchLower]);
+    if (sortBy === 'snaps') {
+      result = [...result].sort((a, b) => (b.snapshots?.length ?? 0) - (a.snapshots?.length ?? 0));
+    }
+    return result;
+  }, [history, chainFilter, categoryFilter, sortBy, searchLower]);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -247,6 +266,35 @@ export default function HistoryScreen() {
           ))}
         </View>
 
+        <View style={styles.filterRow}>
+          <View style={styles.chainTabs}>
+            {CATEGORY_FILTER_TABS.map((tab) => (
+              <Pressable
+                key={tab.key}
+                onPress={() => setCategoryFilter(tab.key)}
+                style={[styles.chainTab, categoryFilter === tab.key && { backgroundColor: theme.accent }]}
+              >
+                <ThemedText type="small" style={{ color: categoryFilter === tab.key ? '#000' : theme.textSecondary }}>
+                  {tab.label}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.sortTabs}>
+            {SORT_OPTIONS.map((opt) => (
+              <Pressable
+                key={opt.key}
+                onPress={() => setSortBy(opt.key)}
+                style={[styles.chainTab, sortBy === opt.key && { backgroundColor: theme.accent }]}
+              >
+                <ThemedText type="small" style={{ color: sortBy === opt.key ? '#000' : theme.textSecondary }}>
+                  {opt.label}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
         <View style={styles.searchWrap}>
           <TextInput
             value={search}
@@ -280,7 +328,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d0d' },
   safe: { flex: 1 },
   title: { marginHorizontal: 16, marginTop: 12, marginBottom: 8 },
-  chainTabs: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, gap: 6 },
+  chainTabs: { flexDirection: 'row', marginBottom: 8, gap: 6 },
+  filterRow: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, gap: 8, alignItems: 'center' },
+  sortTabs: { flexDirection: 'row', gap: 6 },
   chainTab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, backgroundColor: '#1a1a1a' },
   searchWrap: { marginHorizontal: 16, marginBottom: 8 },
   searchInput: { borderWidth: 1, borderRadius: 10, padding: 10, fontSize: 14 },
