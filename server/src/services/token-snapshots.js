@@ -177,6 +177,163 @@ export function getAllTracks(address) {
   return store[address]?.tracks ?? [];
 }
 
+/**
+ * Returns all tracks across all addresses, filtered by chain/category/time.
+ * Used for snapshot export endpoint.
+ */
+export function getAllTracksFiltered(opts = {}) {
+  const {
+    chain = 'all',
+    category = 'all',
+    minGainPct = -100,
+    maxTracks = 200,
+    includeTimeline = true,
+    sinceHours = 168,
+    balanceRatio = 0.5,
+  } = opts;
+
+  const chainMap = {
+    sol: ['new_creation', 'completed'],
+    robinhood: ['new_creation_robinhood', 'completed_robinhood'],
+    bsc: ['new_creation_bsc', 'completed_bsc'],
+  };
+
+  const allowedCategories = chain === 'all'
+    ? ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc']
+    : chainMap[chain] || [];
+
+  const sinceMs = Date.now() - sinceHours * 60 * 60 * 1000;
+  const tracks = [];
+
+  for (const [address, entry] of Object.entries(store)) {
+    if (!entry?.tracks) continue;
+    for (const track of entry.tracks) {
+      if (!allowedCategories.includes(track.category)) continue;
+      if (track.started && new Date(track.started).getTime() < sinceMs) continue;
+      if (!track.snapshots?.length) continue;
+
+      const first = track.snapshots[0];
+      const peak = track.snapshots.reduce((max, s) =>
+        (s.usd_market_cap ?? 0) > (max.usd_market_cap ?? 0) ? s : max
+      , first);
+      const last = track.snapshots[track.snapshots.length - 1];
+
+      const firstMcap = first.usd_market_cap ?? first.market_cap ?? 0;
+      const peakMcap = peak.usd_market_cap ?? peak.market_cap ?? 0;
+      const gainPct = firstMcap > 0 ? ((peakMcap - firstMcap) / firstMcap) * 100 : 0;
+
+      if (gainPct < minGainPct) continue;
+
+      const timeToPeakMinutes = peak.t && first.t
+        ? (new Date(peak.t).getTime() - new Date(first.t).getTime()) / 60000
+        : 0;
+
+      const outcome = !track.ended ? 'active'
+        : peakMcap > firstMcap * 1.5 ? 'peak_reached'
+        : peakMcap < firstMcap * 0.5 ? 'rugged'
+        : 'partial_retrace';
+
+      const trackData = {
+        address,
+        chain: entry.chain || 'sol',
+        category: track.category,
+        symbol: first.symbol || '',
+        name: first.name || '',
+        firstSnapshot: pickSnapshotFields(first),
+        peakSnapshot: pickSnapshotFields(peak),
+        finalSnapshot: pickSnapshotFields(last),
+        gainPct: Math.round(gainPct * 100) / 100,
+        timeToPeakMinutes: Math.round(timeToPeakMinutes * 100) / 100,
+        outcome,
+        trackDurationMinutes: track.ended && track.started
+          ? Math.round((new Date(track.ended).getTime() - new Date(track.started).getTime()) / 60000)
+          : null,
+      };
+
+      if (includeTimeline) {
+        trackData.timeline = track.snapshots.map(pickSnapshotFields);
+      }
+
+      tracks.push(trackData);
+    }
+  }
+
+  // Sort by gain desc, limit
+  // Separate winners and losers
+  const winnersAll = tracks.filter(t => t.gainPct > 0);
+  const losersAll = tracks.filter(t => t.gainPct <= 0);
+
+  // Balance according to ratio (e.g., 0.5 = 50% winners, 50% losers)
+  const targetWinners = Math.round(maxTracks * balanceRatio);
+  const targetLosers = maxTracks - targetWinners;
+
+  const winners = winnersAll
+    .sort((a, b) => b.gainPct - a.gainPct)
+    .slice(0, targetWinners);
+  const losers = losersAll
+    .sort((a, b) => a.gainPct - b.gainPct)  // worst losers first
+    .slice(0, targetLosers);
+
+  const included = [...winners, ...losers].sort((a, b) => b.gainPct - a.gainPct);
+
+  const stats = {
+    winners: aggregateMetrics(winners),
+    losers: aggregateMetrics(losers),
+    total: included.length,
+    totalAvailable: { winners: winnersAll.length, losers: losersAll.length },
+    byCategory: Object.fromEntries(
+      allowedCategories.map(cat => [cat, included.filter(t => t.category === cat).length])
+    ),
+  };
+
+  return { tracks: included, stats };
+}
+
+function pickSnapshotFields(snap) {
+  if (!snap) return {};
+  const out = { t: snap.t };
+  for (const f of SNAPSHOT_FIELDS) {
+    out[f] = snap[f] ?? null;
+  }
+  return out;
+}
+
+function aggregateMetrics(tracks) {
+  if (!tracks.length) return { count: 0 };
+  const metrics = {};
+  for (const f of SNAPSHOT_FIELDS) {
+    const values = tracks.map(t => t.firstSnapshot?.[f]).filter(v => v != null && !isNaN(v));
+    if (!values.length) continue;
+    values.sort((a, b) => a - b);
+    metrics[f] = {
+      count: values.length,
+      min: values[0],
+      max: values[values.length - 1],
+      median: percentile(values, 50),
+      p25: percentile(values, 25),
+      p75: percentile(values, 75),
+      p10: percentile(values, 10),
+      p90: percentile(values, 90),
+      mean: values.reduce((a, b) => a + b, 0) / values.length,
+    };
+  }
+  return {
+    count: tracks.length,
+    medianGainPct: percentile(tracks.map(t => t.gainPct).sort((a, b) => a - b), 50),
+    meanGainPct: tracks.reduce((a, b) => a + b.gainPct, 0) / tracks.length,
+    metricsAtEntry: metrics,
+  };
+}
+
+function percentile(sortedArr, p) {
+  if (!sortedArr.length) return null;
+  const idx = (p / 100) * (sortedArr.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sortedArr[lo];
+  return sortedArr[lo] + (sortedArr[hi] - sortedArr[lo]) * (idx - lo);
+}
+
 // Load on import
 load();
 

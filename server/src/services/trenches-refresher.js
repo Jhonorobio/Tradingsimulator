@@ -11,15 +11,46 @@ const MIN_INTERVAL_MS = 1050;
 // Set of tabs that have a running worker
 const runningWorkers = new Set();
 
-// Keep a reference to spawnWorkers so it can be called externally
-let _spawnWorkers = null;
+// Shared helpers
+let _onError = () => {};
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Ensure workers are running for all tabs with proxy configs.
- * Called from WS handler when filters are set.
+ * Rebuilds the fetch queue from the global filter config.
+ * Each tab appears once with its params. Tabs without a proxy are skipped.
+ */
+function rebuildQueue() {
+  const entry = trenchesFilters.get('global');
+  const config = entry?.filters ?? null;
+  const seen = new Set();
+  const queue = [];
+  if (config) {
+    for (const tab of TRENCH_TABS) {
+      if (!connectionForTab(tab)) continue;
+      const params = buildParamsFromConfig(config, tab);
+      const key = JSON.stringify({ t: tab, p: params });
+      if (seen.has(key)) continue;
+      seen.add(key);
+      queue.push({ tab, params });
+    }
+  }
+  return queue;
+}
+
+/**
+ * Spawn workers for all tabs that have a proxy configured and don't already
+ * have a running worker. Works immediately — no need to wait for
+ * startTrenchesRefresher() to finish calibration.
  */
 export function ensureWorkers() {
-  if (_spawnWorkers) _spawnWorkers();
+  for (const tab of TRENCH_TABS) {
+    if (runningWorkers.has(tab)) continue;
+    const connection = connectionForTab(tab);
+    if (!connection) continue;
+    runningWorkers.add(tab);
+    console.log(`[refresher] Spawning worker for ${tab}`);
+    setTimeout(() => tabWorker(tab, connection), 0);
+  }
 }
 
 /**
@@ -30,53 +61,19 @@ export function ensureWorkers() {
  *
  * Dynamically detects new tabs every 5 seconds and spawns workers for them.
  */
-export async function startTrenchesRefresher(_intervalSeconds, { onError = () => {} } = {}) {
-  const connectionFor = (tab) => connectionForTab(tab);
-  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  const rebuildQueue = () => {
-    const entry = trenchesFilters.get('global');
-    const config = entry?.filters ?? null;
-    const seen = new Set();
-    const queue = [];
-    if (config) {
-      for (const tab of TRENCH_TABS) {
-        if (!connectionFor(tab)) continue;
-        const params = buildParamsFromConfig(config, tab);
-        const key = JSON.stringify({ t: tab, p: params });
-        if (seen.has(key)) continue;
-        seen.add(key);
-        queue.push({ tab, params });
-      }
-    }
-    return queue;
-  };
-
-  // Spawn workers for tabs that have a proxy configured NOW
-  const spawnWorkers = () => {
-    for (const tab of TRENCH_TABS) {
-      if (runningWorkers.has(tab)) continue;
-      const connection = connectionFor(tab);
-      if (!connection) continue;
-      runningWorkers.add(tab);
-      console.log(`[refresher] Spawning worker for ${tab}`);
-      setTimeout(() => tabWorker(tab, connection, rebuildQueue, delay, onError), 0);
-    }
-  };
-
-  // Export for external calls
-  _spawnWorkers = spawnWorkers;
+export async function startTrenchesRefresher(_intervalSeconds, opts = {}) {
+  _onError = opts.onError || (() => {});
 
   // Initial spawn
-  spawnWorkers();
+  ensureWorkers();
 
   // Re-check for new tabs every 5 seconds
-  const checkInterval = setInterval(spawnWorkers, 5000);
+  const checkInterval = setInterval(ensureWorkers, 5000);
 
   // Resolve distinct proxy IPs for info
   const allProxyUrls = [];
   for (const tab of TRENCH_TABS) {
-    const conn = connectionFor(tab);
+    const conn = connectionForTab(tab);
     if (conn?.proxy) allProxyUrls.push(conn.proxy);
   }
   const uniqueUrls = [...new Set(allProxyUrls)];
@@ -86,8 +83,8 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
   return {
     workers: WORKERS,
     egressIps: distinct.map((d) => d.ip),
-    pinnedTabs: TRENCH_TABS.filter((tab) => connectionFor(tab)?.proxy),
-    skippedTabs: TRENCH_TABS.filter((tab) => !connectionFor(tab)?.proxy),
+    pinnedTabs: TRENCH_TABS.filter((tab) => connectionForTab(tab)?.proxy),
+    skippedTabs: TRENCH_TABS.filter((tab) => !connectionForTab(tab)?.proxy),
     mode: WORKERS >= TRENCH_TABS.length ? 'dedicated' : 'shared',
     stop: () => clearInterval(checkInterval),
   };
@@ -97,35 +94,53 @@ export async function startTrenchesRefresher(_intervalSeconds, { onError = () =>
  * Dedicated worker for a single tab. Fetches that tab's params combo in
  * round-robin, tracking response time and adapting the sleep to stay within
  * the rate limit without wasting time.
+ *
+ * The entire loop body is wrapped in try/catch so that any thrown error
+ * (including from rebuildQueue) kills the worker gracefully, allowing the
+ * 5s watchdog interval to respawn it.
  */
-async function tabWorker(tab, connection, rebuildQueue, delay, onError) {
+async function tabWorker(tab, connection) {
   let cursor = 0;
+  let consecutiveErrors = 0;
 
   while (true) {
-    const queue = rebuildQueue().filter((item) => item.tab === tab);
-    if (!queue.length) { await delay(1000); continue; }
-
-    const item = queue[cursor % queue.length];
-    cursor += 1;
-
-    const start = Date.now();
     try {
-      await fetchTrenches(item.params, { ...(connection || {}), tab: item.tab, force: true });
-    } catch (err) {
-      onError(err);
-      // If rate-limited, wait until reset time before retrying
-      if (err.status === 429 && err.resetAtUnix) {
-        const waitMs = Math.max(0, err.resetAtUnix * 1000 - Date.now()) + 1000;
-        console.log(`[${tab}] Rate limited, waiting ${Math.round(waitMs / 1000)}s until reset`);
-        await delay(waitMs);
-      }
-    }
-    const elapsed = Date.now() - start;
+      const queue = rebuildQueue().filter((item) => item.tab === tab);
+      if (!queue.length) { await delay(1000); continue; }
 
-    // Adaptive sleep: if the call took less than MIN_INTERVAL_MS, wait the
-    // remainder. If it took longer (slow network / timeout), fire immediately.
-    const sleepMs = Math.max(0, MIN_INTERVAL_MS - elapsed);
-    await delay(sleepMs);
+      const item = queue[cursor % queue.length];
+      cursor += 1;
+
+      const start = Date.now();
+      try {
+        await fetchTrenches(item.params, { ...(connection || {}), tab: item.tab, force: true });
+        consecutiveErrors = 0;
+      } catch (err) {
+        consecutiveErrors++;
+        _onError(err);
+        // If rate-limited, wait until reset time before retrying
+        if (err.status === 429 && err.resetAtUnix) {
+          const waitMs = Math.max(0, err.resetAtUnix * 1000 - Date.now()) + 1000;
+          console.log(`[${tab}] Rate limited, waiting ${Math.round(waitMs / 1000)}s until reset`);
+          await delay(waitMs);
+        } else if (consecutiveErrors % 10 === 1) {
+          // Log persistent errors every 10th failure to avoid log spam
+          console.log(`[${tab}] Fetch failed ${consecutiveErrors} times: ${err.message?.slice(0, 120)}`);
+        }
+      }
+      const elapsed = Date.now() - start;
+
+      // Adaptive sleep: if the call took less than MIN_INTERVAL_MS, wait the
+      // remainder. If it took longer (slow network / timeout), fire immediately.
+      const sleepMs = Math.max(0, MIN_INTERVAL_MS - elapsed);
+      await delay(sleepMs);
+    } catch (fatalErr) {
+      // rebuildQueue or other code threw — worker is dead, log and exit
+      // so the 5s watchdog can respawn it via runningWorkers check.
+      runningWorkers.delete(tab);
+      console.error(`[${tab}] Worker crashed (will respawn in 5s):`, fatalErr.message);
+      return;
+    }
   }
 }
 
@@ -133,7 +148,7 @@ async function tabWorker(tab, connection, rebuildQueue, delay, onError) {
  * Shared worker when fewer distinct IPs than tabs. Round-robins across ALL
  * tabs, still adapting to response time per call.
  */
-async function sharedWorker(rebuildQueue, connectionFor, delay, onError) {
+async function sharedWorker() {
   let cursor = 0;
 
   while (true) {
@@ -143,7 +158,7 @@ async function sharedWorker(rebuildQueue, connectionFor, delay, onError) {
     const item = queue[cursor % queue.length];
     cursor += 1;
 
-    const connection = connectionFor(item.tab);
+    const connection = connectionForTab(item.tab);
     if (!connection) {
       // No proxy configured for this tab — skip it
       await delay(MIN_INTERVAL_MS);
@@ -153,7 +168,7 @@ async function sharedWorker(rebuildQueue, connectionFor, delay, onError) {
     try {
       await fetchTrenches(item.params, { ...connection, tab: item.tab, force: true });
     } catch (err) {
-      onError(err);
+      _onError(err);
       // If rate-limited, wait until reset time before retrying
       if (err.status === 429 && err.resetAtUnix) {
         const waitMs = Math.max(0, err.resetAtUnix * 1000 - Date.now()) + 1000;

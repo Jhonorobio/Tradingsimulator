@@ -10,6 +10,7 @@ import { cacheKey, withCache } from '../services/cache.js';
 import { buildParamsFromConfig, TRENCH_TABS } from '../services/trenches-filters.js';
 import { connectionForTab } from '../services/trenches-refresher.js';
 import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-health.js';
+import { getAllTracksFiltered } from '../services/token-snapshots.js';
 
 const router = Router();
 
@@ -501,6 +502,61 @@ router.get('/token/:chain/:address/mcap', async (req, res) => {
     }
     const dex = await getDexTokenInfo(address);
     res.json({ marketCap: dex?.marketCap ?? null, source: 'dexscreener' });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * GET /api/market/snapshots-export
+ * Export token snapshots for AI analysis.
+ * Query:
+ *   chain=sol|robinhood|bsc|all (default: all)
+ *   category=new_creation|completed|all (default: all)
+ *   minGainPct=-100 (default: -100 = include losers)
+ *   maxTracks=200 (default: 200)
+ *   includeTimeline=true|false (default: true)
+ *   sinceHours=168 (default: 168 = 7 days)
+ *   balanceRatio=0.5 (default: 0.5 = 50% winners / 50% losers)
+ */
+router.get('/snapshots-export', (req, res) => {
+  try {
+    const {
+      chain = 'all',
+      category = 'all',
+      minGainPct = -100,
+      maxTracks = 200,
+      includeTimeline = 'true',
+      sinceHours = 168,
+      balanceRatio = '0.5',
+    } = req.query;
+
+    const validChains = ['sol', 'robinhood', 'bsc', 'all'];
+    const validCategories = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc', 'all'];
+
+    if (!validChains.includes(chain)) return fail(res, new Error('Invalid chain'), 400);
+    if (!validCategories.includes(category)) return fail(res, new Error('Invalid category'), 400);
+
+    const data = getAllTracksFiltered({
+      chain,
+      category,
+      minGainPct: Number(minGainPct),
+      maxTracks: Math.min(Number(maxTracks), 500),
+      includeTimeline: includeTimeline === 'true',
+      sinceHours: Math.min(Number(sinceHours), 720),
+      balanceRatio: Math.max(0, Math.min(1, Number(balanceRatio))),
+    });
+
+    res.json({
+      meta: {
+        generatedAt: new Date().toISOString(),
+        filters: { chain, category, minGainPct: Number(minGainPct), maxTracks: Number(maxTracks), includeTimeline: includeTimeline === 'true', sinceHours: Number(sinceHours) },
+        totalTracks: data.stats.total,
+        includedTracks: data.tracks.length,
+      },
+      tracks: data.tracks,
+      aggregatedStats: data.stats,
+    });
   } catch (err) {
     fail(res, err);
   }
