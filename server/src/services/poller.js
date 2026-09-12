@@ -2,6 +2,7 @@ import { notificationConfig, notifiedTokens, notificationHistory } from '../stor
 import { getAllTokens, storeSize, onTokensInserted } from './trenches-store.js';
 import { sendPush, checkReceipts } from './push.js';
 import { broadcast } from './ws-server.js';
+import { getSnapshots, getFirstSnapshot } from './token-snapshots.js';
 
 const CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
 
@@ -115,6 +116,7 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
             rug_ratio: t.rug_ratio ?? null,
             bundler_rate: t.bundler_rate ?? null,
             entrapment_ratio: t.entrapment_ratio ?? null,
+            snapshots: getSnapshots(t.address, cat),
             notified_at: new Date().toISOString(),
           };
           const saved = notificationHistory.add(historyEntry);

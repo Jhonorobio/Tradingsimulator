@@ -254,7 +254,24 @@ export interface NotificationHistoryItem {
   rug_ratio: number | null;
   bundler_rate: number | null;
   entrapment_ratio: number | null;
+  snapshots: TokenSnapshot[] | null;
   notified_at: string;
+}
+
+export interface TokenSnapshot {
+  t: string;
+  usd_market_cap: number | null;
+  market_cap: number | null;
+  liquidity: number | null;
+  volume_24h: number | null;
+  smart_degen_count: number | null;
+  renowned_count: number | null;
+  fresh_wallet_rate: number | null;
+  bot_degen_count: number | null;
+  bot_degen_rate: number | null;
+  rug_ratio: number | null;
+  bundler_rate: number | null;
+  entrapment_ratio: number | null;
 }
 
 export interface ProxyConfig {

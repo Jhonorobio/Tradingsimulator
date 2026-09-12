@@ -6,6 +6,7 @@
  */
 
 import { broadcast } from './ws-server.js';
+import { syncTracks } from './token-snapshots.js';
 
 const ALL_TABS = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
 
@@ -55,6 +56,10 @@ export function upsertTrenches(data, source = 'refresher', tab = null) {
   // Notify listener (push notification check) about updated categories
   if (updatedTabs.length > 0 && onNewTokens) {
     try { onNewTokens(updatedTabs); } catch {}
+  }
+  // Sync snapshot tracks (detect new/disappeared tokens)
+  if (updatedTabs.length > 0) {
+    try { syncTracks(); } catch {}
   }
 }
 

@@ -11,7 +11,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { getNotificationHistory } from '@/api/notifications';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
-import type { NotificationHistoryItem } from '@/api/types';
+import type { NotificationHistoryItem, TokenSnapshot } from '@/api/types';
 import { fmtUsd, shortAddress } from '@/utils/format';
 
 const CHAIN_TABS = [
@@ -30,7 +30,24 @@ const CATEGORY_LABELS: Record<string, string> = {
   completed_bsc: 'Completada BSC',
 };
 
-const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress }: { item: NotificationHistoryItem; theme: any; onPress: () => void }) {
+const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expanded, onToggle }: {
+  item: NotificationHistoryItem; theme: any; onPress: () => void;
+  expanded: boolean; onToggle: () => void;
+}) {
+  // Use first snapshot if available, otherwise use notification data
+  const snap = item.snapshots?.[0] ?? null;
+  const mcap = snap?.usd_market_cap ?? snap?.market_cap ?? item.mcap;
+  const vol = snap?.volume_24h ?? item.vol24h;
+  const sm = snap?.smart_degen_count ?? item.smart_degen_count;
+  const kol = snap?.renowned_count ?? item.renowned_count;
+  const fresh = snap?.fresh_wallet_rate ?? item.fresh_wallet_rate;
+  const botCount = snap?.bot_degen_count ?? item.bot_degen_count;
+  const botRate = snap?.bot_degen_rate ?? item.bot_degen_rate;
+  const rug = snap?.rug_ratio ?? item.rug_ratio;
+  const bundler = snap?.bundler_rate ?? item.bundler_rate;
+  const entrap = snap?.entrapment_ratio ?? item.entrapment_ratio;
+  const snapCount = item.snapshots?.length ?? 0;
+
   const stat = (icon: string, value: string, color: string) => (
     <View style={styles.statItem}>
       <Ionicons name={icon as any} size={12} color={color} />
@@ -56,11 +73,11 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress }: { 
             </ThemedText>
           </View>
           <View style={styles.cardRight}>
-            {item.mcap != null && (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>{fmtUsd(item.mcap)}</ThemedText>
+            {mcap != null && (
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>{fmtUsd(mcap)}</ThemedText>
             )}
-            {item.vol24h != null && (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>Vol {fmtUsd(item.vol24h)}</ThemedText>
+            {vol != null && (
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>Vol {fmtUsd(vol)}</ThemedText>
             )}
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {new Date(item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -69,19 +86,49 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress }: { 
         </View>
 
         <View style={styles.statsRow}>
-          {item.smart_degen_count != null && item.smart_degen_count > 0 && stat('flash', `${item.smart_degen_count}`, theme.accent)}
-          {item.renowned_count != null && item.renowned_count > 0 && stat('people', `${item.renowned_count}`, theme.accent)}
-          {item.fresh_wallet_rate != null && item.fresh_wallet_rate > 0 && stat('wallet', `${(item.fresh_wallet_rate * 100).toFixed(0)}%`, theme.positive)}
-          {item.bot_degen_count != null && item.bot_degen_count > 0 && stat('hardware-chip', `${item.bot_degen_count}`, theme.warn)}
-          {item.bot_degen_rate != null && item.bot_degen_rate > 0 && stat('pulse', `${(item.bot_degen_rate * 100).toFixed(0)}%`, theme.warn)}
-          {item.rug_ratio != null && item.rug_ratio > 0 && stat('skull', `${(item.rug_ratio * 100).toFixed(0)}%`, theme.negative)}
-          {item.bundler_rate != null && item.bundler_rate > 0 && stat('layers', `${(item.bundler_rate * 100).toFixed(0)}%`, '#f97316')}
-          {item.entrapment_ratio != null && item.entrapment_ratio > 0 && stat('shield-checkmark', `${(item.entrapment_ratio * 100).toFixed(0)}%`, '#ef4444')}
+          {sm != null && sm > 0 && stat('flash', `${sm}`, theme.accent)}
+          {kol != null && kol > 0 && stat('people', `${kol}`, theme.accent)}
+          {fresh != null && fresh > 0 && stat('wallet', `${(fresh * 100).toFixed(0)}%`, theme.positive)}
+          {botCount != null && botCount > 0 && stat('hardware-chip', `${botCount}`, theme.warn)}
+          {botRate != null && botRate > 0 && stat('pulse', `${(botRate * 100).toFixed(0)}%`, theme.warn)}
+          {rug != null && rug > 0 && stat('skull', `${(rug * 100).toFixed(0)}%`, theme.negative)}
+          {bundler != null && bundler > 0 && stat('layers', `${(bundler * 100).toFixed(0)}%`, '#f97316')}
+          {entrap != null && entrap > 0 && stat('shield-checkmark', `${(entrap * 100).toFixed(0)}%`, '#ef4444')}
         </View>
 
-        <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
-          {shortAddress(item.address)}
-        </ThemedText>
+        <View style={styles.cardFooter}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            {shortAddress(item.address)}
+          </ThemedText>
+          {snapCount > 1 && (
+            <Pressable onPress={onToggle} style={styles.snapToggle}>
+              <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={theme.accent} />
+              <ThemedText type="small" style={{ color: theme.accent }}>{snapCount} snapshots</ThemedText>
+            </Pressable>
+          )}
+        </View>
+
+        {expanded && item.snapshots && item.snapshots.length > 1 && (
+          <View style={[styles.timeline, { borderTopColor: theme.border }]}>
+            {item.snapshots.map((s: TokenSnapshot, i: number) => {
+              const sMcap = s.usd_market_cap ?? s.market_cap;
+              const sSm = s.smart_degen_count;
+              const sBot = s.bot_degen_rate;
+              const sRug = s.rug_ratio;
+              return (
+                <View key={i} style={[styles.snapRow, { borderBottomColor: theme.border }]}>
+                  <ThemedText type="small" style={{ color: theme.textSecondary, width: 50 }}>
+                    {new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </ThemedText>
+                  {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 70 }}>{fmtUsd(sMcap)}</ThemedText>}
+                  {sSm != null && sSm > 0 && <ThemedText type="small" style={{ color: theme.accent, width: 30 }}>SM{sSm}</ThemedText>}
+                  {sBot != null && sBot > 0 && <ThemedText type="small" style={{ color: theme.warn, width: 40 }}>{(sBot * 100).toFixed(0)}%bot</ThemedText>}
+                  {sRug != null && sRug > 0 && <ThemedText type="small" style={{ color: theme.negative, width: 40 }}>{(sRug * 100).toFixed(0)}%rug</ThemedText>}
+                </View>
+              );
+            })}
+          </View>
+        )}
       </Card>
     </Pressable>
   );
@@ -96,6 +143,7 @@ export default function HistoryScreen() {
   const [search, setSearch] = useState('');
   const [chainFilter, setChainFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -140,9 +188,27 @@ export default function HistoryScreen() {
     });
   }, [history, chainFilter, searchLower]);
 
-  const renderItem = useCallback(({ item }: { item: NotificationHistoryItem }) => (
-    <HistoryCard item={item} theme={theme} onPress={() => router.push(`/token/${item.chain}/${item.address}`)} />
-  ), [theme, router]);
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const renderItem = useCallback(({ item }: { item: NotificationHistoryItem }) => {
+    const id = `${item.address}-${item.category}-${item.notified_at}`;
+    return (
+      <HistoryCard
+        item={item}
+        theme={theme}
+        onPress={() => router.push(`/token/${item.chain}/${item.address}`)}
+        expanded={expandedIds.has(id)}
+        onToggle={() => toggleExpanded(id)}
+      />
+    );
+  }, [theme, router, expandedIds, toggleExpanded]);
 
   return (
     <ThemedView style={styles.container}>
@@ -209,4 +275,8 @@ const styles = StyleSheet.create({
   cardRight: { alignItems: 'flex-end' },
   statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  snapToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  timeline: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
+  snapRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 3, borderBottomWidth: StyleSheet.hairlineWidth },
 });

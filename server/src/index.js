@@ -10,6 +10,7 @@ import { startTrenchesRefresher } from './services/trenches-refresher.js';
 import { ensureCalibrated } from './services/gmgn-clock.js';
 import { initWebSocket } from './services/ws-server.js';
 import { startPricePoller } from './services/ws-price-poller.js';
+import { startSnapshotWorker } from './services/token-snapshots.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -47,6 +48,9 @@ server.listen(PORT, () => {
 startNotificationWatcher({
   onError: (err) => console.error('[poller]', err?.message),
 });
+
+// Token snapshot capture worker (every 60s)
+startSnapshotWorker();
 
 // Auto-calibrate GMGN clock from Date header, then start refresher
 ensureCalibrated().then(() => {
