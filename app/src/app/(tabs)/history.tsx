@@ -14,16 +14,23 @@ import { useWs } from '@/store/ws';
 import type { NotificationHistoryItem, TokenSnapshot } from '@/api/types';
 import { fmtUsd, shortAddress } from '@/utils/format';
 
-const CATEGORY_FILTER_TABS = [
-  { key: 'all', label: 'Todas' },
-  { key: 'new', label: 'Nuevas' },
-  { key: 'completed', label: 'Completadas' },
-];
-
 const SORT_OPTIONS = [
   { key: 'recent', label: 'Reciente' },
   { key: 'snaps', label: '# Snapshots' },
+  { key: 'gain', label: 'Ganancia' },
 ];
+
+function calcGain(item: NotificationHistoryItem): number {
+  const first = item.snapshots?.[0];
+  if (!first) return 0;
+  const firstMcap = first.usd_market_cap ?? first.market_cap ?? item.mcap;
+  if (!firstMcap || firstMcap <= 0) return 0;
+  const maxMcap = item.snapshots?.reduce((max, s) => {
+    const v = s.usd_market_cap ?? s.market_cap;
+    return v != null && v > max ? v : max;
+  }, firstMcap) ?? firstMcap;
+  return ((maxMcap - firstMcap) / firstMcap) * 100;
+}
 
 const CHAIN_TABS = [
   { key: 'all', label: 'Todos' },
@@ -186,7 +193,6 @@ export default function HistoryScreen() {
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
   const [search, setSearch] = useState('');
   const [chainFilter, setChainFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortBy, setSortBy] = useState('recent');
   const [refreshing, setRefreshing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -227,8 +233,6 @@ export default function HistoryScreen() {
   const filtered = useMemo(() => {
     let result = history.filter((h) => {
       if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
-      if (categoryFilter === 'new' && !h.category.startsWith('new_creation')) return false;
-      if (categoryFilter === 'completed' && !h.category.startsWith('completed')) return false;
       if (searchLower) {
         return (h.symbol?.toLowerCase().includes(searchLower)) || (h.name?.toLowerCase().includes(searchLower));
       }
@@ -236,9 +240,15 @@ export default function HistoryScreen() {
     });
     if (sortBy === 'snaps') {
       result = [...result].sort((a, b) => (b.snapshots?.length ?? 0) - (a.snapshots?.length ?? 0));
+    } else if (sortBy === 'gain') {
+      result = [...result].sort((a, b) => {
+        const gainA = calcGain(a);
+        const gainB = calcGain(b);
+        return gainB - gainA;
+      });
     }
     return result;
-  }, [history, chainFilter, categoryFilter, sortBy, searchLower]);
+  }, [history, chainFilter, sortBy, searchLower]);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -282,19 +292,6 @@ export default function HistoryScreen() {
         </View>
 
         <View style={styles.filterRow}>
-          <View style={styles.chainTabs}>
-            {CATEGORY_FILTER_TABS.map((tab) => (
-              <Pressable
-                key={tab.key}
-                onPress={() => setCategoryFilter(tab.key)}
-                style={[styles.chainTab, categoryFilter === tab.key && { backgroundColor: theme.accent }]}
-              >
-                <ThemedText type="small" style={{ color: categoryFilter === tab.key ? '#000' : theme.textSecondary }}>
-                  {tab.label}
-                </ThemedText>
-              </Pressable>
-            ))}
-          </View>
           <View style={styles.sortTabs}>
             {SORT_OPTIONS.map((opt) => (
               <Pressable
