@@ -251,6 +251,9 @@ export interface NotificationHistoryItem {
   fresh_wallet_rate: number | null;
   bot_degen_count: number | null;
   bot_degen_rate: number | null;
+  rug_ratio: number | null;
+  bundler_rate: number | null;
+  entrapment_ratio: number | null;
   notified_at: string;
 }
 

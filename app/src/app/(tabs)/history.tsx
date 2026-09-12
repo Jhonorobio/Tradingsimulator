@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -30,6 +31,13 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress }: { item: NotificationHistoryItem; theme: any; onPress: () => void }) {
+  const stat = (icon: string, value: string, color: string) => (
+    <View style={styles.statItem}>
+      <Ionicons name={icon as any} size={12} color={color} />
+      <ThemedText type="small" style={{ color }}>{value}</ThemedText>
+    </View>
+  );
+
   return (
     <Pressable onPress={onPress}>
       <Card style={[styles.card, { borderColor: theme.border }]}>
@@ -48,41 +56,32 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress }: { 
             </ThemedText>
           </View>
           <View style={styles.cardRight}>
-            {item.mcap != null ? (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                MCap {fmtUsd(item.mcap)}
-              </ThemedText>
-            ) : null}
-            {item.vol24h != null ? (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Vol {fmtUsd(item.vol24h)}
-              </ThemedText>
-            ) : null}
+            {item.mcap != null && (
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>{fmtUsd(item.mcap)}</ThemedText>
+            )}
+            {item.vol24h != null && (
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>Vol {fmtUsd(item.vol24h)}</ThemedText>
+            )}
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {new Date(item.notified_at).toLocaleDateString()} {new Date(item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {new Date(item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </ThemedText>
           </View>
         </View>
-        <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
+
+        <View style={styles.statsRow}>
+          {item.smart_degen_count != null && item.smart_degen_count > 0 && stat('flash', `${item.smart_degen_count}`, theme.accent)}
+          {item.renowned_count != null && item.renowned_count > 0 && stat('people', `${item.renowned_count}`, theme.accent)}
+          {item.fresh_wallet_rate != null && item.fresh_wallet_rate > 0 && stat('wallet', `${(item.fresh_wallet_rate * 100).toFixed(0)}%`, theme.positive)}
+          {item.bot_degen_count != null && item.bot_degen_count > 0 && stat('hardware-chip', `${item.bot_degen_count}`, theme.warn)}
+          {item.bot_degen_rate != null && item.bot_degen_rate > 0 && stat('pulse', `${(item.bot_degen_rate * 100).toFixed(0)}%`, theme.warn)}
+          {item.rug_ratio != null && item.rug_ratio > 0 && stat('skull', `${(item.rug_ratio * 100).toFixed(0)}%`, theme.negative)}
+          {item.bundler_rate != null && item.bundler_rate > 0 && stat('layers', `${(item.bundler_rate * 100).toFixed(0)}%`, '#f97316')}
+          {item.entrapment_ratio != null && item.entrapment_ratio > 0 && stat('shield-checkmark', `${(item.entrapment_ratio * 100).toFixed(0)}%`, '#ef4444')}
+        </View>
+
+        <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
           {shortAddress(item.address)}
         </ThemedText>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-          {item.smart_degen_count != null && item.smart_degen_count > 0 && (
-            <ThemedText type="small" style={{ color: theme.accent }}>SM {item.smart_degen_count}</ThemedText>
-          )}
-          {item.renowned_count != null && item.renowned_count > 0 && (
-            <ThemedText type="small" style={{ color: theme.accent }}>KOL {item.renowned_count}</ThemedText>
-          )}
-          {item.fresh_wallet_rate != null && item.fresh_wallet_rate > 0 && (
-            <ThemedText type="small" style={{ color: theme.positive }}>Fresh {(item.fresh_wallet_rate * 100).toFixed(0)}%</ThemedText>
-          )}
-          {item.bot_degen_count != null && item.bot_degen_count > 0 && (
-            <ThemedText type="small" style={{ color: theme.warn }}>Bot {item.bot_degen_count}</ThemedText>
-          )}
-          {item.bot_degen_rate != null && item.bot_degen_rate > 0 && (
-            <ThemedText type="small" style={{ color: theme.warn }}>Bot% {(item.bot_degen_rate * 100).toFixed(1)}%</ThemedText>
-          )}
-        </View>
       </Card>
     </Pressable>
   );
@@ -208,4 +207,6 @@ const styles = StyleSheet.create({
   logo: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   cardInfo: { flex: 1 },
   cardRight: { alignItems: 'flex-end' },
+  statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
+  statItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
 });
