@@ -174,6 +174,17 @@ export async function fetchTrenches(params, opts = {}) {
 const pairCooldowns = new Map();
 let ipCooldownUntil = 0;
 
+export function getPairCooldowns() {
+  const out = {};
+  for (const [key, until] of pairCooldowns) {
+    if (Date.now() < until) {
+      out[key] = { active: true, retryAfter: new Date(until).toISOString(), remainingMs: until - Date.now() };
+    }
+  }
+  out._ipCooldown = { active: Date.now() < ipCooldownUntil, retryAfter: ipCooldownUntil ? new Date(ipCooldownUntil).toISOString() : null };
+  return out;
+}
+
 /**
  * Parses `Rate limit resets at 2026-08-19 14:15:25 GMT-05:00` out of the
  * gmgn-cli error message and returns the reset time in ms since epoch.

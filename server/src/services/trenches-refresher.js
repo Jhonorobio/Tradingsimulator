@@ -11,6 +11,25 @@ const MIN_INTERVAL_MS = 1050;
 // Set of tabs that have a running worker
 const runningWorkers = new Set();
 
+// Per-tab diagnostics: { [tab]: { running, lastStarted, lastSuccess, lastError, errorCount, fetchCount } }
+const tabStats = Object.fromEntries(TRENCH_TABS ? TRENCH_TABS.map((t) => [t, { running: false, lastStarted: null, lastSuccess: null, lastError: null, errorCount: 0, fetchCount: 0 }]) : []);
+
+export function getRefresherStatus() {
+  const out = {};
+  for (const [tab, s] of Object.entries(tabStats)) {
+    out[tab] = {
+      running: runningWorkers.has(tab) || s.running,
+      lastStarted: s.lastStarted,
+      lastSuccess: s.lastSuccess,
+      lastError: s.lastError,
+      errorCount: s.errorCount,
+      fetchCount: s.fetchCount,
+      hasConnection: Boolean(connectionForTab(tab)),
+    };
+  }
+  return out;
+}
+
 // Shared helpers
 let _onError = () => {};
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -48,6 +67,8 @@ export function ensureWorkers() {
     const connection = connectionForTab(tab);
     if (!connection) continue;
     runningWorkers.add(tab);
+    tabStats[tab].running = true;
+    tabStats[tab].lastStarted = new Date().toISOString();
     console.log(`[refresher] Spawning worker for ${tab}`);
     setTimeout(() => tabWorker(tab, connection), 0);
   }
@@ -115,8 +136,14 @@ async function tabWorker(tab, connection) {
       try {
         await fetchTrenches(item.params, { ...(connection || {}), tab: item.tab, force: true });
         consecutiveErrors = 0;
+        tabStats[tab].running = true;
+        tabStats[tab].lastSuccess = new Date().toISOString();
+        tabStats[tab].fetchCount += 1;
       } catch (err) {
         consecutiveErrors++;
+        tabStats[tab].running = true;
+        tabStats[tab].lastError = new Date().toISOString();
+        tabStats[tab].errorCount += 1;
         _onError(err);
         // If rate-limited, wait until reset time before retrying
         if (err.status === 429 && err.resetAtUnix) {
@@ -138,6 +165,7 @@ async function tabWorker(tab, connection) {
       // rebuildQueue or other code threw — worker is dead, log and exit
       // so the 5s watchdog can respawn it via runningWorkers check.
       runningWorkers.delete(tab);
+      tabStats[tab].running = false;
       console.error(`[${tab}] Worker crashed (will respawn in 5s):`, fatalErr.message);
       return;
     }

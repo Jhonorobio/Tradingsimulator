@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { runMarket, runConfigCheck } from '../cli/gmgn.js';
-import { fetchTrenches } from '../cli/args.js';
+import { fetchTrenches, getPairCooldowns } from '../cli/args.js';
 import { trenchesFilters, proxyConfigs } from '../stores.js';
 import { getTokenInfo as getDexTokenInfo, searchTokens as dexSearch } from '../services/dexscreener.js';
 import { findToken } from '../services/trenches-store.js';
@@ -8,7 +8,7 @@ import { getProxyMarketCap } from '../services/gmgn-proxy.js';
 import { getTokenInfo, getLiveTokenInfo, getPrices, SOL_MINT } from '../services/token-data.js';
 import { cacheKey, withCache } from '../services/cache.js';
 import { buildParamsFromConfig, TRENCH_TABS } from '../services/trenches-filters.js';
-import { connectionForTab } from '../services/trenches-refresher.js';
+import { connectionForTab, getRefresherStatus } from '../services/trenches-refresher.js';
 import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-health.js';
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
 
@@ -318,6 +318,55 @@ router.get('/search', async (req, res) => {
 router.get('/status', async (_req, res) => {
   const check = await runConfigCheck();
   res.json(check);
+});
+
+/**
+ * GET /api/market/refresher-status — per-tab worker diagnostics.
+ * Shows whether a worker is running for each tab and its last
+ * success/error timestamps, so a frozen tab can be diagnosed live.
+ */
+router.get('/refresher-status', (_req, res) => {
+  res.json({
+    statuses: getRefresherStatus(),
+    cooldowns: getPairCooldowns(),
+    filtersSaved: trenchesFilters.get('global')?.filters ?? null,
+    time: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /api/market/debug-tab/:tab — test-fetch a specific tab and return raw result.
+ * Diagnostic endpoint: calls fetchTrenches directly with the saved filters
+ * and returns the response + timing, so we can see exactly what GMGN returns.
+ */
+router.get('/debug-tab/:tab', async (req, res) => {
+  const tab = req.params.tab;
+  const config = trenchesFilters.get('global')?.filters;
+  if (!config) return fail(res, new Error('No filters saved — press Confirmar first'), 400);
+  const stored = proxyConfigs.get(tab);
+  if (!stored?.apiKey) return fail(res, new Error(`No proxy/API key for tab: ${tab}`), 400);
+  const connection = tab === 'new_creation'
+    ? { proxy: '', apiKey: stored.apiKey }
+    : stored?.url ? { proxy: stored.url, apiKey: stored.apiKey } : null;
+  if (!connection) return fail(res, new Error(`No connection for tab: ${tab}`), 400);
+  const params = buildParamsFromConfig(config, tab);
+  const start = Date.now();
+  try {
+    const result = await fetchTrenches(params, { ...connection, tab, source: 'debug', force: true });
+    const elapsed = Date.now() - start;
+    const tabData = result[tab] ?? [];
+    res.json({
+      tab,
+      tokensCount: tabData.length,
+      firstTokens: tabData.slice(0, 3).map((t) => ({ address: t?.address, name: t?.name, symbol: t?.symbol, usd_market_cap: t?.usd_market_cap, created_timestamp: t?.created_timestamp })),
+      params,
+      elapsedMs: elapsed,
+      time: new Date().toISOString(),
+    });
+  } catch (err) {
+    const elapsed = Date.now() - start;
+    fail(res, Object.assign(new Error(`[${tab}] Fetch failed (${elapsed}ms): ${err.message}`), { status: err.status || 500 }));
+  }
 });
 
 /** Looks up a token in the in-memory trenches store (no GMGN call). */
