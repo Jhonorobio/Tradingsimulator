@@ -9,14 +9,20 @@ const CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'comp
 // How many insert cycles between receipt checks (e.g., 60 ≈ 5 min depending on frequency)
 const RECEIPT_CHECK_INTERVAL = 60;
 
+const PERCENTAGE_FIELDS = ['bot_degen_rate', 'fresh_wallet_rate', 'rug_ratio', 'bundler_rate', 'entrapment_ratio'];
+
 function matchesFilters(token, filters) {
   if (!filters || typeof filters !== 'object') return true;
   for (const [field, range] of Object.entries(filters)) {
     if (!range || typeof range !== 'object') continue;
     const val = token[field];
     if (val == null || isNaN(val)) continue; // no data = skip filter (don't block)
-    if (range.min != null && val < range.min) return false;
-    if (range.max != null && val > range.max) return false;
+    // Percentage fields are stored as decimals (0.3) but user enters as percent (30)
+    const isPct = PERCENTAGE_FIELDS.includes(field);
+    const min = isPct && range.min != null ? range.min / 100 : range.min;
+    const max = isPct && range.max != null ? range.max / 100 : range.max;
+    if (min != null && val < min) return false;
+    if (max != null && val > max) return false;
   }
   return true;
 }
