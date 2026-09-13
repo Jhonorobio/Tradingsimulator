@@ -128,6 +128,10 @@ export function buildParamsFromConfig(config, tab) {
     if (!v || typeof v !== 'object') continue;
     const minV = parseValue(v.min, scale);
     const maxV = parseValue(v.max, scale);
+    // Skip maxCreated for "completed" tabs — tokens that completed bonding
+    // curves are inherently old; time-based filtering returns zero results.
+    const isCompleted = type === 'completed';
+    if (isCompleted && key === 'created') continue;
     if (minV !== undefined) p[`min${capFirst(key)}`] = minV;
     if (maxV !== undefined) p[`max${capFirst(key)}`] = maxV;
   }
