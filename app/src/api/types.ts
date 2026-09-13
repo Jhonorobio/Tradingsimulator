@@ -213,7 +213,7 @@ export interface NotificationFilterRange {
   max?: number | string;
 }
 
-export type NotificationFilterFields = 'smart_degen_count' | 'renowned_count' | 'bot_degen_count' | 'bot_degen_rate' | 'fresh_wallet_rate' | 'rug_ratio' | 'bundler_rate' | 'volume_24h' | 'usd_market_cap';
+export type NotificationFilterFields = 'smart_degen_count' | 'renowned_count' | 'bot_degen_count' | 'bot_degen_rate' | 'fresh_wallet_rate' | 'rug_ratio' | 'bundler_rate' | 'entrapment_ratio' | 'volume_24h' | 'usd_market_cap';
 
 export type NotificationCategoryFilters = Partial<Record<NotificationFilterFields, NotificationFilterRange>>;
 
