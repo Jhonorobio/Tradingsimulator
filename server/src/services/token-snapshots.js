@@ -178,6 +178,17 @@ export function getAllTracks(address) {
 }
 
 /**
+ * Returns the track started time for a token+category combination.
+ * Used to record when a token first entered the system.
+ */
+export function getTrackStarted(address, category) {
+  const entry = store[address];
+  if (!entry) return null;
+  const track = entry.tracks.find((t) => t.category === category && !t.ended);
+  return track?.started ?? null;
+}
+
+/**
  * Returns all tracks across all addresses, filtered by chain/category/time.
  * Used for snapshot export endpoint.
  */

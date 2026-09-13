@@ -117,6 +117,11 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {new Date(item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </ThemedText>
+            {item.entered_at && (
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Entrada: {new Date(item.entered_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </ThemedText>
+            )}
           </View>
         </View>
 
@@ -276,7 +281,7 @@ export default function HistoryScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
-        <ThemedText type="subtitle" style={styles.title}>Historial de Notificaciones</ThemedText>
+        <ThemedText type="subtitle" style={styles.title}>Historial de Tokens</ThemedText>
 
         <View style={styles.chainTabs}>
           {CHAIN_TABS.map((tab) => (

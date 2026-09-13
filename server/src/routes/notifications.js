@@ -8,7 +8,7 @@ const VALID_CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood',
 
 const FILTER_FIELDS = [
   'smart_degen_count', 'renowned_count', 'bot_degen_count', 'bot_degen_rate',
-  'fresh_wallet_rate', 'rug_ratio', 'volume_24h', 'usd_market_cap', 'liquidity',
+  'fresh_wallet_rate', 'rug_ratio', 'bundler_rate', 'volume_24h', 'usd_market_cap',
 ];
 
 function sanitizeFilters(raw) {
