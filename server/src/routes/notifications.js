@@ -147,4 +147,42 @@ router.get('/winners', (_req, res) => {
   }
 });
 
+/**
+ * DELETE /api/notifications/history?chain=sol
+ * Clears notification history, optionally filtered by chain.
+ */
+router.delete('/history', (req, res) => {
+  try {
+    const chain = req.query.chain;
+    if (chain) {
+      const valid = ['sol', 'bsc', 'robinhood'];
+      if (!valid.includes(chain)) return fail(res, new Error('Invalid chain'), 400);
+      const all = notificationHistory.getAll();
+      const toKeep = all.filter((e) => e.chain !== chain);
+      notificationHistory.setAll(toKeep);
+      res.json({ ok: true, removed: all.length - toKeep.length });
+    } else {
+      const count = notificationHistory.getAll().length;
+      notificationHistory.setAll([]);
+      res.json({ ok: true, removed: count });
+    }
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * DELETE /api/notifications/winners
+ * Clears all winners.
+ */
+router.delete('/winners', (_req, res) => {
+  try {
+    const count = winners.getAll().length;
+    winners.setAll([]);
+    res.json({ ok: true, removed: count });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 export default router;

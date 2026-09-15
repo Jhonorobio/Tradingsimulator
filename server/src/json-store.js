@@ -114,6 +114,11 @@ export class JsonArrayStore {
     return true;
   }
 
+  setAll(data) {
+    this.#data = Array.isArray(data) ? data : [];
+    this.#write();
+  }
+
   reload() {
     this.#data = this.#read();
   }

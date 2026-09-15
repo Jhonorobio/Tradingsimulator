@@ -31,3 +31,12 @@ export interface WinnerItem {
 export function getWinners() {
   return api.get<{ winners: WinnerItem[] }>('/api/notifications/winners');
 }
+
+export function clearHistory(chain?: string) {
+  const qs = chain ? `?chain=${chain}` : '';
+  return api.delete<{ ok: boolean; removed: number }>(`/api/notifications/history${qs}`);
+}
+
+export function clearWinners() {
+  return api.delete<{ ok: boolean; removed: number }>('/api/notifications/winners');
+}
