@@ -219,6 +219,7 @@ async function sharedWorker() {
 export function connectionForTab(tab) {
   const stored = proxyConfigs.get(tab);
   if (!stored?.apiKey) return null;
+  if (stored.enabled === false) return null;
   // new_creation (sol): directo sin proxy (solo necesita API key)
   if (tab === 'new_creation') return { proxy: '', apiKey: stored.apiKey };
   //Robinhood tabs, BSC tabs + completed: requieren proxy configurado

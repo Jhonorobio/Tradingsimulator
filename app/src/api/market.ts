@@ -59,8 +59,8 @@ export function getProxies() {
   return api.get<Record<string, ProxyConfig>>('/api/market/proxies');
 }
 
-export function saveProxy(tab: string, url: string, apiKey: string) {
-  return api.put<{ ok: boolean }>('/api/market/proxies', { tab, url, apiKey });
+export function saveProxy(tab: string, url: string, apiKey: string, enabled?: boolean) {
+  return api.put<{ ok: boolean }>('/api/market/proxies', { tab, url, apiKey, enabled });
 }
 
 export function testProxy(url: string, apiKey: string) {

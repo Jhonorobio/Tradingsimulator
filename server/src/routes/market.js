@@ -38,7 +38,7 @@ router.get('/proxies', (_req, res) => {
   const configs = {};
   for (const tab of VALID_TABS) {
     const entry = proxyConfigs.get(tab);
-    configs[tab] = entry ? { url: entry.url || '', apiKey: entry.apiKey || '' } : { url: '', apiKey: '' };
+    configs[tab] = entry ? { url: entry.url || '', apiKey: entry.apiKey || '', enabled: entry.enabled !== false } : { url: '', apiKey: '', enabled: true };
   }
   res.json(configs);
 });
@@ -48,7 +48,7 @@ router.get('/proxies', (_req, res) => {
  * Body: { tab, url, apiKey }
  */
 router.put('/proxies', (req, res) => {
-  const { tab, url, apiKey } = req.body || {};
+  const { tab, url, apiKey, enabled } = req.body || {};
   if (!VALID_TABS.includes(tab)) return fail(res, new Error('Invalid tab'), 400);
   // new_creation (SOL) only needs API key, no proxy URL
   if (tab === 'new_creation') {
@@ -56,7 +56,12 @@ router.put('/proxies', (req, res) => {
   } else {
     if (!url || !apiKey) return fail(res, new Error('url and apiKey are required'), 400);
   }
-  proxyConfigs.set(tab, { url: String(url || '').trim(), apiKey: String(apiKey).trim() });
+  const existing = proxyConfigs.get(tab) || {};
+  proxyConfigs.set(tab, {
+    url: String(url || '').trim(),
+    apiKey: String(apiKey).trim(),
+    enabled: enabled !== false,
+  });
   res.json({ ok: true });
 });
 

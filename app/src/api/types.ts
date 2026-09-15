@@ -281,6 +281,7 @@ export interface TokenSnapshot {
 export interface ProxyConfig {
   url: string;
   apiKey: string;
+  enabled?: boolean;
 }
 
 export interface ProxyStatus {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -59,6 +59,13 @@ export default function ProxiesScreen() {
     }));
   };
 
+  const toggleProxyEnabled = (tab: string) => {
+    setProxyConfigs((prev) => ({
+      ...prev,
+      [tab]: { ...prev[tab], enabled: prev[tab].enabled === false ? true : false },
+    }));
+  };
+
   const doTestProxy = async (tab: string) => {
     const cfg = proxyConfigs[tab];
     if (!cfg.url || !cfg.apiKey) {
@@ -94,7 +101,7 @@ export default function ProxiesScreen() {
       }
     }
     try {
-      await saveProxy(tab, cfg.url, cfg.apiKey);
+      await saveProxy(tab, cfg.url, cfg.apiKey, cfg.enabled !== false);
       const { proxyStatuses: current } = useSettings.getState();
       const next = current.filter((s) => s.tab !== tab);
       next.push({ tab, url: cfg.url, egressIp: null, working: true, lastCheck: new Date().toISOString(), error: null });
@@ -136,8 +143,17 @@ export default function ProxiesScreen() {
               return (
                 <View key={tab} style={[styles.proxyBlock, { borderColor: theme.border }]}>
                   <View style={styles.proxyHeader}>
-                    <View style={[styles.proxyDot, { backgroundColor: isOk ? theme.positive : theme.negative }]} />
-                    <ThemedText type="smallBold">{TAB_LABELS[tab]}</ThemedText>
+                    <View style={[styles.proxyDot, { backgroundColor: isOk && cfg.enabled !== false ? theme.positive : theme.negative }]} />
+                    <ThemedText type="smallBold" style={{ flex: 1 }}>{TAB_LABELS[tab]}</ThemedText>
+                    <ThemedText type="small" style={{ color: cfg.enabled !== false ? theme.positive : theme.textSecondary }}>
+                      {cfg.enabled !== false ? 'On' : 'Off'}
+                    </ThemedText>
+                    <Switch
+                      value={cfg.enabled !== false}
+                      onValueChange={() => toggleProxyEnabled(tab)}
+                      trackColor={{ false: '#3a3a3a', true: theme.accent + '60' }}
+                      thumbColor={cfg.enabled !== false ? theme.accent : '#666'}
+                    />
                   </View>
                   <TextInput
                     value={cfg.url}
