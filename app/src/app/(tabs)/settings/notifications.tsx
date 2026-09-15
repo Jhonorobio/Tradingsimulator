@@ -30,7 +30,7 @@ const FILTER_FIELDS: { key: NotificationFilterFields; label: string; suffix?: st
   { key: 'bot_degen_rate', label: 'Bot %', suffix: '%' },
   { key: 'fresh_wallet_rate', label: 'Fresh Wallet %', suffix: '%' },
   { key: 'rug_ratio', label: 'Rug %', suffix: '%' },
-  { key: 'bundler_rate', label: 'Bundler', suffix: '%' },
+  { key: 'bundler_trader_amount_rate', label: 'Bundler', suffix: '%' },
   { key: 'entrapment_ratio', label: 'Phishing', suffix: '%' },
   { key: 'volume_24h', label: 'Vol 24h', suffix: '$' },
   { key: 'usd_market_cap', label: 'MCap', suffix: '$' },
