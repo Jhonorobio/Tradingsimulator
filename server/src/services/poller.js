@@ -70,7 +70,8 @@ function calcTimeToPeakMinutes(snapshots) {
 }
 
 function checkAndSaveWinner(item) {
-  const snapshots = item.snapshots;
+  // Use live snapshots from token-snapshots store
+  const snapshots = getSnapshots(item.address, item.category);
   if (!snapshots || snapshots.length < 2) return;
 
   const gain = calcGainFromSnapshots(snapshots, item.mcap);
@@ -93,7 +94,6 @@ function checkAndSaveWinner(item) {
     logo: item.logo,
     gain_pct: gain,
     time_to_peak_minutes: timeToPeak,
-    snapshots,
     added_at: new Date().toISOString(),
   });
 
@@ -103,9 +103,11 @@ function checkAndSaveWinner(item) {
     const sorted = all.sort((a, b) => (a.added_at || '').localeCompare(b.added_at || ''));
     const toRemove = sorted.slice(0, all.length - WINNERS_MAX);
     for (const old of toRemove) {
-      winners.delete((e) => e.id === old.id);
+      winners.delete((w) => w.id === old.id);
     }
   }
+
+  console.log(`[poller] WINNER: ${item.symbol} +${gain.toFixed(0)}% in ${timeToPeak.toFixed(1)}m`);
 }
 
 /**
@@ -171,7 +173,6 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
             rug_ratio: t.rug_ratio ?? null,
             bundler_rate: t.bundler_rate ?? t.bundler_trader_amount_rate ?? null,
             entrapment_ratio: t.entrapment_ratio ?? null,
-            snapshots: getSnapshots(t.address, cat),
             entered_at: getTrackStarted(t.address, cat),
             notified_at: new Date().toISOString(),
             filter_matched_at: null,

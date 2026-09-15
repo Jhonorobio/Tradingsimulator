@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { notificationConfig, notificationHistory, winners } from '../stores.js';
 import { isValidPushToken } from '../services/push.js';
+import { getSnapshots, getAllTracks } from '../services/token-snapshots.js';
 
 const router = Router();
 
@@ -125,7 +126,8 @@ router.get('/history', (req, res) => {
     const entries = notificationHistory.getAll()
       .filter((e, i, arr) => arr.findIndex(x => x.address === e.address && x.category === e.category) === i)
       .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''))
-      .slice(0, limit);
+      .slice(0, limit)
+      .map((e) => ({ ...e, snapshots: getSnapshots(e.address, e.category) }));
     res.json({ history: entries });
   } catch (err) {
     fail(res, err);
@@ -140,7 +142,8 @@ router.get('/winners', (_req, res) => {
   try {
     const entries = winners.getAll()
       .sort((a, b) => (b.added_at || '').localeCompare(a.added_at || ''))
-      .slice(0, 100);
+      .slice(0, 100)
+      .map((e) => ({ ...e, snapshots: getSnapshots(e.address, e.category) }));
     res.json({ winners: entries });
   } catch (err) {
     fail(res, err);
