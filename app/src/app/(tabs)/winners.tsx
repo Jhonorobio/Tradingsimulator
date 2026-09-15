@@ -142,7 +142,7 @@ const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress }: {
             {shortAddress(item.address)}
           </ThemedText>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {new Date(item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {new Date(item.entered_at || item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </ThemedText>
         </View>
       </Card>

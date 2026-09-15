@@ -115,13 +115,8 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
               <ThemedText type="small" style={{ color: theme.textSecondary }}>Vol {fmtUsd(vol, { compact: true })}</ThemedText>
             )}
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {new Date(item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {new Date(item.entered_at || item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </ThemedText>
-            {item.entered_at && (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Entrada: {new Date(item.entered_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </ThemedText>
-            )}
             {item.filter_matched_at && (
               <ThemedText type="small" style={{ color: theme.accent }}>
                 Filtro: {new Date(item.filter_matched_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
