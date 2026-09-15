@@ -288,4 +288,24 @@ export function startNotificationWatcher({ onError = () => {} } = {}) {
   });
 
   console.log('[poller] Notification watcher started (event-driven)');
+
+  // Migrate existing history entries to winners
+  migrateHistoryToWinners();
+}
+
+function migrateHistoryToWinners() {
+  try {
+    const entries = notificationHistory.getAll();
+    let added = 0;
+    for (const entry of entries) {
+      const existing = winners.getAll();
+      if (existing.some((w) => w.address === entry.address && w.category === entry.category)) continue;
+      checkAndSaveWinner(entry);
+      const after = winners.getAll();
+      if (after.length > existing.length) added++;
+    }
+    if (added > 0) console.log(`[poller] Migrated ${added} winners from history`);
+  } catch (err) {
+    console.error('[poller] migrateHistoryToWinners error:', err.message);
+  }
 }
