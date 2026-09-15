@@ -58,8 +58,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   completed_bsc: 'Completada BSC',
 };
 
-const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress }: {
+const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expanded, onToggle }: {
   item: NotificationHistoryItem; theme: any; onPress: () => void;
+  expanded: boolean; onToggle: () => void;
 }) {
   const snap = item.snapshots?.[0] ?? null;
   const mcap = snap?.usd_market_cap ?? snap?.market_cap ?? item.mcap;
@@ -72,6 +73,7 @@ const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress }: {
   const rug = snap?.rug_ratio ?? item.rug_ratio;
   const bundler = snap?.bundler_rate ?? snap?.bundler_trader_amount_rate ?? item.bundler_rate ?? item.bundler_trader_amount_rate;
   const entrap = snap?.entrapment_ratio ?? item.entrapment_ratio;
+  const snapCount = item.snapshots?.length ?? 0;
 
   const gainPct = calcGain(item);
   const timeToPeak = calcTimeToPeakMinutes(item);
@@ -141,10 +143,53 @@ const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress }: {
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
             {shortAddress(item.address)}
           </ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {new Date(item.entered_at || item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </ThemedText>
+          {snapCount > 1 && (
+            <Pressable onPress={onToggle} style={styles.snapToggle}>
+              <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={theme.accent} />
+              <ThemedText type="small" style={{ color: theme.accent }}>{snapCount} snapshots</ThemedText>
+            </Pressable>
+          )}
         </View>
+
+        {expanded && item.snapshots && item.snapshots.length > 1 && (
+          <View style={[styles.timeline, { borderTopColor: theme.border }]}>
+            {item.snapshots.map((s: TokenSnapshot, i: number) => {
+              const sMcap = s.usd_market_cap ?? s.market_cap;
+              const sVol = s.volume_24h;
+              const sSm = s.smart_degen_count;
+              const sKol = s.renowned_count;
+              const sFresh = s.fresh_wallet_rate;
+              const sBotCount = s.bot_degen_count;
+              const sBot = s.bot_degen_rate;
+              const sRug = s.rug_ratio;
+              const sBundler = s.bundler_rate ?? s.bundler_trader_amount_rate;
+              const sEntrap = s.entrapment_ratio;
+              const snapStat = (icon: string, value: string, color: string) => (
+                <View style={styles.snapStatItem}>
+                  <Ionicons name={icon as any} size={10} color={color} />
+                  <ThemedText type="small" style={{ color, fontSize: 10 }}>{value}</ThemedText>
+                </View>
+              );
+              return (
+                <View key={i} style={[styles.snapRow, { borderBottomColor: theme.border }]}>
+                  <ThemedText type="small" style={{ color: theme.textSecondary, width: 34, fontSize: 10 }}>
+                    {new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                  </ThemedText>
+                  {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 42, fontSize: 10 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
+                  {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 42, fontSize: 10 }}>{fmtUsd(sVol, { compact: true })}</ThemedText>}
+                  {sSm != null && sSm > 0 && snapStat('wallet', `${sSm}`, theme.accent)}
+                  {sKol != null && sKol > 0 && snapStat('people', `${sKol}`, theme.accent)}
+                  {sFresh != null && sFresh > 0 && snapStat('leaf', `${(sFresh * 100).toFixed(0)}%`, theme.positive)}
+                  {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
+                    snapStat('hardware-chip', `${sBotCount ?? 0}/${(sBot != null ? (sBot * 100).toFixed(0) : '0')}%`, theme.warn)}
+                  {sRug != null && sRug > 0 && snapStat('warning', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
+                  {sBundler != null && sBundler > 0 && snapStat('layers', `${(sBundler * 100).toFixed(0)}%`, '#f97316')}
+                  {sEntrap != null && sEntrap > 0 && snapStat('fish', `${(sEntrap * 100).toFixed(0)}%`, '#ef4444')}
+                </View>
+              );
+            })}
+          </View>
+        )}
       </Card>
     </Pressable>
   );
@@ -158,6 +203,7 @@ export default function WinnersScreen() {
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
   const [chainFilter, setChainFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -207,13 +253,27 @@ export default function WinnersScreen() {
     return avg;
   }, [winners]);
 
-  const renderItem = useCallback(({ item }: { item: NotificationHistoryItem }) => (
-    <WinnerCard
-      item={item}
-      theme={theme}
-      onPress={() => router.push(`/token/${item.chain}/${item.address}`)}
-    />
-  ), [theme, router]);
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const renderItem = useCallback(({ item }: { item: NotificationHistoryItem }) => {
+    const id = `${item.address}-${item.category}-${item.notified_at}`;
+    return (
+      <WinnerCard
+        item={item}
+        theme={theme}
+        onPress={() => router.push(`/token/${item.chain}/${item.address}`)}
+        expanded={expandedIds.has(id)}
+        onToggle={() => toggleExpanded(id)}
+      />
+    );
+  }, [theme, router, expandedIds, toggleExpanded]);
 
   return (
     <ThemedView style={styles.container}>
@@ -283,5 +343,9 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  snapToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  timeline: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
+  snapRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 1, borderBottomWidth: StyleSheet.hairlineWidth, gap: 2 },
+  snapStatItem: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   empty: { textAlign: 'center', marginTop: 40, opacity: 0.5 },
 });
