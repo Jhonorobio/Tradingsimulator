@@ -1,4 +1,4 @@
-import { notificationConfig, notifiedTokens, notificationHistory } from '../stores.js';
+import { notificationConfig, notifiedTokens, notificationHistory, winners } from '../stores.js';
 import { getAllTokens, storeSize, onTokensInserted } from './trenches-store.js';
 import { sendPush, checkReceipts } from './push.js';
 import { broadcast } from './ws-server.js';
@@ -38,6 +38,74 @@ function fmtUsd(n) {
 function fmtNum(n) {
   if (n == null) return 'n/a';
   return n.toLocaleString();
+}
+
+const WINNERS_MAX = 100;
+
+function calcGainFromSnapshots(snapshots, fallbackMcap) {
+  if (!snapshots || snapshots.length === 0) return 0;
+  const first = snapshots[0];
+  const firstMcap = first?.usd_market_cap ?? first?.market_cap ?? fallbackMcap;
+  if (!firstMcap || firstMcap <= 0) return 0;
+  const maxMcap = snapshots.reduce((max, s) => {
+    const v = s.usd_market_cap ?? s.market_cap;
+    return v != null && v > max ? v : max;
+  }, firstMcap);
+  return ((maxMcap - firstMcap) / firstMcap) * 100;
+}
+
+function calcTimeToPeakMinutes(snapshots) {
+  if (!snapshots || snapshots.length < 2) return 999;
+  const firstTime = new Date(snapshots[0].t).getTime();
+  let maxMcap = 0;
+  let peakTime = firstTime;
+  for (const s of snapshots) {
+    const v = s.usd_market_cap ?? s.market_cap;
+    if (v != null && v > maxMcap) {
+      maxMcap = v;
+      peakTime = new Date(s.t).getTime();
+    }
+  }
+  return (peakTime - firstTime) / 60000;
+}
+
+function checkAndSaveWinner(item) {
+  const snapshots = item.snapshots;
+  if (!snapshots || snapshots.length < 2) return;
+
+  const gain = calcGainFromSnapshots(snapshots, item.mcap);
+  const timeToPeak = calcTimeToPeakMinutes(snapshots);
+
+  if (gain < 100 || timeToPeak < 2) return;
+
+  // Check if already in winners
+  const existing = winners.getAll();
+  if (existing.some((w) => w.address === item.address && w.category === item.category)) return;
+
+  // Add to winners
+  winners.add({
+    address: item.address,
+    chain: item.chain,
+    symbol: item.symbol,
+    name: item.name,
+    category: item.category,
+    mcap: item.mcap,
+    logo: item.logo,
+    gain_pct: gain,
+    time_to_peak_minutes: timeToPeak,
+    snapshots,
+    added_at: new Date().toISOString(),
+  });
+
+  // Cap at 100, remove oldest
+  const all = winners.getAll();
+  if (all.length > WINNERS_MAX) {
+    const sorted = all.sort((a, b) => (a.added_at || '').localeCompare(b.added_at || ''));
+    const toRemove = sorted.slice(0, all.length - WINNERS_MAX);
+    for (const old of toRemove) {
+      winners.delete((e) => e.id === old.id);
+    }
+  }
 }
 
 /**
@@ -111,7 +179,7 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
           const saved = notificationHistory.add(historyEntry);
           broadcast(`notifications:${entry.device_id}`, { event: 'notification_new', data: saved });
 
-          // Cap history at 1000 entries per chain
+          // Cap history at 300 entries per chain
           const allEntries = notificationHistory.getAll();
           const chainEntries = allEntries.filter((e) => e.chain === (t.chain || 'sol'));
           if (chainEntries.length > 300) {
@@ -120,6 +188,9 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
               notificationHistory.delete((e) => e.id === old.id);
             }
           }
+
+          // Check if this token is a winner (100%+ gain, 2+ min to peak)
+          checkAndSaveWinner(historyEntry);
         }
 
         // Only send push notification if token matches the filter

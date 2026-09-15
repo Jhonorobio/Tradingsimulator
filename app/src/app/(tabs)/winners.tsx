@@ -8,39 +8,10 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
-import { getNotificationHistory } from '@/api/notifications';
-import { useSettings } from '@/store/settings';
+import { getWinners, type WinnerItem } from '@/api/notifications';
 import { useWs } from '@/store/ws';
-import type { NotificationHistoryItem, TokenSnapshot } from '@/api/types';
+import type { TokenSnapshot } from '@/api/types';
 import { fmtUsd, shortAddress } from '@/utils/format';
-
-function calcGain(item: NotificationHistoryItem): number {
-  const first = item.snapshots?.[0];
-  if (!first) return 0;
-  const firstMcap = first.usd_market_cap ?? first.market_cap ?? item.mcap;
-  if (!firstMcap || firstMcap <= 0) return 0;
-  const maxMcap = item.snapshots?.reduce((max, s) => {
-    const v = s.usd_market_cap ?? s.market_cap;
-    return v != null && v > max ? v : max;
-  }, firstMcap) ?? firstMcap;
-  return ((maxMcap - firstMcap) / firstMcap) * 100;
-}
-
-function calcTimeToPeakMinutes(item: NotificationHistoryItem): number {
-  const snaps = item.snapshots;
-  if (!snaps || snaps.length < 2) return 999;
-  const firstTime = new Date(snaps[0].t).getTime();
-  let maxMcap = 0;
-  let peakTime = firstTime;
-  for (const s of snaps) {
-    const v = s.usd_market_cap ?? s.market_cap;
-    if (v != null && v > maxMcap) {
-      maxMcap = v;
-      peakTime = new Date(s.t).getTime();
-    }
-  }
-  return (peakTime - firstTime) / 60000;
-}
 
 const CHAIN_TABS = [
   { key: 'all', label: 'Todos' },
@@ -59,29 +30,21 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expanded, onToggle }: {
-  item: NotificationHistoryItem; theme: any; onPress: () => void;
+  item: WinnerItem; theme: any; onPress: () => void;
   expanded: boolean; onToggle: () => void;
 }) {
   const snap = item.snapshots?.[0] ?? null;
   const mcap = snap?.usd_market_cap ?? snap?.market_cap ?? item.mcap;
-  const vol = snap?.volume_24h ?? item.vol24h ?? 0;
-  const sm = snap?.smart_degen_count ?? item.smart_degen_count;
-  const kol = snap?.renowned_count ?? item.renowned_count;
-  const fresh = snap?.fresh_wallet_rate ?? item.fresh_wallet_rate;
-  const botCount = snap?.bot_degen_count ?? item.bot_degen_count;
-  const botRate = snap?.bot_degen_rate ?? item.bot_degen_rate;
-  const rug = snap?.rug_ratio ?? item.rug_ratio;
-  const bundler = snap?.bundler_rate ?? snap?.bundler_trader_amount_rate ?? item.bundler_rate ?? item.bundler_trader_amount_rate;
-  const entrap = snap?.entrapment_ratio ?? item.entrapment_ratio;
+  const vol = snap?.volume_24h ?? 0;
+  const sm = snap?.smart_degen_count;
+  const kol = snap?.renowned_count;
+  const fresh = snap?.fresh_wallet_rate;
+  const botCount = snap?.bot_degen_count;
+  const botRate = snap?.bot_degen_rate;
+  const rug = snap?.rug_ratio;
+  const bundler = snap?.bundler_rate ?? snap?.bundler_trader_amount_rate;
+  const entrap = snap?.entrapment_ratio;
   const snapCount = item.snapshots?.length ?? 0;
-
-  const gainPct = calcGain(item);
-  const timeToPeak = calcTimeToPeakMinutes(item);
-
-  const peakMcap = item.snapshots?.reduce((max, s) => {
-    const v = s.usd_market_cap ?? s.market_cap;
-    return v != null && v > max ? v : max;
-  }, 0) ?? 0;
 
   const stat = (icon: string, value: string, color: string) => (
     <View style={styles.statItem}>
@@ -109,16 +72,11 @@ const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expand
           </View>
           <View style={styles.cardRight}>
             <ThemedText type="small" style={{ color: theme.positive, fontWeight: '700', fontSize: 15 }}>
-              +{gainPct.toFixed(0)}%
+              +{item.gain_pct.toFixed(0)}%
             </ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {timeToPeak < 999 ? `${timeToPeak.toFixed(1)}m` : 'n/a'}
+              {item.time_to_peak_minutes.toFixed(1)}m
             </ThemedText>
-            {peakMcap > 0 && (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Peak {fmtUsd(peakMcap, { compact: true })}
-              </ThemedText>
-            )}
             {mcap != null && (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
                 Entry {fmtUsd(mcap, { compact: true })}
@@ -198,37 +156,26 @@ const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expand
 export default function WinnersScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const { deviceId } = useSettings();
-  const { notifications: wsNotifications, subscribeNotifications, unsubscribeNotifications } = useWs();
-  const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
+  const { subscribeNotifications, unsubscribeNotifications } = useWs();
+  const [winnersList, setWinnersList] = useState<WinnerItem[]>([]);
   const [chainFilter, setChainFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
-      const res = await getNotificationHistory(300);
-      setHistory(res.history);
+      const res = await getWinners();
+      setWinnersList(res.winners);
     } catch {}
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (!deviceId) return;
-    subscribeNotifications(deviceId);
-    return () => { unsubscribeNotifications(deviceId); };
-  }, [deviceId, subscribeNotifications, unsubscribeNotifications]);
-
-  useEffect(() => {
-    if (wsNotifications.length === 0) return;
-    setHistory((prev) => {
-      const seen = new Set(prev.map((h) => `${h.address}:${h.notified_at}`));
-      const newItems = wsNotifications.filter((n) => !seen.has(`${n.address}:${n.notified_at}`));
-      if (newItems.length === 0) return prev;
-      return [...newItems, ...prev].slice(0, 300);
-    });
-  }, [wsNotifications]);
+    // Re-fetch winners when new notifications arrive (a new winner may have been added)
+    const unsub = subscribeNotifications('');
+    return () => { unsub?.(); };
+  }, [subscribeNotifications]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -236,22 +183,16 @@ export default function WinnersScreen() {
     setRefreshing(false);
   }, [load]);
 
-  const winners = useMemo(() => {
-    return history
-      .filter((h) => {
-        if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
-        if (calcGain(h) < 100) return false;
-        if (calcTimeToPeakMinutes(h) < 2) return false;
-        return true;
-      })
-      .sort((a, b) => calcGain(b) - calcGain(a));
-  }, [history, chainFilter]);
+  const filtered = useMemo(() => {
+    return winnersList
+      .filter((w) => chainFilter === 'all' || w.chain === chainFilter)
+      .sort((a, b) => b.gain_pct - a.gain_pct);
+  }, [winnersList, chainFilter]);
 
   const totalGain = useMemo(() => {
-    if (winners.length === 0) return null;
-    const avg = winners.reduce((sum, w) => sum + calcGain(w), 0) / winners.length;
-    return avg;
-  }, [winners]);
+    if (filtered.length === 0) return null;
+    return filtered.reduce((sum, w) => sum + w.gain_pct, 0) / filtered.length;
+  }, [filtered]);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -262,8 +203,8 @@ export default function WinnersScreen() {
     });
   }, []);
 
-  const renderItem = useCallback(({ item }: { item: NotificationHistoryItem }) => {
-    const id = `${item.address}-${item.category}-${item.notified_at}`;
+  const renderItem = useCallback(({ item }: { item: WinnerItem }) => {
+    const id = `${item.address}-${item.category}`;
     return (
       <WinnerCard
         item={item}
@@ -297,7 +238,7 @@ export default function WinnersScreen() {
         <View style={[styles.summary, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
           <View style={styles.summaryItem}>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>Tokens</ThemedText>
-            <ThemedText type="smallBold" style={{ color: theme.positive }}>{winners.length}</ThemedText>
+            <ThemedText type="smallBold" style={{ color: theme.positive }}>{filtered.length}/100</ThemedText>
           </View>
           {totalGain != null && (
             <View style={styles.summaryItem}>
@@ -308,8 +249,8 @@ export default function WinnersScreen() {
         </View>
 
         <FlatList
-          data={winners}
-          keyExtractor={(item, i) => `winner-${item.address}-${item.category}-${item.notified_at}-${i}`}
+          data={filtered}
+          keyExtractor={(item, i) => `winner-${item.address}-${item.category}-${i}`}
           renderItem={renderItem}
           initialNumToRender={15}
           maxToRenderPerBatch={10}

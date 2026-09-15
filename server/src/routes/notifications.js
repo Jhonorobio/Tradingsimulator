@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { notificationConfig, notificationHistory } from '../stores.js';
+import { notificationConfig, notificationHistory, winners } from '../stores.js';
 import { isValidPushToken } from '../services/push.js';
 
 const router = Router();
@@ -127,6 +127,21 @@ router.get('/history', (req, res) => {
       .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''))
       .slice(0, limit);
     res.json({ history: entries });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * GET /api/notifications/winners
+ * Returns winners (tokens with 100%+ gain), newest first, max 100.
+ */
+router.get('/winners', (_req, res) => {
+  try {
+    const entries = winners.getAll()
+      .sort((a, b) => (b.added_at || '').localeCompare(a.added_at || ''))
+      .slice(0, 100);
+    res.json({ winners: entries });
   } catch (err) {
     fail(res, err);
   }

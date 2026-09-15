@@ -12,3 +12,22 @@ export function getNotificationConfig() {
 export function getNotificationHistory(limit = 300) {
   return api.get<{ history: NotificationHistoryItem[] }>(`/api/notifications/history?limit=${limit}`);
 }
+
+export interface WinnerItem {
+  id: number;
+  address: string;
+  chain: string;
+  symbol: string | null;
+  name: string | null;
+  category: string;
+  mcap: number | null;
+  logo: string | null;
+  gain_pct: number;
+  time_to_peak_minutes: number;
+  snapshots: NotificationHistoryItem['snapshots'];
+  added_at: string;
+}
+
+export function getWinners() {
+  return api.get<{ winners: WinnerItem[] }>('/api/notifications/winners');
+}
