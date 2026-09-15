@@ -65,44 +65,24 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
 
       const notifiedKey = `${entry.device_id}:${cat}`;
       const alreadyNotified = new Set(notifiedTokens.get(notifiedKey) || []);
+      const historyKey = `history:${entry.device_id}:${cat}`;
+      const alreadyInHistory = new Set(notifiedTokens.get(historyKey) || []);
       const catFilters = entry.filters?.[cat];
 
       const tokens = getTokensFromStore(cat);
 
       for (const t of tokens) {
-        if (!t.address || alreadyNotified.has(t.address)) continue;
-        if (!matchesFilters(t, catFilters)) continue;
-        alreadyNotified.add(t.address);
+        if (!t.address) continue;
 
-        const list = notifiedTokens.get(notifiedKey) || [];
-        list.push(t.address);
-        if (list.length > 500) list.shift();
-        notifiedTokens.set(notifiedKey, list);
+        // Always add token to history (once per token, regardless of notification filter)
+        if (!alreadyInHistory.has(t.address)) {
+          alreadyInHistory.add(t.address);
 
-        const title = `${t.symbol || t.name || 'Token'} — ${cat.replace('_', ' ')}`;
-        const body = [
-          `MCap ${fmtUsd(t.usd_market_cap ?? t.market_cap)}`,
-          `Vol24h ${fmtUsd(t.volume_24h)}`,
-          `SM ${fmtNum(t.smart_degen_count)}`,
-          `KOL ${fmtNum(t.renowned_count)}`,
-          `Fresh ${t.fresh_wallet_rate != null ? (t.fresh_wallet_rate * 100).toFixed(0) + '%' : 'n/a'}`,
-          `Bot ${fmtNum(t.bot_degen_count)} (${t.bot_degen_rate != null ? (t.bot_degen_rate * 100).toFixed(1) + '%' : 'n/a'})`,
-          `Rug ${t.rug_ratio != null ? t.rug_ratio.toFixed(2) : 'n/a'}`,
-        ].join(' · ');
+          const hList = notifiedTokens.get(historyKey) || [];
+          hList.push(t.address);
+          if (hList.length > 2000) hList.shift();
+          notifiedTokens.set(historyKey, hList);
 
-        const { ticketId, result } = await sendPush(token, {
-          title,
-          body,
-          data: { address: t.address, chain: t.chain || 'sol', symbol: t.symbol, type: cat },
-        });
-        if (result?.data?.status === 'error') {
-          onError(new Error(`Push failed: ${result.data.message}`));
-        } else {
-          notified += 1;
-          if (ticketId) {
-            tickets.push({ ticketId, deviceId: entry.device_id });
-          }
-          // Save to notification history
           const historyEntry = {
             device_id: entry.device_id,
             address: t.address,
@@ -128,13 +108,49 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
           };
           const saved = notificationHistory.add(historyEntry);
           broadcast(`notifications:${entry.device_id}`, { event: 'notification_new', data: saved });
+
           // Cap history at 1000 entries per chain
           const allEntries = notificationHistory.getAll();
           const chainEntries = allEntries.filter((e) => e.chain === (t.chain || 'sol'));
-          if (chainEntries.length > 1000) {
-            const toRemove = chainEntries.slice(0, chainEntries.length - 1000);
+          if (chainEntries.length > 300) {
+            const toRemove = chainEntries.slice(0, chainEntries.length - 300);
             for (const old of toRemove) {
               notificationHistory.delete((e) => e.id === old.id);
+            }
+          }
+        }
+
+        // Only send push notification if token matches the filter
+        if (!alreadyNotified.has(t.address) && matchesFilters(t, catFilters)) {
+          alreadyNotified.add(t.address);
+
+          const nList = notifiedTokens.get(notifiedKey) || [];
+          nList.push(t.address);
+          if (nList.length > 500) nList.shift();
+          notifiedTokens.set(notifiedKey, nList);
+
+          const title = `${t.symbol || t.name || 'Token'} — ${cat.replace('_', ' ')}`;
+          const body = [
+            `MCap ${fmtUsd(t.usd_market_cap ?? t.market_cap)}`,
+            `Vol24h ${fmtUsd(t.volume_24h)}`,
+            `SM ${fmtNum(t.smart_degen_count)}`,
+            `KOL ${fmtNum(t.renowned_count)}`,
+            `Fresh ${t.fresh_wallet_rate != null ? (t.fresh_wallet_rate * 100).toFixed(0) + '%' : 'n/a'}`,
+            `Bot ${fmtNum(t.bot_degen_count)} (${t.bot_degen_rate != null ? (t.bot_degen_rate * 100).toFixed(1) + '%' : 'n/a'})`,
+            `Rug ${t.rug_ratio != null ? t.rug_ratio.toFixed(2) : 'n/a'}`,
+          ].join(' · ');
+
+          const { ticketId, result } = await sendPush(token, {
+            title,
+            body,
+            data: { address: t.address, chain: t.chain || 'sol', symbol: t.symbol, type: cat },
+          });
+          if (result?.data?.status === 'error') {
+            onError(new Error(`Push failed: ${result.data.message}`));
+          } else {
+            notified += 1;
+            if (ticketId) {
+              tickets.push({ ticketId, deviceId: entry.device_id });
             }
           }
         }

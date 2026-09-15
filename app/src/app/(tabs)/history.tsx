@@ -207,7 +207,7 @@ export default function HistoryScreen() {
 
   const load = useCallback(async () => {
     try {
-      const res = await getNotificationHistory(1000);
+      const res = await getNotificationHistory(300);
       setHistory(res.history);
     } catch {}
   }, []);
