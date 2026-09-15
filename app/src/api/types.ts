@@ -259,6 +259,7 @@ export interface NotificationHistoryItem {
   snapshots: TokenSnapshot[] | null;
   entered_at: string | null;
   notified_at: string;
+  filter_matched_at: string | null;
 }
 
 export interface TokenSnapshot {

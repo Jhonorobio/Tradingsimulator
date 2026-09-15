@@ -106,6 +106,7 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
             snapshots: getSnapshots(t.address, cat),
             entered_at: getTrackStarted(t.address, cat),
             notified_at: new Date().toISOString(),
+            filter_matched_at: null,
           };
           const saved = notificationHistory.add(historyEntry);
           broadcast(`notifications:${entry.device_id}`, { event: 'notification_new', data: saved });
@@ -124,6 +125,14 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
         // Only send push notification if token matches the filter
         if (!alreadyNotified.has(t.address) && matchesFilters(t, catFilters)) {
           alreadyNotified.add(t.address);
+
+          // Update history entry with filter match time
+          const allEntries = notificationHistory.getAll();
+          const histEntry = allEntries.find((e) => e.address === t.address && e.category === cat && e.device_id === entry.device_id);
+          if (histEntry && !histEntry.filter_matched_at) {
+            histEntry.filter_matched_at = new Date().toISOString();
+            notificationHistory.set(histEntry.id, histEntry);
+          }
 
           const nList = notifiedTokens.get(notifiedKey) || [];
           nList.push(t.address);

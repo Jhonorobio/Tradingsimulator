@@ -122,6 +122,11 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
                 Entrada: {new Date(item.entered_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </ThemedText>
             )}
+            {item.filter_matched_at && (
+              <ThemedText type="small" style={{ color: theme.accent }}>
+                Filtro: {new Date(item.filter_matched_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </ThemedText>
+            )}
           </View>
         </View>
 
