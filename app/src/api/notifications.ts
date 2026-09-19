@@ -40,3 +40,7 @@ export function clearHistory(chain?: string) {
 export function clearWinners() {
   return api.delete<{ ok: boolean; removed: number }>('/api/notifications/winners');
 }
+
+export function reanalyzeWinners() {
+  return api.post<{ ok: boolean; added: number; total: number }>('/api/notifications/winners/reanalyze');
+}

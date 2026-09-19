@@ -8,7 +8,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
-import { getWinners, type WinnerItem } from '@/api/notifications';
+import { getWinners, reanalyzeWinners, type WinnerItem } from '@/api/notifications';
 import { useWs } from '@/store/ws';
 import type { TokenSnapshot } from '@/api/types';
 import { fmtUsd, shortAddress } from '@/utils/format';
@@ -179,7 +179,10 @@ export default function WinnersScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await load();
+    try {
+      await reanalyzeWinners();
+      await load();
+    } catch {}
     setRefreshing(false);
   }, [load]);
 

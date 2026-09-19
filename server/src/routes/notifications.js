@@ -188,4 +188,74 @@ router.delete('/winners', (_req, res) => {
   }
 });
 
+/**
+ * POST /api/notifications/winners/reanalyze
+ * Re-checks all history tokens against winner criteria and saves new winners.
+ */
+router.post('/winners/reanalyze', (_req, res) => {
+  try {
+    const entries = notificationHistory.getAll()
+      .filter((e, i, arr) => arr.findIndex(x => x.address === e.address && x.category === e.category) === i);
+
+    let added = 0;
+    for (const entry of entries) {
+      const existing = winners.getAll();
+      if (existing.some((w) => w.address === entry.address && w.category === entry.category)) continue;
+
+      const snapshots = getSnapshots(entry.address, entry.category);
+      if (!snapshots || snapshots.length < 2) continue;
+
+      const firstMcap = snapshots[0]?.usd_market_cap ?? snapshots[0]?.market_cap ?? entry.mcap;
+      if (!firstMcap || firstMcap <= 0) continue;
+
+      const maxMcap = snapshots.reduce((max, s) => {
+        const v = s.usd_market_cap ?? s.market_cap;
+        return v != null && v > max ? v : max;
+      }, firstMcap);
+      const gain = ((maxMcap - firstMcap) / firstMcap) * 100;
+
+      const firstTime = new Date(snapshots[0].t).getTime();
+      let peakMcap = 0;
+      let peakTime = firstTime;
+      for (const s of snapshots) {
+        const v = s.usd_market_cap ?? s.market_cap;
+        if (v != null && v > peakMcap) {
+          peakMcap = v;
+          peakTime = new Date(s.t).getTime();
+        }
+      }
+      const timeToPeak = (peakTime - firstTime) / 60000;
+
+      if (gain < 100 || timeToPeak < 2) continue;
+
+      winners.add({
+        address: entry.address,
+        chain: entry.chain,
+        symbol: entry.symbol,
+        name: entry.name,
+        category: entry.category,
+        mcap: entry.mcap,
+        logo: entry.logo,
+        gain_pct: gain,
+        time_to_peak_minutes: timeToPeak,
+        added_at: new Date().toISOString(),
+      });
+      added++;
+    }
+
+    const all = winners.getAll();
+    if (all.length > 100) {
+      const sorted = all.sort((a, b) => (a.added_at || '').localeCompare(b.added_at || ''));
+      const toRemove = sorted.slice(0, all.length - 100);
+      for (const old of toRemove) {
+        winners.delete((w) => w.id === old.id);
+      }
+    }
+
+    res.json({ ok: true, added, total: winners.getAll().length });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 export default router;
