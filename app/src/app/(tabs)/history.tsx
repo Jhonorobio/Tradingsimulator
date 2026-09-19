@@ -342,10 +342,10 @@ export default function HistoryScreen() {
           data={filtered}
           keyExtractor={(item, i) => `${item.address}-${item.category}-${item.notified_at}-${i}`}
           renderItem={renderItem}
-          initialNumToRender={15}
-          maxToRenderPerBatch={10}
-          windowSize={7}
-          getItemLayout={(_, index) => ({ length: 120, offset: 120 * index, index })}
+          initialNumToRender={10}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          removeClippedSubviews={false}
           contentContainerStyle={styles.scroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
           ListEmptyComponent={
