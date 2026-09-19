@@ -8,6 +8,7 @@ import { getProxyMarketCap } from '../services/gmgn-proxy.js';
 import { getTokenInfo, getLiveTokenInfo, getPrices, SOL_MINT } from '../services/token-data.js';
 import { cacheKey, withCache } from '../services/cache.js';
 import { buildParamsFromConfig, TRENCH_TABS } from '../services/trenches-filters.js';
+import { getLatestSnapshotData } from '../services/token-snapshots.js';
 import { connectionForTab, getRefresherStatus } from '../services/trenches-refresher.js';
 import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-health.js';
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
@@ -466,6 +467,55 @@ router.get('/token/:chain/:address', async (req, res) => {
         createdTimestamp: trench.created_timestamp ?? null,
         openTimestamp: trench.open_timestamp ?? null,
         sources: { dex: false, gmgn: false, trenches: true },
+      });
+    }
+
+    // Fast fallback: use snapshot data if available (no external HTTP call)
+    const snap = getLatestSnapshotData(address);
+    if (snap) {
+      return res.json({
+        chain,
+        address,
+        name: null,
+        symbol: null,
+        logo: null,
+        price: null,
+        marketCap: snap.usd_market_cap ?? snap.market_cap ?? null,
+        supply: null,
+        liquidity: snap.liquidity ?? 0,
+        volume24h: snap.volume_24h ?? 0,
+        volume1h: 0,
+        swaps24h: 0,
+        swaps1h: 0,
+        buys24h: 0,
+        sells24h: 0,
+        netBuy24h: 0,
+        priceChange: null,
+        holders: null,
+        top10HolderRate: null,
+        smartDegenCount: snap.smart_degen_count ?? null,
+        renownedCount: snap.renowned_count ?? null,
+        sniperCount: null,
+        rugRatio: snap.rug_ratio ?? null,
+        isWashTrading: null,
+        isHoneypot: null,
+        bundlerRate: snap.bundler_trader_amount_rate ?? null,
+        buyTax: null,
+        devTeamHoldRate: null,
+        creatorBalanceRate: null,
+        creatorTokenStatus: null,
+        renouncedMint: null,
+        renouncedFreeze: null,
+        dex: null,
+        dexPairs: 0,
+        twitter: null,
+        telegram: null,
+        website: null,
+        xFollowers: null,
+        ctoFlag: null,
+        createdTimestamp: null,
+        openTimestamp: null,
+        sources: { dex: false, gmgn: false, trenches: false, snapshots: true },
       });
     }
 

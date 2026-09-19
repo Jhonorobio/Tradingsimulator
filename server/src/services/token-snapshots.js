@@ -171,6 +171,27 @@ export function getFirstSnapshot(address, category) {
 }
 
 /**
+ * Returns the latest snapshot data for a token across all tracks.
+ * Used as fast fallback when token is not in trenches.
+ */
+export function getLatestSnapshotData(address) {
+  const entry = store[address];
+  if (!entry) return null;
+  let latest = null;
+  let latestTime = 0;
+  for (const track of entry.tracks) {
+    const lastSnap = track.snapshots?.[track.snapshots.length - 1];
+    if (!lastSnap) continue;
+    const t = new Date(lastSnap.t).getTime();
+    if (t > latestTime) {
+      latestTime = t;
+      latest = lastSnap;
+    }
+  }
+  return latest;
+}
+
+/**
  * Returns all tracks for a token (for history display).
  */
 export function getAllTracks(address) {
