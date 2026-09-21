@@ -89,27 +89,33 @@ export default function TokenScreen() {
   }, [address]);
 
   useEffect(() => {
-    loadDetail();
-    loadPosition();
-    const posTimer = setInterval(loadPosition, 2000);
-    return () => { clearInterval(posTimer); };
-  }, [loadDetail, loadPosition]);
-
-  useEffect(() => {
     if (!address) return;
     let active = true;
-    const poll = async () => {
-      try {
-        const live = await getLiveTokenPrice(chain || 'sol', address);
-        if (!active) return;
-        if (live && (live.price != null || live.marketCap != null)) {
-          setDetail((prev) => prev ? { ...prev, price: live.price ?? prev.price, marketCap: live.marketCap ?? prev.marketCap } : prev);
+    const pollFull = async () => {
+      while (active) {
+        const start = Date.now();
+        try {
+          const [d, pf] = await Promise.all([
+            getTokenDetail(chain || 'sol', address),
+            getPortfolio(),
+          ]);
+          if (!active) return;
+          setDetail(d);
+          setError(null);
+          setSolPrice(pf.sol_price ?? 0);
+          setUsdBalance(pf.wallet.balance_usd + pf.wallet.balance_sol * (pf.sol_price || 0));
+          const pos = pf.positions.find((p) => p.token_address === address);
+          setPosition(pos ?? null);
+        } catch {
+          if (active && !detail) setError('No se pudo cargar el token');
         }
-      } catch {}
+        const elapsed = Date.now() - start;
+        const wait = Math.max(1000 - elapsed, 0);
+        await new Promise((r) => setTimeout(r, wait));
+      }
     };
-    poll();
-    const timer = setInterval(poll, 1000);
-    return () => { active = false; clearInterval(timer); };
+    pollFull();
+    return () => { active = false; };
   }, [address, chain]);
 
   const openGmgn = useCallback(async () => {
