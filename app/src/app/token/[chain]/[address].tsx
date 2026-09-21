@@ -12,7 +12,7 @@ import { PriceChange } from '@/components/price-change';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
-import { getTokenDetail } from '@/api/market';
+import { getTokenDetail, getLiveTokenPrice } from '@/api/market';
 import { buy, getPortfolio, sell } from '@/api/trading';
 import { ApiError } from '@/api/client';
 import type { Position, TokenDetail, TradeResult } from '@/api/types';
@@ -94,6 +94,23 @@ export default function TokenScreen() {
     const posTimer = setInterval(loadPosition, 2000);
     return () => { clearInterval(posTimer); };
   }, [loadDetail, loadPosition]);
+
+  useEffect(() => {
+    if (!address) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const live = await getLiveTokenPrice(chain || 'sol', address);
+        if (!active) return;
+        if (live && (live.price != null || live.marketCap != null)) {
+          setDetail((prev) => prev ? { ...prev, price: live.price ?? prev.price, marketCap: live.marketCap ?? prev.marketCap } : prev);
+        }
+      } catch {}
+    };
+    poll();
+    const timer = setInterval(poll, 3000);
+    return () => { active = false; clearInterval(timer); };
+  }, [address, chain]);
 
   const openGmgn = useCallback(async () => {
     if (!address) return;
