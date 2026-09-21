@@ -108,7 +108,7 @@ export default function TokenScreen() {
       } catch {}
     };
     poll();
-    const timer = setInterval(poll, 3000);
+    const timer = setInterval(poll, 1000);
     return () => { active = false; clearInterval(timer); };
   }, [address, chain]);
 
