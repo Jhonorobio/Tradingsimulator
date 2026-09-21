@@ -12,7 +12,7 @@ import { PriceChange } from '@/components/price-change';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
-import { getTokenDetail, getLiveTokenPrice } from '@/api/market';
+import { getTokenDetail } from '@/api/market';
 import { buy, getPortfolio, sell } from '@/api/trading';
 import { ApiError } from '@/api/client';
 import type { Position, TokenDetail, TradeResult } from '@/api/types';
@@ -177,7 +177,24 @@ export default function TokenScreen() {
     );
   }
 
-  if (!detail) return null;
+  if (!detail) {
+    return (
+      <ThemedView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <View style={styles.header}>
+            <View style={[styles.loadingAvatar, { backgroundColor: theme.backgroundSelected }]} />
+            <View style={{ flex: 1, gap: 6 }}>
+              <View style={[styles.loadingLine, { width: 80, backgroundColor: theme.backgroundSelected }]} />
+              <View style={[styles.loadingLine, { width: 140, backgroundColor: theme.backgroundSelected }]} />
+            </View>
+          </View>
+          <Card style={styles.priceCard}>
+            <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>Cargando…</ThemedText>
+          </Card>
+        </ScrollView>
+      </ThemedView>
+    );
+  }
   const d = detail;
   const symbol = d.symbol ?? 'TOKEN';
 
@@ -399,4 +416,6 @@ const styles = StyleSheet.create({
   buyBtn: { marginTop: 12, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
   pctRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   pctBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', borderWidth: 1 },
+  loadingAvatar: { width: 56, height: 56, borderRadius: 28 },
+  loadingLine: { height: 14, borderRadius: 4 },
 });
