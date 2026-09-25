@@ -672,7 +672,7 @@ router.get('/token/:chain/:address/live-mcap', async (req, res) => {
     const { chain, address } = req.params;
     const slug = chain === 'solana' ? 'sol' : chain || 'sol';
     if (slug !== 'sol') return fail(res, new Error('live-mcap is sol-only'), 400);
-    const result = await getLiveMcap(address, { resolution: req.query.resolution });
+    const result = await getLiveMcap(address);
     res.json(result);
   } catch (err) {
     fail(res, err, 502);

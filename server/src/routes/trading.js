@@ -196,9 +196,9 @@ router.get('/portfolio', async (req, res) => {
       .map((p) => p.token_address);
     const [market, live] = await Promise.all([
       getPrices(mints), // fallback batched request (GMGN proxy / Dexscreener)
-      // Same live mcap as the token detail badge (GMGN candles, 400ms cache);
-      // the call waits for a refresh so the value is as fresh as the badge.
-      getLiveMcapMany(solMints, { freshMs: 400 }).catch(() => ({})),
+      // Same live mcap as the token detail badge (GMGN candles); reads a
+      // cache the service refreshes in the background every ~400ms.
+      getLiveMcapMany(solMints).catch(() => ({})),
     ]);
 
     const enriched = positions.map((p) => {

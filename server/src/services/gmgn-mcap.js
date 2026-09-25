@@ -27,20 +27,29 @@ const HEADERS = {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
 };
 
-// Live mcap is polled ~2x/s by the app; serve from cache for most hits so
-// GMGN sees ~2 req/s regardless of how many viewers are open.
-const CACHE_TTL_MS = 400;
-// Global pacing between upstream calls (all mints share the slot).
-const MIN_INTERVAL_MS = 300;
+// Readers (badge, portfolio, position card) ONLY read the cache — a single
+// background poller refreshes every mint people are looking at. This keeps
+// upstream traffic at ~2.5 req/s no matter how many screens poll at 0.5s,
+// which is what avoids GMGN's 403/429 backoff.
+const TICK_MS = 400;              // poller cadence (global)
+const MIN_INTERVAL_MS = 300;      // min gap between any two upstream calls
+const READER_STALE_MS = 5_000;    // direct fetch only if cache older than this
+const READER_IDLE_MS = 15_000;    // stop refreshing mints nobody looked at
 const BACKOFF_MS = 60_000;
-// Never let a hung upstream call block the route (polled every 500ms).
+// Never let a hung upstream call block a direct fetch (polled every 500ms).
 const FETCH_TIMEOUT_MS = 8_000;
 
-const cache = new Map(); // mint -> { data, savedAt }
-const inflight = new Map(); // mint -> Promise
-let nextSlot = 0;
+const cache = new Map(); // mint -> { data: {marketCap,time}, savedAt }
+const active = new Map(); // mint -> lastReadAt (readers we should refresh)
+const lastFetched = new Map(); // mint -> ts of last upstream attempt
+const inflight = new Map(); // mint -> Promise (coalesced direct fetches)
+let poller = null;
+let lastFetchAt = 0;
 let backoffUntil = 0;
 let cycleTLS = null;
+let fetchCount = 0;
+let errorCount = 0;
+let lastError = null;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -53,6 +62,7 @@ async function getCycleTLS() {
 
 /** Stops the CycleTLS daemon (call on server shutdown). */
 export async function closeMcap() {
+  stopPoller();
   if (cycleTLS) {
     const c = cycleTLS;
     cycleTLS = null;
@@ -80,13 +90,12 @@ function candlesUrl(mint, resolution) {
  * market cap in USD — it moves as trades print inside the same 15s window.
  */
 async function fetchLiveCandle(mint, resolution) {
-  const wait = nextSlot - Date.now();
+  const wait = lastFetchAt + MIN_INTERVAL_MS - Date.now();
   if (wait > 0) await sleep(wait);
-  nextSlot = Date.now() + MIN_INTERVAL_MS;
+  lastFetchAt = Date.now();
+  fetchCount += 1;
 
   const request = requestLiveCandle(mint, resolution);
-  // A hung upstream call must never block the route (polled every 500ms):
-  // win the race or fail; the abandoned promise's late rejection is swallowed.
   let timer;
   try {
     return await Promise.race([
@@ -103,7 +112,8 @@ async function fetchLiveCandle(mint, resolution) {
 
 async function requestLiveCandle(mint, resolution) {
   const client = await getCycleTLS();
-  const resp = await client(candlesUrl(mint, resolution), {
+  const url = candlesUrl(mint, resolution);
+  const resp = await client(url, {
     client: 'chrome131',
     headers: HEADERS,
   }, 'GET');
@@ -131,33 +141,121 @@ async function requestLiveCandle(mint, resolution) {
   };
 }
 
+function onFetchError(err) {
+  errorCount += 1;
+  lastError = {
+    message: String(err?.message || err),
+    httpCode: err?.httpCode ?? null,
+    gmgn: Boolean(err?.gmgn),
+    at: Date.now(),
+  };
+  if (err.httpCode === 403 || err.httpCode === 429) {
+    backoffUntil = Date.now() + BACKOFF_MS;
+  }
+}
+
+/** Coalesced direct fetch: one in-flight upstream call per mint. */
+function directFetch(mint, resolution) {
+  let pending = inflight.get(mint);
+  if (pending) return pending;
+  pending = fetchLiveCandle(mint, resolution)
+    .then((data) => {
+      cache.set(mint, { data, savedAt: Date.now() });
+      lastFetched.set(mint, Date.now());
+      return { ...data, cached: false };
+    })
+    .catch((err) => {
+      onFetchError(err);
+      const hit = cache.get(mint);
+      return {
+        marketCap: hit?.data.marketCap ?? null,
+        time: hit?.data.time ?? null,
+        cached: Boolean(hit),
+        error: err.message,
+      };
+    })
+    .finally(() => inflight.delete(mint));
+  inflight.set(mint, pending);
+  return pending;
+}
+
+// ─── Background poller ───────────────────────────────────────────────────
+// Round-robin: every TICK_MS refresh the least-recently-fetched mint that
+// somebody is still looking at. Global cadence stays at ~2.5 req/s.
+function startPoller() {
+  if (poller) return;
+  poller = setInterval(pollTick, TICK_MS);
+}
+
+function stopPoller() {
+  if (poller) {
+    clearInterval(poller);
+    poller = null;
+  }
+}
+
+function pollTick() {
+  try {
+    const now = Date.now();
+    for (const [mint, readAt] of active) {
+      if (now - readAt > READER_IDLE_MS) {
+        active.delete(mint);
+        lastFetched.delete(mint);
+      }
+    }
+    if (!active.size) {
+      stopPoller();
+      return;
+    }
+    if (now < backoffUntil) return;
+    if (now - lastFetchAt < MIN_INTERVAL_MS) return;
+
+    let pick = null;
+    let oldest = Infinity;
+    for (const mint of active.keys()) {
+      const at = lastFetched.get(mint) ?? 0;
+      if (at < oldest) {
+        oldest = at;
+        pick = mint;
+      }
+    }
+    if (!pick) return;
+    // Coalesce with any in-flight fetch: GMGN rejects overlapping requests
+    // for the same mint with `invalid token_address`.
+    if (inflight.has(pick)) return;
+    lastFetched.set(pick, now);
+    directFetch(pick, '15s').catch(() => {}); // never throws; handles errors/cache
+  } catch {
+    /* the timer must never crash */
+  }
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────
+
 /**
  * Live market cap (USD) for a SOL token, from GMGN's internal candles
- * endpoint via CycleTLS.
+ * endpoint via CycleTLS. Reads are served from the cache (updated by the
+ * background poller every ~400ms); a direct fetch happens only when nothing
+ * fresh exists yet or the cache went very stale (poller stopped/backoff).
  *
  * @param {string} mint - token contract address
- * @param {{resolution?: string, force?: boolean, freshMs?: number}} [opts]
- *   `freshMs` overrides how long a cached value stays fresh (default 400ms;
- *   portfolio-style callers pass ~2000ms so a batch read stays cheap).
+ * @param {{force?: boolean}} [opts]
  * @returns {Promise<{marketCap: number|null, time: number|null, cached: boolean, error?: string}>}
  *   Never throws: on upstream failure it returns the last cached value (if
  *   any) plus `error`.
  */
 export async function getLiveMcap(mint, opts = {}) {
   if (!mint) return { marketCap: null, time: null, cached: false, error: 'NO_MINT' };
-  const resolution = String(opts.resolution || '15s');
-  const freshMs = Number(opts.freshMs) > 0 ? Number(opts.freshMs) : CACHE_TTL_MS;
   const now = Date.now();
+  active.set(mint, now); // keep this mint on the poller's round-robin
+  startPoller();
 
-  if (!opts.force) {
-    const hit = cache.get(mint);
-    if (hit && now - hit.savedAt < freshMs) {
-      return { ...hit.data, cached: true };
-    }
+  const hit = cache.get(mint);
+  const age = hit ? now - hit.savedAt : Infinity;
+  if (!opts.force && hit && age < READER_STALE_MS) {
+    return { ...hit.data, cached: true };
   }
-
-  if (now < backoffUntil) {
-    const hit = cache.get(mint);
+  if (!opts.force && now < backoffUntil) {
     return {
       marketCap: hit?.data.marketCap ?? null,
       time: hit?.data.time ?? null,
@@ -165,40 +263,15 @@ export async function getLiveMcap(mint, opts = {}) {
       error: 'BACKOFF',
     };
   }
-
-  // Coalesce concurrent viewers of the same token into one upstream call.
-  let pending = inflight.get(mint);
-  if (!pending) {
-    pending = fetchLiveCandle(mint, resolution)
-      .then((data) => {
-        cache.set(mint, { data, savedAt: Date.now() });
-        return { ...data, cached: false };
-      })
-      .catch((err) => {
-        if (err.httpCode === 403 || err.httpCode === 429) backoffUntil = Date.now() + BACKOFF_MS;
-        const hit = cache.get(mint);
-        return {
-          marketCap: hit?.data.marketCap ?? null,
-          time: hit?.data.time ?? null,
-          cached: Boolean(hit),
-          error: err.message,
-        };
-      })
-      .finally(() => {
-        inflight.delete(mint);
-      });
-    inflight.set(mint, pending);
-  }
-  return pending;
+  return directFetch(mint, '15s');
 }
 
 /**
  * Live market caps for several SOL tokens at once (portfolio valuation).
- * Concurrent per mint, upstream starts stay paced by MIN_INTERVAL_MS; mints
- * already fresh in cache are returned without a fetch.
+ * Reads only — the poller keeps each requested mint warm.
  *
  * @param {string[]} mints
- * @param {{freshMs?: number, force?: boolean}} [opts]
+ * @param {{force?: boolean}} [opts]
  * @returns {Promise<Record<string, {marketCap: number|null, time: number|null, cached: boolean, error?: string}>>}
  */
 export async function getLiveMcapMany(mints, opts = {}) {
@@ -213,10 +286,15 @@ export async function getLiveMcapMany(mints, opts = {}) {
 /** Current pacing/backoff state (for debug endpoints). */
 export function getLiveMcapStatus() {
   return {
-    inflight: inflight.size,
+    activeMints: active.size,
     cached: cache.size,
+    inflight: inflight.size,
+    fetchCount,
+    errorCount,
+    lastError,
     backoffRemainingMs: Math.max(0, backoffUntil - Date.now()),
-    minIntervalMs: MIN_INTERVAL_MS,
+    pollerRunning: Boolean(poller),
+    tickMs: TICK_MS,
     method: 'cycletls(chrome131)',
   };
 }
