@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as trading from '../services/trading.js';
 import { getTokenInfo as getDataTokenInfo, getPrices, SOL_MINT } from '../services/token-data.js';
 import { getTokenInfo } from '../services/dexscreener.js';
+import { getLiveMcap, getLiveMcapMany } from '../services/gmgn-mcap.js';
 
 const router = Router();
 
@@ -32,15 +33,22 @@ function fail(res, err, status = 500) {
 }
 
 async function resolveToken(address, chain = 'sol') {
-  // Fetch fresh market-cap data + metadata to price the simulated trade.
-  const [data, dex] = await Promise.allSettled([
-    getDataTokenInfo(chain, address),
-    getTokenInfo(address),
+  const slug = chain === 'solana' ? 'sol' : chain || 'sol';
+  // Live market cap (GMGN candles) prices the simulated trade; metadata and
+  // the proxy/Dexscreener mcap remain as fallback when candles are empty.
+  const [live, data, dex] = await Promise.all([
+    slug === 'sol'
+      ? getLiveMcap(address).catch(() => ({ marketCap: null, error: 'live-mcap failed' }))
+      : Promise.resolve({ marketCap: null }),
+    Promise.allSettled([
+      getDataTokenInfo(chain, address),
+      getTokenInfo(address),
+    ]),
   ]);
-  const dataInfo = data.status === 'fulfilled' ? data.value : null;
-  const dexInfo = dex.status === 'fulfilled' ? dex.value : null;
+  const dataInfo = data[0].status === 'fulfilled' ? data[0].value : null;
+  const dexInfo = data[1].status === 'fulfilled' ? data[1].value : null;
 
-  const marketCap = dataInfo?.marketCap ?? dexInfo?.marketCap ?? null;
+  const marketCap = live?.marketCap ?? dataInfo?.marketCap ?? dexInfo?.marketCap ?? null;
   if (!marketCap || marketCap <= 0) {
     throw Object.assign(new Error('Could not resolve a market cap for this token'), { status: 422 });
   }
@@ -54,7 +62,9 @@ async function resolveToken(address, chain = 'sol') {
       logo: dexInfo?.logo ?? dataInfo?.logo ?? null,
     },
     marketCap,
-    source: dataInfo?.marketCap != null ? dataInfo.source : 'dexscreener',
+    source: live?.marketCap != null
+      ? 'gmgn-candles'
+      : dataInfo?.marketCap != null ? dataInfo.source : 'dexscreener',
   };
 }
 
@@ -181,11 +191,19 @@ router.get('/portfolio', async (req, res) => {
     const stats = trading.getStats(id);
 
     const mints = positions.map((p) => ({ address: p.token_address, chain: p.chain || 'sol' }));
-    const market = await getPrices(mints); // single batched request
+    const solMints = positions
+      .filter((p) => (p.chain || 'sol') === 'sol')
+      .map((p) => p.token_address);
+    const [market, live] = await Promise.all([
+      getPrices(mints), // fallback batched request (GMGN proxy / Dexscreener)
+      // Live mcap (GMGN candles) for SOL positions — fresh for 2s so a poll
+      // only refetches what actually went stale.
+      getLiveMcapMany(solMints, { freshMs: 2000 }).catch(() => ({})),
+    ]);
 
     const enriched = positions.map((p) => {
       const m = market[p.token_address];
-      const mcap = m?.marketCap ?? p.entry_market_cap;
+      const mcap = live[p.token_address]?.marketCap ?? m?.marketCap ?? p.entry_market_cap;
       const value = p.quantity * mcap;
       const pnl = value - p.cost_usdc;
       return {

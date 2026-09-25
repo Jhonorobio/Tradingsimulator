@@ -84,6 +84,24 @@ async function fetchLiveCandle(mint, resolution) {
   if (wait > 0) await sleep(wait);
   nextSlot = Date.now() + MIN_INTERVAL_MS;
 
+  const request = requestLiveCandle(mint, resolution);
+  // A hung upstream call must never block the route (polled every 500ms):
+  // win the race or fail; the abandoned promise's late rejection is swallowed.
+  let timer;
+  try {
+    return await Promise.race([
+      request,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`TIMEOUT_${FETCH_TIMEOUT_MS}MS`)), FETCH_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    request.catch(() => {});
+  }
+}
+
+async function requestLiveCandle(mint, resolution) {
   const client = await getCycleTLS();
   const resp = await client(candlesUrl(mint, resolution), {
     client: 'chrome131',
@@ -118,7 +136,9 @@ async function fetchLiveCandle(mint, resolution) {
  * endpoint via CycleTLS.
  *
  * @param {string} mint - token contract address
- * @param {{resolution?: string, force?: boolean}} [opts]
+ * @param {{resolution?: string, force?: boolean, freshMs?: number}} [opts]
+ *   `freshMs` overrides how long a cached value stays fresh (default 400ms;
+ *   portfolio-style callers pass ~2000ms so a batch read stays cheap).
  * @returns {Promise<{marketCap: number|null, time: number|null, cached: boolean, error?: string}>}
  *   Never throws: on upstream failure it returns the last cached value (if
  *   any) plus `error`.
@@ -126,11 +146,12 @@ async function fetchLiveCandle(mint, resolution) {
 export async function getLiveMcap(mint, opts = {}) {
   if (!mint) return { marketCap: null, time: null, cached: false, error: 'NO_MINT' };
   const resolution = String(opts.resolution || '15s');
+  const freshMs = Number(opts.freshMs) > 0 ? Number(opts.freshMs) : CACHE_TTL_MS;
   const now = Date.now();
 
   if (!opts.force) {
     const hit = cache.get(mint);
-    if (hit && now - hit.savedAt < CACHE_TTL_MS) {
+    if (hit && now - hit.savedAt < freshMs) {
       return { ...hit.data, cached: true };
     }
   }
@@ -169,6 +190,24 @@ export async function getLiveMcap(mint, opts = {}) {
     inflight.set(mint, pending);
   }
   return pending;
+}
+
+/**
+ * Live market caps for several SOL tokens at once (portfolio valuation).
+ * Concurrent per mint, upstream starts stay paced by MIN_INTERVAL_MS; mints
+ * already fresh in cache are returned without a fetch.
+ *
+ * @param {string[]} mints
+ * @param {{freshMs?: number, force?: boolean}} [opts]
+ * @returns {Promise<Record<string, {marketCap: number|null, time: number|null, cached: boolean, error?: string}>>}
+ */
+export async function getLiveMcapMany(mints, opts = {}) {
+  const unique = [...new Set((mints || []).filter(Boolean))];
+  if (!unique.length) return {};
+  const entries = await Promise.all(
+    unique.map(async (mint) => [mint, await getLiveMcap(mint, opts)])
+  );
+  return Object.fromEntries(entries);
 }
 
 /** Current pacing/backoff state (for debug endpoints). */

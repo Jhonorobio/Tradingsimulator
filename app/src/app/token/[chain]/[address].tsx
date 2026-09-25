@@ -219,6 +219,7 @@ export default function TokenScreen() {
   }
   const d = detail;
   const symbol = d.symbol ?? 'TOKEN';
+  const mcapNow = liveMcap ?? d.marketCap;
 
   return (
     <ThemedView style={styles.container}>
@@ -255,7 +256,7 @@ export default function TokenScreen() {
                   </View>
                 )}
               </View>
-              <ThemedText type="subtitle">{v(liveMcap ?? d.marketCap, { compact: true })}</ThemedText>
+              <ThemedText type="subtitle">{v(mcapNow, { compact: true })}</ThemedText>
             </View>
             {d.price != null && (
               <View style={{ alignItems: 'flex-end' }}>
@@ -366,9 +367,9 @@ export default function TokenScreen() {
               keyboardType="decimal-pad"
               style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
             />
-            {d.marketCap && Number(amount) > 0 && solPrice > 0 ? (
+            {mcapNow && Number(amount) > 0 && solPrice > 0 ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                ≈ {fmtNum((Number(amount) / d.marketCap) * 100, { decimals: 6 })}% del MC · gas ~$0.10
+                ≈ {fmtNum((Number(amount) / mcapNow) * 100, { decimals: 6 })}% del MC · gas ~$0.10
               </ThemedText>
             ) : null}
             <Pressable onPress={doBuy} disabled={submitting} style={({ pressed }) => [styles.buyBtn, { backgroundColor: theme.positive }, pressed && { opacity: 0.8 }]}>
