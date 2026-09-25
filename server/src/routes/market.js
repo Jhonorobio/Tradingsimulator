@@ -12,6 +12,7 @@ import { getLatestSnapshotData } from '../services/token-snapshots.js';
 import { connectionForTab, getRefresherStatus } from '../services/trenches-refresher.js';
 import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-health.js';
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
+import { getMentions, getMentionsStatus } from '../services/gmgn-mentions.js';
 
 const router = Router();
 
@@ -369,6 +370,33 @@ router.get('/debug-tab/:tab', async (req, res) => {
     const elapsed = Date.now() - start;
     fail(res, Object.assign(new Error(`[${tab}] Fetch failed (${elapsed}ms): ${err.message}`), { status: err.status || 500 }));
   }
+});
+
+/**
+ * GET /api/market/debug-mentions/:mint — forces a curl-based fetch of the
+ * internal GMGN X-mentions endpoint and reports status/timing. Diagnostic
+ * endpoint to verify the curl spawn works from the Railway container.
+ */
+router.get('/debug-mentions/:mint', async (req, res) => {
+  const mint = String(req.params.mint || '').trim();
+  if (!mint) return fail(res, new Error('mint is required'), 400);
+  const start = Date.now();
+  const result = await getMentions(mint, { force: true, limit: 10 });
+  res.json({
+    mint,
+    elapsedMs: Date.now() - start,
+    items: result.items.length,
+    first: result.items.slice(0, 2).map((t) => ({
+      tweet_id: t?.tweet_id,
+      user: t?.user?.screen_name,
+      text: (t?.content?.text || '').slice(0, 80),
+    })),
+    cached: result.cached,
+    error: result.error || null,
+    status: getMentionsStatus(),
+    platform: process.platform,
+    time: new Date().toISOString(),
+  });
 });
 
 /** Looks up a token in the in-memory trenches store (no GMGN call). */

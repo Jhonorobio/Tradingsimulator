@@ -8,6 +8,9 @@ web-build/
 server/data/
 server/.env
 
+# Local GMGN extension copy (contains .env with API keys)
+gmgn-simulator-extension/
+
 # Native
 *.orig.*
 *.jks
