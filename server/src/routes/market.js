@@ -12,7 +12,7 @@ import { getLatestSnapshotData } from '../services/token-snapshots.js';
 import { connectionForTab, getRefresherStatus } from '../services/trenches-refresher.js';
 import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-health.js';
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
-import { getMentions, getMentionsStatus, rawMentions, CURL_LABEL } from '../services/gmgn-mentions.js';
+import { getMentions, getMentionsStatus, rawMentions } from '../services/gmgn-mentions.js';
 
 const router = Router();
 
@@ -374,34 +374,19 @@ router.get('/debug-tab/:tab', async (req, res) => {
 
 /**
  * GET /api/market/debug-mentions/:mint — fetch of the internal GMGN
- * X-mentions endpoint (CycleTLS Chrome fingerprint, curl fallback).
- *   ?method=auto|browser|curl  transport to test (default auto)
- *   ?raw=1        bypass queue/cache/backoff, report raw HTTP status + body head
- *   ?proxy=1      tunnel through the saved proxy (completed tab)
- *   ?proxy=<url>  explicit proxy URL (curl method only)
+ * X-mentions endpoint (CycleTLS Chrome fingerprint).
+ *   ?raw=1 — bypass queue/cache/backoff, report raw HTTP status + timing.
  */
 router.get('/debug-mentions/:mint', async (req, res) => {
   const mint = String(req.params.mint || '').trim();
   if (!mint) return fail(res, new Error('mint is required'), 400);
 
-  let proxyUrl = '';
-  if (req.query.proxy === '1' || req.query.proxy === 'auto') {
-    proxyUrl = proxyConfigs.get('completed')?.url || proxyConfigs.get('token_info')?.url || '';
-    if (!proxyUrl) return fail(res, new Error('No saved proxy (completed/token_info)'), 400);
-  } else if (req.query.proxy) {
-    proxyUrl = String(req.query.proxy);
-  }
-
   if (req.query.raw === '1') {
-    const method = String(req.query.method || 'auto');
-    const result = await rawMentions(mint, { limit: 10, proxy: proxyUrl, method });
+    const result = await rawMentions(mint, { limit: 10 });
     return res.json({
       mint,
       mode: 'raw',
-      requestedMethod: method,
-      proxy: proxyUrl ? proxyUrl.replace(/\/\/.*@/, '//***@') : '(direct)',
       platform: process.platform,
-      curl: CURL_LABEL,
       ...result,
       status: getMentionsStatus(),
       time: new Date().toISOString(),
