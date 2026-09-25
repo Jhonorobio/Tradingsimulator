@@ -10,7 +10,7 @@ const pExecFile = promisify(execFile);
 const CHROME_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const CURL_BIN = process.platform === 'win32' ? 'curl.exe' : 'curl';
-const TIMEOUT_MS = 15_000;
+export const CURL_LABEL = CURL_BIN;
 
 // Client-side pacing: 1 request/s globally (extension uses 10s + 900ms stagger
 // per mint; we round-robin through mints instead).
@@ -32,26 +32,73 @@ function sleep(ms) {
 
 /**
  * One raw call to GMGN's internal Twitter-mentions endpoint, via curl.
- * @returns {Promise<{status: number, items: Array}>}
+ * Captures the real HTTP status (-w) so 403/429 HTML pages are detectable.
+ * @returns {Promise<{httpCode: number, items: Array}>}
  */
-async function curlMentions(mint, limit) {
+async function curlMentions(mint, limit, { proxy = '', timeoutSec = 15 } = {}) {
   const url =
     'https://gmgn.ai/vas/api/v1/twitter/token/search?keyword=' +
     encodeURIComponent(mint) +
-    '&limit=' +
-    encodeURIComponent(limit);
-  const { stdout } = await pExecFile(
-    CURL_BIN,
-    ['-s', '-m', '15', '-H', `User-Agent: ${CHROME_UA}`, '-H', 'Accept: application/json', url],
-    { windowsHide: true, timeout: TIMEOUT_MS, maxBuffer: 5 * 1024 * 1024 }
-  );
+    '&limit=' + encodeURIComponent(limit);
+  const args = ['-s', '-m', String(timeoutSec), '-w', '\n%{http_code}',
+    '-H', `User-Agent: ${CHROME_UA}`, '-H', 'Accept: application/json'];
+  if (proxy) args.push('-x', proxy);
+  args.push(url);
+
+  const { stdout } = await pExecFile(CURL_BIN, args, {
+    windowsHide: true,
+    timeout: (timeoutSec + 5) * 1000,
+    maxBuffer: 5 * 1024 * 1024,
+  });
+  const sep = stdout.lastIndexOf('\n');
+  const body = sep >= 0 ? stdout.slice(0, sep) : stdout;
+  const httpCode = Number(stdout.slice(sep + 1)) || 0;
+
+  if (httpCode === 403 || httpCode === 429) {
+    const err = new Error(`HTTP_${httpCode}`);
+    err.httpCode = httpCode;
+    err.bodyHead = body.slice(0, 160);
+    throw err;
+  }
+  if (httpCode !== 200) {
+    const err = new Error(`HTTP_${httpCode}`);
+    err.httpCode = httpCode;
+    err.bodyHead = body.slice(0, 160);
+    throw err;
+  }
   let json;
   try {
-    json = JSON.parse(stdout);
+    json = JSON.parse(body);
   } catch {
-    throw new Error('NON_JSON');
+    const err = new Error('NON_JSON');
+    err.httpCode = httpCode;
+    err.bodyHead = body.slice(0, 160);
+    throw err;
   }
-  return { status: 200, code: json?.code, items: Array.isArray(json?.data) ? json.data : [] };
+  return { httpCode, items: Array.isArray(json?.data) ? json.data : [] };
+}
+
+/**
+ * Diagnostic-only fetch: bypasses queue, cache and backoff, and reports the
+ * raw HTTP status + body head + timing. Optionally tunnels through a proxy.
+ * @param {string} mint
+ * @param {{limit?: number, proxy?: string}} opts
+ */
+export async function rawMentions(mint, opts = {}) {
+  const limit = Math.min(Math.max(Number(opts.limit) || 10, 1), 50);
+  const start = Date.now();
+  try {
+    const { httpCode, items } = await curlMentions(mint, limit, { proxy: opts.proxy || '' });
+    return { ok: true, httpCode, items: items.length, elapsedMs: Date.now() - start, bodyHead: null };
+  } catch (err) {
+    return {
+      ok: false,
+      httpCode: err.httpCode ?? null,
+      items: 0,
+      elapsedMs: Date.now() - start,
+      bodyHead: err.bodyHead || err.message,
+    };
+  }
 }
 
 // Serialized pump: runs queued fetches respecting MIN_INTERVAL_MS and backoff.

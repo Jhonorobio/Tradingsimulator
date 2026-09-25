@@ -12,7 +12,7 @@ import { getLatestSnapshotData } from '../services/token-snapshots.js';
 import { connectionForTab, getRefresherStatus } from '../services/trenches-refresher.js';
 import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-health.js';
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
-import { getMentions, getMentionsStatus } from '../services/gmgn-mentions.js';
+import { getMentions, getMentionsStatus, rawMentions, CURL_LABEL } from '../services/gmgn-mentions.js';
 
 const router = Router();
 
@@ -373,13 +373,40 @@ router.get('/debug-tab/:tab', async (req, res) => {
 });
 
 /**
- * GET /api/market/debug-mentions/:mint — forces a curl-based fetch of the
- * internal GMGN X-mentions endpoint and reports status/timing. Diagnostic
- * endpoint to verify the curl spawn works from the Railway container.
+ * GET /api/market/debug-mentions/:mint — curl-based fetch of the internal
+ * GMGN X-mentions endpoint.
+ *   ?raw=1        bypass queue/cache/backoff, report raw HTTP status + body head
+ *   ?proxy=1      tunnel through the saved proxy (completed tab); with raw=1
+ *                 this lets us test "OpenSSL curl + datacenter IP" vs
+ *                 "OpenSSL curl + residential IP" from the Railway container
+ *   ?proxy=<url>  explicit proxy URL
  */
 router.get('/debug-mentions/:mint', async (req, res) => {
   const mint = String(req.params.mint || '').trim();
   if (!mint) return fail(res, new Error('mint is required'), 400);
+
+  let proxyUrl = '';
+  if (req.query.proxy === '1' || req.query.proxy === 'auto') {
+    proxyUrl = proxyConfigs.get('completed')?.url || proxyConfigs.get('token_info')?.url || '';
+    if (!proxyUrl) return fail(res, new Error('No saved proxy (completed/token_info)'), 400);
+  } else if (req.query.proxy) {
+    proxyUrl = String(req.query.proxy);
+  }
+
+  if (req.query.raw === '1') {
+    const result = await rawMentions(mint, { limit: 10, proxy: proxyUrl });
+    return res.json({
+      mint,
+      mode: 'raw',
+      proxy: proxyUrl ? proxyUrl.replace(/\/\/.*@/, '//***@') : '(direct)',
+      platform: process.platform,
+      curl: CURL_LABEL,
+      ...result,
+      status: getMentionsStatus(),
+      time: new Date().toISOString(),
+    });
+  }
+
   const start = Date.now();
   const result = await getMentions(mint, { force: true, limit: 10 });
   res.json({
