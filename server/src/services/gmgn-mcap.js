@@ -204,8 +204,19 @@ export async function getLiveMcap(mint, opts = {}) {
 export async function getLiveMcapMany(mints, opts = {}) {
   const unique = [...new Set((mints || []).filter(Boolean))];
   if (!unique.length) return {};
+  const freshMs = Number(opts.freshMs) > 0 ? Number(opts.freshMs) : CACHE_TTL_MS;
   const entries = await Promise.all(
-    unique.map(async (mint) => [mint, await getLiveMcap(mint, opts)])
+    unique.map(async (mint) => {
+      const hit = cache.get(mint);
+      const stale = hit && Date.now() - hit.savedAt >= freshMs;
+      if (stale && !opts.force) {
+        // Stale-while-revalidate: serve the last value now and refresh in the
+        // background, so a portfolio poll never waits on the upstream call.
+        getLiveMcap(mint, { force: true, freshMs }).catch(() => {});
+        return [mint, { ...hit.data, cached: true }];
+      }
+      return [mint, await getLiveMcap(mint, opts)];
+    })
   );
   return Object.fromEntries(entries);
 }

@@ -51,7 +51,7 @@ export default function DashboardScreen() {
   useEffect(() => {
     load();
     loadProxyStatuses();
-    const pfTimer = setInterval(load, 2000);
+    const pfTimer = setInterval(load, 1000);
     return () => {
       clearInterval(pfTimer);
     };

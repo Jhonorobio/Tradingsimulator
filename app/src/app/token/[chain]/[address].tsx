@@ -382,7 +382,7 @@ export default function TokenScreen() {
           <Card>
             <ThemedText type="smallBold">Vender {symbol}</ThemedText>
             <View style={styles.pctRow}>
-              {[25, 50, 75, 100].map((p) => (
+              {[25, 50, 75, 90, 100].map((p) => (
                 <Pressable
                   key={p}
                   onPress={() => setPct(p)}
