@@ -93,32 +93,49 @@ export default function TokenScreen() {
   useEffect(() => {
     if (!address) return;
     let active = true;
-    const pollFull = async () => {
+    const pollDetail = async () => {
       while (active) {
         const start = Date.now();
         try {
-          const [d, pf] = await Promise.all([
-            getTokenDetail(chain || 'sol', address),
-            getPortfolio(),
-          ]);
+          const d = await getTokenDetail(chain || 'sol', address);
           if (!active) return;
           setDetail(d);
           setError(null);
-          setSolPrice(pf.sol_price ?? 0);
-          setUsdBalance(pf.wallet.balance_usd + pf.wallet.balance_sol * (pf.sol_price || 0));
-          const pos = pf.positions.find((p) => p.token_address === address);
-          setPosition(pos ?? null);
         } catch {
           if (active && !detail) setError('No se pudo cargar el token');
         }
-        const elapsed = Date.now() - start;
-        const wait = Math.max(1000 - elapsed, 0);
+        const wait = Math.max(1000 - (Date.now() - start), 0);
         await new Promise((r) => setTimeout(r, wait));
       }
     };
-    pollFull();
+    pollDetail();
     return () => { active = false; };
   }, [address, chain]);
+
+  // Position (MC actual, value, P&L) + balance on its own 500ms loop, so it
+  // tracks the live-mcap badge instead of waiting for the slower detail fetch.
+  useEffect(() => {
+    if (!address) return;
+    let active = true;
+    const pollPosition = async () => {
+      while (active) {
+        const start = Date.now();
+        try {
+          const pf = await getPortfolio();
+          if (!active) return;
+          setSolPrice(pf.sol_price ?? 0);
+          setUsdBalance(pf.wallet.balance_usd + pf.wallet.balance_sol * (pf.sol_price || 0));
+          setPosition(pf.positions.find((p) => p.token_address === address) ?? null);
+        } catch {
+          /* keep last position */
+        }
+        const wait = Math.max(500 - (Date.now() - start), 0);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    };
+    pollPosition();
+    return () => { active = false; };
+  }, [address]);
 
   // Live market cap from GMGN candles (server caches 400ms; poll every 500ms).
   useEffect(() => {
