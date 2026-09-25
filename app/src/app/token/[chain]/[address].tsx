@@ -13,7 +13,7 @@ import { MentionsPanel } from '@/components/mentions-panel';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
-import { getTokenDetail } from '@/api/market';
+import { getLiveMcap, getTokenDetail } from '@/api/market';
 import { buy, getPortfolio, sell } from '@/api/trading';
 import { ApiError } from '@/api/client';
 import type { Position, TokenDetail, TradeResult } from '@/api/types';
@@ -40,6 +40,7 @@ export default function TokenScreen() {
   const [solPrice, setSolPrice] = useState<number>(0);
   const [usdBalance, setUsdBalance] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const [liveMcap, setLiveMcap] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>('buy');
   const [amount, setAmount] = useState('');
   const [pct, setPct] = useState(100);
@@ -117,6 +118,26 @@ export default function TokenScreen() {
     };
     pollFull();
     return () => { active = false; };
+  }, [address, chain]);
+
+  // Live market cap from GMGN candles (server caches 400ms; poll every 500ms).
+  useEffect(() => {
+    if (!address) return;
+    let active = true;
+    const tick = async () => {
+      try {
+        const r = await getLiveMcap(chain || 'sol', address);
+        if (active) setLiveMcap(r.marketCap);
+      } catch {
+        /* keep last value */
+      }
+    };
+    const id = setInterval(tick, 500);
+    tick();
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
   }, [address, chain]);
 
   const openGmgn = useCallback(async () => {
@@ -224,8 +245,17 @@ export default function TokenScreen() {
         <Card style={styles.priceCard}>
           <View style={styles.priceRow}>
             <View>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>Market Cap</ThemedText>
-              <ThemedText type="subtitle">{v(d.marketCap, { compact: true })}</ThemedText>
+              <View style={styles.mcapLabelRow}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>Market Cap</ThemedText>
+                {liveMcap != null && (
+                  <View style={[styles.liveBadge, { backgroundColor: `${theme.positive}22` }]}>
+                    <ThemedText type="small" style={{ color: theme.positive, fontSize: 9, fontWeight: '700' }}>
+                      EN VIVO
+                    </ThemedText>
+                  </View>
+                )}
+              </View>
+              <ThemedText type="subtitle">{v(liveMcap ?? d.marketCap, { compact: true })}</ThemedText>
             </View>
             {d.price != null && (
               <View style={{ alignItems: 'flex-end' }}>
@@ -409,6 +439,8 @@ const styles = StyleSheet.create({
   gmgnBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
   priceCard: { gap: 12 },
   priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  mcapLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  liveBadge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   metric: { minWidth: 80, gap: 2 },
   posCard: { gap: 6 },

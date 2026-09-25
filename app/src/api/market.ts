@@ -61,6 +61,21 @@ export function getTokenMarketCap(chain: string, address: string) {
   );
 }
 
+export interface LiveMcapResponse {
+  marketCap: number | null;
+  time: number | null;
+  cached?: boolean;
+  error?: string | null;
+}
+
+/**
+ * Live market cap (USD) from GMGN's internal candles endpoint via the server
+ * (CycleTLS). Server caches ~400ms, so polling at 500ms is safe.
+ */
+export function getLiveMcap(chain: string, address: string) {
+  return api.get<LiveMcapResponse>(`/api/market/token/${chain}/${address}/live-mcap`);
+}
+
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
 export function getSolPrice() {

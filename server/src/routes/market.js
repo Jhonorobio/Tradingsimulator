@@ -13,6 +13,7 @@ import { connectionForTab, getRefresherStatus } from '../services/trenches-refre
 import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-health.js';
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
 import { getMentions, getMentionsStatus, rawMentions } from '../services/gmgn-mentions.js';
+import { getLiveMcap, getLiveMcapStatus } from '../services/gmgn-mcap.js';
 
 const router = Router();
 
@@ -659,6 +660,28 @@ router.get('/token/:chain/:address/mcap', async (req, res) => {
   } catch (err) {
     fail(res, err);
   }
+});
+
+/**
+ * GET /api/market/token/:chain/:address/live-mcap — live market cap from
+ * GMGN's internal candles endpoint (CycleTLS chrome131), polled ~2x/s by the
+ * token detail screen. SOL only.
+ */
+router.get('/token/:chain/:address/live-mcap', async (req, res) => {
+  try {
+    const { chain, address } = req.params;
+    const slug = chain === 'solana' ? 'sol' : chain || 'sol';
+    if (slug !== 'sol') return fail(res, new Error('live-mcap is sol-only'), 400);
+    const result = await getLiveMcap(address, { resolution: req.query.resolution });
+    res.json(result);
+  } catch (err) {
+    fail(res, err, 502);
+  }
+});
+
+/** GET /api/market/live-mcap-status — pacing/backoff of the live mcap fetcher. */
+router.get('/live-mcap-status', (_req, res) => {
+  res.json(getLiveMcapStatus());
 });
 
 /**
