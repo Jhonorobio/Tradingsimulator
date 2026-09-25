@@ -9,6 +9,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { TokenAvatar } from '@/components/token-avatar';
 import { PriceChange } from '@/components/price-change';
+import { MentionsPanel } from '@/components/mentions-panel';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
@@ -263,6 +264,9 @@ export default function TokenScreen() {
             <Metric label="Buy Tax" value={d.buyTax != null ? `${(d.buyTax * 100).toFixed(1)}%` : '—'} />
           </View>
         </Card>
+
+        {/* ─── X Tracker (mentions) ─── */}
+        <MentionsPanel mint={d.address} />
 
         {/* ─── Trenches Warning ─── */}
         {d.sources?.trenches && (() => {

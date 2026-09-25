@@ -18,6 +18,33 @@ export function getTokenDetail(chain: string, address: string) {
   return api.get<TokenDetail>(`/api/market/token/${chain}/${address}`);
 }
 
+export interface MentionUser {
+  screen_name?: string;
+  name?: string;
+  avatar?: string;
+  followers?: number;
+  verified?: boolean;
+}
+
+export interface MentionItem {
+  tweet_id?: string;
+  tw_type?: string;
+  tw_timestamp?: string | number;
+  user?: MentionUser;
+  content?: { text?: string; media?: { type?: string; url?: string }[] };
+}
+
+export interface MentionsResponse {
+  items: MentionItem[];
+  cached?: boolean;
+  error?: string | null;
+}
+
+/** X/Twitter mentions for a token (server caches 60s; safe to poll). */
+export function getMentions(mint: string, limit = 20) {
+  return api.get<MentionsResponse>(`/api/market/mentions/${encodeURIComponent(mint)}?limit=${limit}`);
+}
+
 export function getLiveTokenPrice(chain: string, address: string) {
   return api.get<{
     price: number | null;

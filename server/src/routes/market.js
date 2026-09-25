@@ -373,6 +373,19 @@ router.get('/debug-tab/:tab', async (req, res) => {
 });
 
 /**
+ * GET /api/market/mentions/:mint — X/Twitter mentions for a token (internal
+ * GMGN endpoint, CycleTLS Chrome fingerprint). Cached 60s server-side, so the
+ * app can poll freely; 403/429 triggers a shared 60s backoff.
+ */
+router.get('/mentions/:mint', async (req, res) => {
+  const mint = String(req.params.mint || '').trim();
+  if (!mint) return fail(res, new Error('mint is required'), 400);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+  const result = await getMentions(mint, { limit });
+  res.json(result);
+});
+
+/**
  * GET /api/market/debug-mentions/:mint — fetch of the internal GMGN
  * X-mentions endpoint (CycleTLS Chrome fingerprint).
  *   ?raw=1 — bypass queue/cache/backoff, report raw HTTP status + timing.
