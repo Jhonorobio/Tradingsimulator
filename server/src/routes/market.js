@@ -373,13 +373,12 @@ router.get('/debug-tab/:tab', async (req, res) => {
 });
 
 /**
- * GET /api/market/debug-mentions/:mint — curl-based fetch of the internal
- * GMGN X-mentions endpoint.
+ * GET /api/market/debug-mentions/:mint — fetch of the internal GMGN
+ * X-mentions endpoint (CycleTLS Chrome fingerprint, curl fallback).
+ *   ?method=auto|browser|curl  transport to test (default auto)
  *   ?raw=1        bypass queue/cache/backoff, report raw HTTP status + body head
- *   ?proxy=1      tunnel through the saved proxy (completed tab); with raw=1
- *                 this lets us test "OpenSSL curl + datacenter IP" vs
- *                 "OpenSSL curl + residential IP" from the Railway container
- *   ?proxy=<url>  explicit proxy URL
+ *   ?proxy=1      tunnel through the saved proxy (completed tab)
+ *   ?proxy=<url>  explicit proxy URL (curl method only)
  */
 router.get('/debug-mentions/:mint', async (req, res) => {
   const mint = String(req.params.mint || '').trim();
@@ -394,10 +393,12 @@ router.get('/debug-mentions/:mint', async (req, res) => {
   }
 
   if (req.query.raw === '1') {
-    const result = await rawMentions(mint, { limit: 10, proxy: proxyUrl });
+    const method = String(req.query.method || 'auto');
+    const result = await rawMentions(mint, { limit: 10, proxy: proxyUrl, method });
     return res.json({
       mint,
       mode: 'raw',
+      requestedMethod: method,
       proxy: proxyUrl ? proxyUrl.replace(/\/\/.*@/, '//***@') : '(direct)',
       platform: process.platform,
       curl: CURL_LABEL,
