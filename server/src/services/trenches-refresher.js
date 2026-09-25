@@ -91,7 +91,8 @@ export async function startTrenchesRefresher(_intervalSeconds, opts = {}) {
   // Re-check for new tabs every 5 seconds
   const checkInterval = setInterval(ensureWorkers, 5000);
 
-  // Resolve distinct proxy IPs for info
+  // Resolve distinct proxy IPs for info (tabs without a URL run direct from
+  // the server IP and therefore contribute no proxy IP).
   const allProxyUrls = [];
   for (const tab of TRENCH_TABS) {
     const conn = connectionForTab(tab);
@@ -99,14 +100,14 @@ export async function startTrenchesRefresher(_intervalSeconds, opts = {}) {
   }
   const uniqueUrls = [...new Set(allProxyUrls)];
   const distinct = uniqueUrls.length ? await resolveDistinctProxies(uniqueUrls) : [];
-  const WORKERS = Math.max(distinct.length, 1);
+  const activeTabs = TRENCH_TABS.filter((tab) => connectionForTab(tab));
 
   return {
-    workers: WORKERS,
+    workers: activeTabs.length,
     egressIps: distinct.map((d) => d.ip),
-    pinnedTabs: TRENCH_TABS.filter((tab) => connectionForTab(tab)?.proxy),
-    skippedTabs: TRENCH_TABS.filter((tab) => !connectionForTab(tab)?.proxy),
-    mode: WORKERS >= TRENCH_TABS.length ? 'dedicated' : 'shared',
+    activeTabs,
+    skippedTabs: TRENCH_TABS.filter((tab) => !connectionForTab(tab)),
+    mode: distinct.length ? 'dedicated' : 'direct',
     stop: () => clearInterval(checkInterval),
   };
 }
@@ -222,7 +223,7 @@ export function connectionForTab(tab) {
   if (stored.enabled === false) return null;
   // new_creation (sol): directo sin proxy (solo necesita API key)
   if (tab === 'new_creation') return { proxy: '', apiKey: stored.apiKey };
-  //Robinhood tabs, BSC tabs + completed: requieren proxy configurado
+  // completed: requiere proxy configurado
   if (stored?.url) return { proxy: stored.url, apiKey: stored.apiKey };
   return null;
 }

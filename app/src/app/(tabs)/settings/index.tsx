@@ -19,8 +19,6 @@ const SECTIONS = [
 
 const CLEAR_OPTIONS = [
   { key: 'sol', label: 'Historial SOL', chain: 'sol' },
-  { key: 'bsc', label: 'Historial BSC', chain: 'bsc' },
-  { key: 'robinhood', label: 'Historial Robinhood', chain: 'robinhood' },
   { key: 'all_history', label: 'Borrar todo el historial', chain: undefined },
   { key: 'winners', label: 'Borrar Winners', chain: undefined },
 ] as const;

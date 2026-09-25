@@ -4,11 +4,11 @@ import { cacheKey, withCache } from '../services/cache.js';
 import { upsertTrenches } from '../services/trenches-store.js';
 import { getOffset } from '../services/gmgn-clock.js';
 
-export const CHAINS = new Set(['sol', 'bsc', 'base', 'eth', 'robinhood', 'arc', 'stable']);
-// GMGN API accepts only these types (not the robinhood variants)
+export const CHAINS = new Set(['sol', 'base', 'eth', 'arc', 'stable']);
+// GMGN API accepts only these types
 const GMGN_TYPES = ['new_creation', 'completed'];
-// All tab names (including robinhood variants)
-export const TRENCH_TYPES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
+// All tab names
+export const TRENCH_TYPES = ['new_creation', 'completed'];
 const PRESETS = new Set(['safe', 'smart-money', 'strict']);
 const SORT_FIELDS = new Set([
   'smart_degen_count', 'renowned_count', 'volume_24h', 'volume_1h', 'swaps_24h', 'swaps_1h',
@@ -99,11 +99,12 @@ export async function fetchTrenches(params, opts = {}) {
   // (still dedupes concurrent calls and still writes back to disk).
   const ttl = opts.force ? 0 : (opts.ttl ?? (Number(process.env.TRENCHES_CACHE_TTL) || 60));
 
-  // Dedicated per-connection cooldown. Trenches can be pinned to one proxy+
-  // key per category (TRENCHES_PROXIES/TRENCHES_KEYS); a rate limit on one
-  // connection must never block the others. When no proxy is configured the
-  // shared IP cooldown below still applies.
-  const connKey = `${opts.proxy ?? ''}|${opts.apiKey ?? ''}`;
+  // Dedicated per-connection cooldown. Trenches can be pinned to one key per
+  // category; a rate limit on one key must never block the others. GMGN limits
+  // by API key (plan weight), so the key is what identifies the bucket — two
+  // tabs sharing one key (with or without a proxy) share the cooldown, while
+  // distinct keys stay independent.
+  const connKey = opts.apiKey || opts.proxy || '';
   if (opts.proxy || opts.apiKey) {
     const until = pairCooldowns.get(connKey);
     if (Date.now() < until) {
@@ -137,11 +138,10 @@ export async function fetchTrenches(params, opts = {}) {
         ? await fetchTrenchesHttp(args, { proxy: opts.proxy || '', apiKey })
         : await runMarket('trenches', args);
       const data = json?.data ?? json ?? {};
-      // Map GMGN response to correct tab key (handles robinhood tabs)
+      // Map GMGN response to the requested tab key
       const tab = opts.tab || 'new_creation';
-      const type = tab.replace(/_(robinhood|bsc)$/, '');
       const result = {
-        [tab]: data[type] ?? data.new_creation ?? [],
+        [tab]: data[tab] ?? data.new_creation ?? [],
       };
       upsertTrenches(result, opts.source || 'refresher', opts.tab || null);
       return result;

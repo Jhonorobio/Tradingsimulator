@@ -58,7 +58,7 @@ ensureCalibrated().then(() => {
     onError: (err) => console.error('[trenches-refresher]', err?.message),
   }).then((info) => {
     console.log(
-      `Trenches refresher started: ${info.workers} worker(s), egress IPs=${JSON.stringify(info.egressIps)}, active tabs=${JSON.stringify(info.pinnedTabs)}, skipped tabs=${JSON.stringify(info.skippedTabs)}, mode=${info.mode}`
+      `Trenches refresher started: ${info.workers} worker(s), egress IPs=${JSON.stringify(info.egressIps)}, active tabs=${JSON.stringify(info.activeTabs)}, skipped tabs=${JSON.stringify(info.skippedTabs)}, mode=${info.mode}`
     );
   });
 });

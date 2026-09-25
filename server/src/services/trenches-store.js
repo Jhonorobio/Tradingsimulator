@@ -8,7 +8,7 @@
 import { broadcast } from './ws-server.js';
 import { syncTracks } from './token-snapshots.js';
 
-const ALL_TABS = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
+const ALL_TABS = ['new_creation', 'completed'];
 
 // Separate maps per category to prevent cross-contamination
 const byCategory = {};

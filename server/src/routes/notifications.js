@@ -5,7 +5,7 @@ import { getSnapshots, getAllTracks } from '../services/token-snapshots.js';
 
 const router = Router();
 
-const VALID_CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
+const VALID_CATEGORIES = ['new_creation', 'completed'];
 
 const FILTER_FIELDS = [
   'smart_degen_count', 'renowned_count', 'bot_degen_count', 'bot_degen_rate',
@@ -100,13 +100,15 @@ router.get('/config', (req, res) => {
     if (!entry) {
       return res.json({
         push_token: null,
-        categories: { new_creation: false, completed: false, new_creation_robinhood: false, completed_robinhood: false, new_creation_bsc: false, completed_bsc: false },
+        categories: { new_creation: false, completed: false },
         filters: {},
       });
     }
+    const categories = {};
+    for (const key of VALID_CATEGORIES) categories[key] = !!entry.categories?.[key];
     res.json({
       push_token: entry.push_token,
-      categories: entry.categories,
+      categories,
       filters: entry.filters || {},
     });
   } catch (err) {
@@ -158,7 +160,7 @@ router.delete('/history', (req, res) => {
   try {
     const chain = req.query.chain;
     if (chain) {
-      const valid = ['sol', 'bsc', 'robinhood'];
+      const valid = ['sol'];
       if (!valid.includes(chain)) return fail(res, new Error('Invalid chain'), 400);
       const all = notificationHistory.getAll();
       const toKeep = all.filter((e) => e.chain !== chain);

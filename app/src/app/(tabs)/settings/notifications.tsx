@@ -13,14 +13,10 @@ import { ApiError } from '@/api/client';
 import type { NotificationConfig, NotificationCategoryFilters, NotificationFilterFields } from '@/api/types';
 import { registerForPushNotificationsAsync, notificationsAvailable } from '@/utils/notifications';
 
-const NOTIF_CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'] as const;
+const NOTIF_CATEGORIES = ['new_creation', 'completed'] as const;
 const NOTIF_LABELS: Record<string, string> = {
   new_creation: 'Nueva creación (SOL)',
   completed: 'Completado (SOL)',
-  new_creation_robinhood: 'Nueva creación (Robinhood)',
-  completed_robinhood: 'Completado (Robinhood)',
-  new_creation_bsc: 'Nueva creación (BSC)',
-  completed_bsc: 'Completado (BSC)',
 };
 
 const FILTER_FIELDS: { key: NotificationFilterFields; label: string; suffix?: string }[] = [
@@ -44,10 +40,6 @@ export default function NotificationsScreen() {
   const [notifCategories, setNotifCategories] = useState<NotificationConfig['categories']>({
     new_creation: false,
     completed: false,
-    new_creation_robinhood: false,
-    completed_robinhood: false,
-    new_creation_bsc: false,
-    completed_bsc: false,
   });
   const [filters, setFilters] = useState<Record<string, NotificationCategoryFilters>>({});
   const [expandedCat, setExpandedCat] = useState<string | null>(null);

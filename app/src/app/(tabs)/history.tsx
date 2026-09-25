@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
+import { WinnersPanel } from '@/components/winners-panel';
 import { useTheme } from '@/hooks/use-theme';
 import { getNotificationHistory } from '@/api/notifications';
 import { useSettings } from '@/store/settings';
@@ -21,6 +22,12 @@ const CATEGORY_OPTIONS = [
   { key: 'snaps', label: 'Snapshots' },
   { key: 'gain', label: 'Ganancia' },
 ];
+
+const VIEW_TABS = [
+  { key: 'history', label: 'Historial' },
+  { key: 'winners', label: 'Winners' },
+] as const;
+type ViewKey = (typeof VIEW_TABS)[number]['key'];
 
 function calcGain(item: NotificationHistoryItem): number {
   const first = item.snapshots?.[0];
@@ -37,17 +44,11 @@ function calcGain(item: NotificationHistoryItem): number {
 const CHAIN_TABS = [
   { key: 'all', label: 'Todos' },
   { key: 'sol', label: 'SOL' },
-  { key: 'bsc', label: 'BSC' },
-  { key: 'robinhood', label: 'RH' },
 ];
 
 const CATEGORY_LABELS: Record<string, string> = {
   new_creation: 'Nueva',
   completed: 'Completada',
-  new_creation_robinhood: 'Nueva RH',
-  completed_robinhood: 'Completada RH',
-  new_creation_bsc: 'Nueva BSC',
-  completed_bsc: 'Completada BSC',
 };
 
 const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expanded, onToggle }: {
@@ -198,6 +199,7 @@ export default function HistoryScreen() {
   const { deviceId } = useSettings();
   const { notifications: wsNotifications, subscribeNotifications, unsubscribeNotifications } = useWs();
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
+  const [view, setView] = useState<ViewKey>('history');
   const [search, setSearch] = useState('');
   const [chainFilter, setChainFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('recent');
@@ -283,75 +285,95 @@ export default function HistoryScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ThemedText type="subtitle" style={styles.title}>Historial de Tokens</ThemedText>
 
-        <View style={styles.chainTabs}>
-          {CHAIN_TABS.map((tab) => (
+        <View style={styles.viewTabs}>
+          {VIEW_TABS.map((tab) => (
             <Pressable
               key={tab.key}
-              onPress={() => setChainFilter(tab.key)}
-              style={[styles.chainTab, chainFilter === tab.key && { backgroundColor: theme.accent }]}
+              onPress={() => setView(tab.key)}
+              style={[styles.viewTab, view === tab.key && { backgroundColor: theme.accent }]}
             >
-              <ThemedText type="small" style={{ color: chainFilter === tab.key ? '#000' : theme.textSecondary }}>
+              <ThemedText type="small" style={{ color: view === tab.key ? '#000' : theme.textSecondary }}>
                 {tab.label}
               </ThemedText>
             </Pressable>
           ))}
         </View>
 
-        <View style={styles.filterRow}>
-          <Pressable
-            onPress={() => setShowCategoryModal(true)}
-            style={[styles.chainTab, { backgroundColor: theme.backgroundSelected }]}
-          >
-            <Ionicons name="filter" size={14} color={theme.accent} />
-            <ThemedText type="small" style={{ color: theme.accent }}>
-              {CATEGORY_OPTIONS.find((o) => o.key === categoryFilter)?.label ?? 'Filtro'}
-            </ThemedText>
-          </Pressable>
-        </View>
-
-        <Modal visible={showCategoryModal} transparent animationType="fade" onRequestClose={() => setShowCategoryModal(false)}>
-          <Pressable style={styles.modalOverlay} onPress={() => setShowCategoryModal(false)}>
-            <View style={[styles.modalContent, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
-              {CATEGORY_OPTIONS.map((opt) => (
+        {view === 'winners' ? (
+          <WinnersPanel />
+        ) : (
+          <>
+            <View style={styles.chainTabs}>
+              {CHAIN_TABS.map((tab) => (
                 <Pressable
-                  key={opt.key}
-                  onPress={() => { setCategoryFilter(opt.key); setShowCategoryModal(false); }}
-                  style={[styles.modalItem, categoryFilter === opt.key && { backgroundColor: theme.accent + '20' }]}
+                  key={tab.key}
+                  onPress={() => setChainFilter(tab.key)}
+                  style={[styles.chainTab, chainFilter === tab.key && { backgroundColor: theme.accent }]}
                 >
-                  <ThemedText type="small" style={{ color: categoryFilter === opt.key ? theme.accent : theme.text }}>
-                    {opt.label}
+                  <ThemedText type="small" style={{ color: chainFilter === tab.key ? '#000' : theme.textSecondary }}>
+                    {tab.label}
                   </ThemedText>
-                  {categoryFilter === opt.key && <Ionicons name="checkmark" size={16} color={theme.accent} />}
                 </Pressable>
               ))}
             </View>
-          </Pressable>
-        </Modal>
 
-        <View style={styles.searchWrap}>
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Buscar por símbolo..."
-            placeholderTextColor={theme.textSecondary}
-            style={[styles.searchInput, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
-          />
-        </View>
+            <View style={styles.filterRow}>
+              <Pressable
+                onPress={() => setShowCategoryModal(true)}
+                style={[styles.chainTab, { backgroundColor: theme.backgroundSelected }]}
+              >
+                <Ionicons name="filter" size={14} color={theme.accent} />
+                <ThemedText type="small" style={{ color: theme.accent }}>
+                  {CATEGORY_OPTIONS.find((o) => o.key === categoryFilter)?.label ?? 'Filtro'}
+                </ThemedText>
+              </Pressable>
+            </View>
 
-        <FlatList
-          data={filtered}
-          keyExtractor={(item, i) => `${item.address}-${item.category}-${item.notified_at}-${i}`}
-          renderItem={renderItem}
-          initialNumToRender={10}
-          maxToRenderPerBatch={8}
-          windowSize={5}
-          removeClippedSubviews={false}
-          contentContainerStyle={styles.scroll}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
-          ListEmptyComponent={
-            <ThemedText style={styles.empty}>{history.length === 0 ? 'No hay notificaciones aún' : 'Sin resultados'}</ThemedText>
-          }
-        />
+            <Modal visible={showCategoryModal} transparent animationType="fade" onRequestClose={() => setShowCategoryModal(false)}>
+              <Pressable style={styles.modalOverlay} onPress={() => setShowCategoryModal(false)}>
+                <View style={[styles.modalContent, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+                  {CATEGORY_OPTIONS.map((opt) => (
+                    <Pressable
+                      key={opt.key}
+                      onPress={() => { setCategoryFilter(opt.key); setShowCategoryModal(false); }}
+                      style={[styles.modalItem, categoryFilter === opt.key && { backgroundColor: theme.accent + '20' }]}
+                    >
+                      <ThemedText type="small" style={{ color: categoryFilter === opt.key ? theme.accent : theme.text }}>
+                        {opt.label}
+                      </ThemedText>
+                      {categoryFilter === opt.key && <Ionicons name="checkmark" size={16} color={theme.accent} />}
+                    </Pressable>
+                  ))}
+                </View>
+              </Pressable>
+            </Modal>
+
+            <View style={styles.searchWrap}>
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Buscar por símbolo..."
+                placeholderTextColor={theme.textSecondary}
+                style={[styles.searchInput, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
+              />
+            </View>
+
+            <FlatList
+              data={filtered}
+              keyExtractor={(item, i) => `${item.address}-${item.category}-${item.notified_at}-${i}`}
+              renderItem={renderItem}
+              initialNumToRender={10}
+              maxToRenderPerBatch={8}
+              windowSize={5}
+              removeClippedSubviews={false}
+              contentContainerStyle={styles.scroll}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
+              ListEmptyComponent={
+                <ThemedText style={styles.empty}>{history.length === 0 ? 'No hay notificaciones aún' : 'Sin resultados'}</ThemedText>
+              }
+            />
+          </>
+        )}
       </SafeAreaView>
     </ThemedView>
   );
@@ -361,7 +383,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d0d' },
   safe: { flex: 1 },
   title: { marginHorizontal: 16, marginTop: 12, marginBottom: 8 },
-  chainTabs: { flexDirection: 'row', marginBottom: 8, gap: 6 },
+  viewTabs: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 10, gap: 6 },
+  viewTab: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 14, backgroundColor: '#1a1a1a' },
+  chainTabs: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, gap: 6 },
   filterRow: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, gap: 8, alignItems: 'center' },
   chainTab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, backgroundColor: '#1a1a1a' },
   searchWrap: { marginHorizontal: 16, marginBottom: 8 },

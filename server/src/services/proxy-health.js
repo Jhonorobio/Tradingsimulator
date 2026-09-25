@@ -88,7 +88,7 @@ export function getTabStatus(tab) {
  * Returns the cached status for all tabs.
  */
 export function getAllStatus() {
-  const tabs = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
+  const tabs = ['new_creation', 'completed'];
   return tabs.map((tab) => getTabStatus(tab));
 }
 
@@ -104,34 +104,23 @@ export function setTabStatus(tab, status) {
  * @param {import('../stores.js').proxyConfigs} proxyConfigsStore
  */
 export async function checkAllProxies(proxyConfigsStore) {
-  const tabs = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc', 'token_info'];
+  const tabs = ['new_creation', 'completed', 'token_info'];
   const results = [];
   for (const tab of tabs) {
     const config = proxyConfigsStore.get(tab);
-    // new_creation (sol): only needs API key, no proxy URL
+    // new_creation (sol): direct connection on the server IP, only needs a key
     if (tab === 'new_creation') {
-      if (!config?.apiKey) {
-        setTabStatus(tab, {
-          tab,
-          url: '',
-          egressIp: null,
-          working: false,
-          error: 'Not configured',
-        });
-        results.push(getTabStatus(tab));
-        continue;
-      }
-      // Has API key — mark as working (direct connection)
       setTabStatus(tab, {
         tab,
         url: '',
         egressIp: null,
-        working: true,
-        error: null,
+        working: Boolean(config?.apiKey),
+        error: config?.apiKey ? null : 'Not configured',
       });
       results.push(getTabStatus(tab));
       continue;
     }
+    // completed / token_info: proxy + API key required
     if (!config?.url || !config?.apiKey) {
       setTabStatus(tab, {
         tab,

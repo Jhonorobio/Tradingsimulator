@@ -1,10 +1,10 @@
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import { getCurrentData } from './trenches-store.js';
-import { trenchesFilters, proxyConfigs } from '../stores.js';
+import { trenchesFilters } from '../stores.js';
 import { buildParamsFromConfig, TRENCH_TABS } from './trenches-filters.js';
 import { fetchTrenches } from '../cli/args.js';
-import { ensureWorkers } from './trenches-refresher.js';
+import { ensureWorkers, connectionForTab } from './trenches-refresher.js';
 
 /**
  * WebSocket server for real-time data push to connected clients.
@@ -24,7 +24,7 @@ import { ensureWorkers } from './trenches-refresher.js';
  *     { event: "pong" }
  *
  * Topics:
- *   trenches:new_creation | trenches:completed | trenches:new_creation_robinhood | trenches:completed_robinhood
+ *   trenches:new_creation | trenches:completed
  *   token:{chain}:{address}
  *   portfolio:{deviceId}
  *   sol_price
@@ -101,14 +101,9 @@ async function handleSetTrenchesFilters(client, msg) {
   // Ensure refresher workers are running for all tabs with proxy configs
   ensureWorkers();
 
-  // Fetch each tab that has a configured proxy and push results
+  // Fetch each tab that has a connection configured and push results
   for (const tab of TRENCH_TABS) {
-    const stored = proxyConfigs.get(tab);
-    if (!stored?.apiKey) continue;
-    // new_creation (sol): directo sin proxy, solo necesita API key
-    const connection = tab === 'new_creation'
-      ? { proxy: '', apiKey: stored.apiKey }
-      : stored?.url ? { proxy: stored.url, apiKey: stored.apiKey } : null;
+    const connection = connectionForTab(tab);
     if (!connection) continue;
     const params = buildParamsFromConfig(rawFilters, tab);
     try {

@@ -4,7 +4,7 @@ import { sendPush, checkReceipts } from './push.js';
 import { broadcast } from './ws-server.js';
 import { getSnapshots, getFirstSnapshot, getTrackStarted } from './token-snapshots.js';
 
-const CATEGORIES = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
+const CATEGORIES = ['new_creation', 'completed'];
 
 // How many insert cycles between receipt checks (e.g., 60 ≈ 5 min depending on frequency)
 const RECEIPT_CHECK_INTERVAL = 60;

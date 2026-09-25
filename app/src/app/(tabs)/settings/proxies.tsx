@@ -15,13 +15,9 @@ import type { ProxyConfig, ProxyTestResult } from '@/api/types';
 const TAB_LABELS: Record<string, string> = {
   new_creation: 'Nueva creación (SOL)',
   completed: 'Completado (SOL)',
-  new_creation_robinhood: 'Nueva creación (Robinhood)',
-  completed_robinhood: 'Completado (Robinhood)',
-  new_creation_bsc: 'Nueva creación (BSC)',
-  completed_bsc: 'Completado (BSC)',
   token_info: 'Token Info (Detalle)',
 };
-const TAB_ORDER = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc', 'token_info'];
+const TAB_ORDER = ['new_creation', 'completed', 'token_info'];
 
 export default function ProxiesScreen() {
   const theme = useTheme();
@@ -31,10 +27,6 @@ export default function ProxiesScreen() {
   const [proxyConfigs, setProxyConfigs] = useState<Record<string, ProxyConfig>>({
     new_creation: { url: '', apiKey: '' },
     completed: { url: '', apiKey: '' },
-    new_creation_robinhood: { url: '', apiKey: '' },
-    completed_robinhood: { url: '', apiKey: '' },
-    new_creation_bsc: { url: '', apiKey: '' },
-    completed_bsc: { url: '', apiKey: '' },
     token_info: { url: '', apiKey: '' },
   });
   const [proxyTesting, setProxyTesting] = useState<Record<string, boolean>>({});
@@ -90,6 +82,7 @@ export default function ProxiesScreen() {
   const doSaveProxy = async (tab: string) => {
     const cfg = proxyConfigs[tab];
     if (tab === 'new_creation') {
+      // Conexión directa: solo necesita API key
       if (!cfg.apiKey) {
         Alert.alert('Error', 'API Key es requerida');
         return;
@@ -125,7 +118,8 @@ export default function ProxiesScreen() {
         <ScrollView contentContainerStyle={styles.scroll}>
           <Card>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Cada categoría necesita su propio proxy + API key para conectarse a GMGN.
+              Cada categoría usa su propia API key (rate limit independiente).
+              Nueva creación conecta directo; Completado y Token Info requieren además un proxy.
             </ThemedText>
             <Pressable
               onPress={() => router.push('/proxy-tester')}
@@ -158,7 +152,9 @@ export default function ProxiesScreen() {
                   <TextInput
                     value={cfg.url}
                     onChangeText={(v) => updateProxyField(tab, 'url', v)}
-                    placeholder="http://host:port o socks5://host:port"
+                    placeholder={tab === 'new_creation'
+                      ? 'http://host:port (opcional — sin proxy va directo)'
+                      : 'http://host:port o socks5://host:port'}
                     placeholderTextColor={theme.textSecondary}
                     autoCapitalize="none"
                     autoCorrect={false}

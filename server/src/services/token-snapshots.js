@@ -60,7 +60,7 @@ export function syncTracks() {
 
   // Get all current tokens grouped by category
   const currentByCategory = {};
-  const TABS = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
+  const TABS = ['new_creation', 'completed'];
   for (const tab of TABS) {
     const tokens = getCurrentData(tab);
     currentByCategory[tab] = new Set(tokens.map((t) => t.address));
@@ -226,12 +226,10 @@ export function getAllTracksFiltered(opts = {}) {
 
   const chainMap = {
     sol: ['new_creation', 'completed'],
-    robinhood: ['new_creation_robinhood', 'completed_robinhood'],
-    bsc: ['new_creation_bsc', 'completed_bsc'],
   };
 
   const allowedCategories = chain === 'all'
-    ? ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc']
+    ? ['new_creation', 'completed']
     : chainMap[chain] || [];
 
   const sinceMs = Date.now() - sinceHours * 60 * 60 * 1000;

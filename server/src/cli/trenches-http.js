@@ -25,30 +25,9 @@ async function getDispatcher(proxyUrl) {
 
 const QUOTE_ADDRESS_TYPES = {
   sol: [4, 5, 3, 1, 13, 0],
-  bsc: [0, 1, 7, 8, 9, 10, 16, 19, 26, 27],
   base: [11, 3, 12, 13, 0],
   eth: [20, 11, 8, 3, 12, 1, 0],
-  robinhood: [11, 20, 24, 12, 0],
 };
-
-// Robinhood launchpad platforms — explicit list ensures all supported
-// launchpads are included (GMGN may not return all by default).
-const ROBINHOOD_LAUNCHPADS = [
-  'pons_v2',
-  'longxyz',
-  'o1',
-  'bankr',
-  'flap',
-  'trench',
-  'livo',
-];
-
-const BSC_LAUNCHPADS = [
-  'fourmeme', 'fourmeme_agent', 'bn_fourmeme', 'four_xmode_agent',
-  'cubepeg', 'likwid', 'goplus_creator', 'goplus_skills', 'openfour',
-  'flap', 'flap_stocks', 'flap_aioracle', 'clanker', 'lunafun',
-  'stoxes', 'stoxes_rwa',
-];
 
 const PRESETS = {
   safe: { max_rug_ratio: 0.3, max_bundler_rate: 0.3, max_insider_ratio: 0.3 },
@@ -139,15 +118,9 @@ function buildBodyFromArgs(args) {
   };
   if (platforms.length) {
     section.launchpad_platform = platforms;
-  } else if (chain === 'robinhood') {
-    section.launchpad_platform = ROBINHOOD_LAUNCHPADS;
-  } else if (chain === 'bsc') {
-    section.launchpad_platform = BSC_LAUNCHPADS;
   }
-  if (chain !== 'robinhood') {
-    const quote = QUOTE_ADDRESS_TYPES[chain] ?? [];
-    if (quote.length) section.quote_address_type = quote;
-  }
+  const quote = QUOTE_ADDRESS_TYPES[chain] ?? [];
+  if (quote.length) section.quote_address_type = quote;
 
   const body = { version: 'v2' };
   for (const type of types.length ? types : ['new_creation', 'completed']) {

@@ -61,7 +61,7 @@ Endpoints principales:
 
 ### Parámetros de `/api/market/trenches`
 
-- `chain` — `sol` (por ahora) / `bsc` / `base` / `eth`
+- `chain` — `sol`
 - `types` — `new_creation`, `near_completion`, `completed` (repetible)
 - `filterPreset` — `safe`, `smart-money`, `strict`
 - `sortBy` — `smart_degen_count`, `volume_24h`, `usd_market_cap`, `rug_ratio`, `created_timestamp`, ...

@@ -38,7 +38,7 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
   const theme = useTheme();
   const { colorRangesByChain } = useSettings();
 
-  const chainKey: ChainKey = chain === 'robinhood' ? 'robinhood' : chain === 'bsc' ? 'bsc' : 'solana';
+  const chainKey: ChainKey = 'solana';
   const c = colorRangesByChain[chainKey] ?? DEFAULT_RANGES;
 
   const mcap = token.usd_market_cap ?? token.market_cap ?? 0;
@@ -75,7 +75,7 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]}>
       <View style={styles.mainRow}>
         {/* Avatar */}
-        <View style={[styles.avatarWrap, { borderColor: chain === 'robinhood' ? '#CCFF00' : chain === 'bsc' ? '#f97316' : '#a855f7' }]}>
+        <View style={[styles.avatarWrap, { borderColor: '#a855f7' }]}>
           <TokenAvatar
             logo={token.logo}
             symbol={token.symbol}

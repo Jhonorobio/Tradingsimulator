@@ -8,7 +8,7 @@ import { ThemedView } from '@/components/themed-view';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings, COLOR_OPTIONS } from '@/store/settings';
 import type { MetricKey, ChainKey } from '@/store/settings';
-import { METRIC_LABELS, DEFAULT_RANGES, CHAIN_OPTIONS } from '@/store/settings';
+import { METRIC_LABELS, DEFAULT_RANGES } from '@/store/settings';
 
 function formatNum(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(0)}M`;
@@ -20,7 +20,7 @@ export default function ColorsScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { colorRangesByChain, setColorRange, resetMetricRanges } = useSettings();
-  const [activeChain, setActiveChain] = useState<ChainKey>('solana');
+  const activeChain: ChainKey = 'solana';
   const [colorPickerTarget, setColorPickerTarget] = useState<{ chain: ChainKey; metric: MetricKey; index: number } | null>(null);
 
   const currentRanges = colorRangesByChain[activeChain] || DEFAULT_RANGES;
@@ -36,25 +36,6 @@ export default function ColorsScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.scroll}>
-          {/* Chain tabs */}
-          <View style={[styles.chainTabs, { backgroundColor: theme.backgroundSelected }]}>
-            {CHAIN_OPTIONS.map((c) => (
-              <Pressable
-                key={c.key}
-                onPress={() => setActiveChain(c.key)}
-                style={[
-                  styles.chainTab,
-                  activeChain === c.key && { backgroundColor: theme.accent },
-                ]}>
-                <ThemedText
-                  type="small"
-                  style={{ color: activeChain === c.key ? '#fff' : theme.textSecondary }}>
-                  {c.label}
-                </ThemedText>
-              </Pressable>
-            ))}
-          </View>
-
           {/* Metric sections */}
           {(Object.keys(METRIC_LABELS) as MetricKey[]).map((metric) => {
             const ranges = currentRanges[metric] || DEFAULT_RANGES[metric];
@@ -157,17 +138,6 @@ const styles = StyleSheet.create({
   },
   backBtn: { padding: 4 },
   scroll: { padding: 16, gap: 16, paddingBottom: 40 },
-  chainTabs: {
-    flexDirection: 'row',
-    borderRadius: 10,
-    padding: 3,
-  },
-  chainTab: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 8,
-  },
   metricSection: {
     gap: 8,
   },

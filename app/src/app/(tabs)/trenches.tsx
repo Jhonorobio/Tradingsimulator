@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -24,40 +23,17 @@ import { getSavedTrenchesFilters } from '@/api/market';
 import type { TrenchesItem } from '@/api/types';
 
 type MainTab = 'new' | 'completed';
-type ChainKey = 'solana' | 'robinhood' | 'bsc';
-type TabKey = 'new_creation' | 'completed' | 'new_creation_robinhood' | 'completed_robinhood' | 'new_creation_bsc' | 'completed_bsc';
+type TabKey = 'new_creation' | 'completed';
 
 const MAIN_TABS: { key: MainTab; label: string }[] = [
   { key: 'new', label: 'Nueva' },
   { key: 'completed', label: 'Completado' },
 ];
 
-const CHAIN_OPTIONS: { key: ChainKey; label: string; icon: any; color: string }[] = [
-  { key: 'solana', label: 'SOL', icon: require('@/assets/images/chains/solana.png'), color: '#a855f7' },
-  { key: 'bsc', label: 'BSC', icon: require('@/assets/images/chains/bsc.webp'), color: '#f97316' },
-  { key: 'robinhood', label: 'HOOD', icon: require('@/assets/images/chains/robinhood.png'), color: '#CCFF00' },
-];
+const ALL_TABS: TabKey[] = ['new_creation', 'completed'];
 
-const ALL_TABS: TabKey[] = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
-
-function getTabKeysForSelection(main: MainTab, chains: ChainKey[]): TabKey[] {
-  const tabs: TabKey[] = [];
-  for (const chain of chains) {
-    const suffix = chain === 'robinhood' ? '_robinhood' : chain === 'bsc' ? '_bsc' : '';
-    tabs.push((main === 'new' ? `new_creation${suffix}` : `completed${suffix}`) as TabKey);
-  }
-  return tabs;
-}
-
-function getChainForTab(tab: TabKey): ChainKey {
-  if (tab.includes('robinhood')) return 'robinhood';
-  if (tab.includes('bsc')) return 'bsc';
-  return 'solana';
-}
-
-function getTabKeyForChainFilter(main: MainTab, chain: ChainKey): TabKey {
-  const suffix = chain === 'robinhood' ? '_robinhood' : chain === 'bsc' ? '_bsc' : '';
-  return (main === 'new' ? `new_creation${suffix}` : `completed${suffix}`) as TabKey;
+function getTabKey(main: MainTab): TabKey {
+  return main === 'new' ? 'new_creation' : 'completed';
 }
 
 type RangeValues = { min: string; max: string };
@@ -113,10 +89,6 @@ function normalizeFilters(raw: unknown): Record<TabKey, Filters> {
   const fallback: Record<TabKey, Filters> = {
     new_creation: emptyFilters(),
     completed: emptyFilters(),
-    new_creation_robinhood: emptyFilters(),
-    completed_robinhood: emptyFilters(),
-    new_creation_bsc: emptyFilters(),
-    completed_bsc: emptyFilters(),
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const obj = raw as Record<string, unknown>;
@@ -135,17 +107,6 @@ function normalizeFilters(raw: unknown): Record<TabKey, Filters> {
     }
   }
   return fallback;
-}
-
-function ChainIcon({ chain, size = 24 }: { chain: ChainKey; size?: number }) {
-  const opt = CHAIN_OPTIONS.find((c) => c.key === chain)!;
-  return (
-    <Image
-      source={opt.icon}
-      style={{ width: size, height: size, borderRadius: size / 2 }}
-      contentFit="contain"
-    />
-  );
 }
 
 function RangeField({
@@ -198,35 +159,22 @@ function RangeField({
 
 export default function TrenchesScreen() {
   const theme = useTheme();
-  const { proxyStatuses, loadProxyStatuses } = useSettings();
-  const { connected: wsConnected, trenches: wsTrenches, subscribeTrenches, unsubscribeTrenches, setTrenchesFilters } = useWs();
+  const { loadProxyStatuses } = useSettings();
+  const { connected: wsConnected, subscribeTrenches, unsubscribeTrenches, setTrenchesFilters } = useWs();
   const [activeMainTab, setActiveMainTab] = useState<MainTab>('new');
-  const [selectedChains, setSelectedChains] = useState<ChainKey[]>(['solana']);
 
   const [filters, setFilters] = useState<Record<TabKey, Filters>>({
     new_creation: emptyFilters(),
     completed: emptyFilters(),
-    new_creation_robinhood: emptyFilters(),
-    completed_robinhood: emptyFilters(),
-    new_creation_bsc: emptyFilters(),
-    completed_bsc: emptyFilters(),
   });
 
-  const [chainSheetVisible, setChainSheetVisible] = useState(false);
-  const [tempSelectedChains, setTempSelectedChains] = useState<ChainKey[]>([]);
-
-  const [filterChainVisible, setFilterChainVisible] = useState(false);
-  const [filterEditChain, setFilterEditChain] = useState<ChainKey | null>(null);
   const [filterEditorVisible, setFilterEditorVisible] = useState(false);
+  const [filterEditTab, setFilterEditTab] = useState<TabKey | null>(null);
   const [draft, setDraft] = useState<Filters>(emptyFilters());
 
   const [data, setData] = useState<Record<TabKey, TrenchesItem[]>>({
     new_creation: [],
     completed: [],
-    new_creation_robinhood: [],
-    completed_robinhood: [],
-    new_creation_bsc: [],
-    completed_bsc: [],
   });
 
   useEffect(() => {
@@ -265,63 +213,28 @@ export default function TrenchesScreen() {
     loadProxyStatuses();
   }, [loadProxyStatuses]);
 
-  const activeTabKeys = useMemo(
-    () => getTabKeysForSelection(activeMainTab, selectedChains),
-    [activeMainTab, selectedChains]
-  );
+  const activeTabKey = getTabKey(activeMainTab);
 
   const activeTokens = useMemo(() => {
-    const merged: (TrenchesItem & { _chain: ChainKey })[] = [];
-    for (const key of activeTabKeys) {
-      const chain = getChainForTab(key);
-      const items = data[key] ?? [];
-      for (const item of items) {
-        merged.push({ ...item, _chain: chain });
-      }
-    }
+    const merged = [...(data[activeTabKey] ?? [])];
     merged.sort((a, b) => {
       const ta = a.created_timestamp ?? a.open_timestamp ?? 0;
       const tb = b.created_timestamp ?? b.open_timestamp ?? 0;
       return tb - ta;
     });
     return merged;
-  }, [data, activeTabKeys]);
+  }, [data, activeTabKey]);
 
-  const openChainSheet = useCallback(() => {
-    setTempSelectedChains([...selectedChains]);
-    setChainSheetVisible(true);
-  }, [selectedChains]);
-
-  const toggleTempChain = useCallback((chain: ChainKey) => {
-    setTempSelectedChains((prev) => {
-      if (prev.includes(chain)) {
-        if (prev.length === 1) return prev;
-        return prev.filter((c) => c !== chain);
-      }
-      return [...prev, chain];
-    });
-  }, []);
-
-  const confirmChainSelection = useCallback(() => {
-    setSelectedChains(tempSelectedChains);
-    setChainSheetVisible(false);
-  }, [tempSelectedChains]);
-
-  const openFilterChainPicker = useCallback(() => {
-    setFilterChainVisible(true);
-  }, []);
-
-  const selectFilterChain = useCallback((chain: ChainKey) => {
-    setFilterChainVisible(false);
-    setFilterEditChain(chain);
-    const tabKey = getTabKeyForChainFilter(activeMainTab, chain);
+  const openFilterEditor = useCallback(() => {
+    const tabKey = getTabKey(activeMainTab);
+    setFilterEditTab(tabKey);
     setDraft(filters[tabKey]);
     setFilterEditorVisible(true);
   }, [activeMainTab, filters]);
 
   const closeFilterEditor = useCallback(() => {
     setFilterEditorVisible(false);
-    setFilterEditChain(null);
+    setFilterEditTab(null);
   }, []);
 
   const resetDraft = useCallback(() => setDraft(emptyFilters()), []);
@@ -331,19 +244,15 @@ export default function TrenchesScreen() {
   }, []);
 
   const confirmFilters = useCallback(() => {
-    if (!filterEditChain) return;
-    const tabKey = getTabKeyForChainFilter(activeMainTab, filterEditChain);
-    const next = { ...filters, [tabKey]: draft };
+    if (!filterEditTab) return;
+    const next = { ...filters, [filterEditTab]: draft };
     setFilters(next);
     setFilterEditorVisible(false);
-    setFilterEditChain(null);
+    setFilterEditTab(null);
     setTrenchesFilters(next);
-  }, [filterEditChain, activeMainTab, draft, filters, setTrenchesFilters]);
+  }, [filterEditTab, draft, filters, setTrenchesFilters]);
 
-  const selectedChainOpt = CHAIN_OPTIONS.filter((c) => selectedChains.includes(c.key));
-  const filterEditLabel = filterEditChain
-    ? CHAIN_OPTIONS.find((c) => c.key === filterEditChain)?.label ?? ''
-    : '';
+  const filterEditLabel = MAIN_TABS.find((t) => getTabKey(t.key) === filterEditTab)?.label ?? '';
 
   return (
     <ThemedView style={styles.container}>
@@ -370,28 +279,12 @@ export default function TrenchesScreen() {
               </Pressable>
             ))}
           </View>
-
-          <Pressable onPress={openChainSheet} style={styles.chainSelector}>
-            <View style={styles.chainIconsRow}>
-              {selectedChainOpt.map((c, i) => (
-                <View
-                  key={c.key}
-                    style={[
-                      styles.chainIconWrap,
-                      { marginLeft: i > 0 ? -8 : 0, zIndex: selectedChainOpt.length - i },
-                    ]}>
-                  <ChainIcon chain={c.key} size={24} />
-                </View>
-              ))}
-            </View>
-            <Ionicons name="chevron-down" size={14} color={theme.textSecondary} />
-          </Pressable>
         </View>
 
         {/* Action bar */}
         <View style={styles.actionBar}>
           <Pressable
-            onPress={openFilterChainPicker}
+            onPress={openFilterEditor}
             style={[styles.filterBtn, { borderColor: theme.border, backgroundColor: theme.backgroundElement }]}>
             <Ionicons name="funnel" size={17} color={theme.textSecondary} />
           </Pressable>
@@ -400,8 +293,8 @@ export default function TrenchesScreen() {
         {/* Token list */}
         <FlatList
           data={activeTokens}
-          keyExtractor={(item, i) => `t-${item._chain}-${item.address}-${i}`}
-          renderItem={({ item }) => <TokenRow token={item} chain={item._chain} />}
+          keyExtractor={(item, i) => `t-${item.address}-${i}`}
+          renderItem={({ item }) => <TokenRow token={item} chain="solana" />}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
             !wsConnected ? (
@@ -426,73 +319,6 @@ export default function TrenchesScreen() {
           </ThemedText>
         </View>
       </SafeAreaView>
-
-      {/* ── Chain selector sheet ── */}
-      <Modal visible={chainSheetVisible} transparent animationType="slide" onRequestClose={() => setChainSheetVisible(false)}>
-        <View style={styles.modalBackdrop}>
-          <Pressable style={styles.backdropTouch} onPress={() => setChainSheetVisible(false)} />
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetHeader}>
-              <ThemedText type="smallBold" style={styles.sheetTitle}>Seleccionar red</ThemedText>
-              <Pressable onPress={() => setTempSelectedChains(CHAIN_OPTIONS.map((c) => c.key))} hitSlop={8}>
-                <ThemedText type="small" style={styles.resetText}>Seleccionar todo</ThemedText>
-              </Pressable>
-            </View>
-            <View style={styles.chainGrid}>
-              {CHAIN_OPTIONS.map((c) => {
-                const sel = tempSelectedChains.includes(c.key);
-                return (
-                  <Pressable
-                    key={c.key}
-                    onPress={() => toggleTempChain(c.key)}
-                    style={[styles.chainCard, { borderColor: sel ? c.color : theme.border, backgroundColor: theme.backgroundSelected }]}>
-                    <ChainIcon chain={c.key} size={40} />
-                    <ThemedText type="small" style={{ color: theme.text }}>{c.label}</ThemedText>
-                    {sel && (
-                      <View style={[styles.chainCheck, { backgroundColor: c.color }]}>
-                        <Ionicons name="checkmark" size={12} color="#000" />
-                      </View>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
-            <View style={styles.sheetFooter}>
-              <Pressable onPress={() => setChainSheetVisible(false)} style={styles.cancelBtn}>
-                <ThemedText type="smallBold" style={{ color: '#ffffff' }}>Cancelar</ThemedText>
-              </Pressable>
-              <Pressable onPress={confirmChainSelection} style={styles.confirmBtn}>
-                <ThemedText type="smallBold" style={{ color: '#000000' }}>Confirmar</ThemedText>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Filter chain picker sheet ── */}
-      <Modal visible={filterChainVisible} transparent animationType="slide" onRequestClose={() => setFilterChainVisible(false)}>
-        <View style={styles.modalBackdrop}>
-          <Pressable style={styles.backdropTouch} onPress={() => setFilterChainVisible(false)} />
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetHeader}>
-              <ThemedText type="smallBold" style={styles.sheetTitle}>Editar filtros</ThemedText>
-            </View>
-            {CHAIN_OPTIONS.filter((c) => selectedChains.includes(c.key)).map((c) => (
-              <Pressable
-                key={c.key}
-                onPress={() => selectFilterChain(c.key)}
-                style={[styles.filterChainRow, { borderBottomColor: theme.border }]}>
-                <ChainIcon chain={c.key} size={28} />
-                <ThemedText type="smallBold" style={{ color: theme.text }}>
-                  {c.label} Configuraciones
-                </ThemedText>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      </Modal>
 
       {/* ── Filter editor sheet ── */}
       <Modal visible={filterEditorVisible} transparent animationType="slide" onRequestClose={closeFilterEditor}>
@@ -568,20 +394,6 @@ const styles = StyleSheet.create({
     width: '70%',
     height: 2,
     borderRadius: 1,
-  },
-  chainSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-  },
-  chainIconsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  chainIconWrap: {
-    borderRadius: 14,
   },
 
   /* ── Action bar ── */
@@ -670,42 +482,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-
-  /* ── Chain grid ── */
-  chainGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    paddingVertical: 8,
-  },
-  chainCard: {
-    width: '30%',
-    aspectRatio: 1,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  chainCheck: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  /* ── Filter chain picker ── */
-  filterChainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
 
   /* ── Filter editor ── */

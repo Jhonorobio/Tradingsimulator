@@ -17,15 +17,9 @@ export type MetricKey = 'mcap' | 'volume' | 'fresh' | 'kol' | 'smart' | 'bot' | 
 
 export type ColorRanges = Record<MetricKey, ColorRange[]>;
 
-export type ChainKey = 'solana' | 'robinhood' | 'bsc';
+export type ChainKey = 'solana';
 
 export type ColorRangesByChain = Record<ChainKey, ColorRanges>;
-
-export const CHAIN_OPTIONS: { key: ChainKey; label: string }[] = [
-  { key: 'solana', label: 'Solana' },
-  { key: 'robinhood', label: 'Robinhood' },
-  { key: 'bsc', label: 'BSC' },
-];
 
 export const COLOR_OPTIONS: { label: string; value: MetricColor }[] = [
   { label: 'Blanco', value: '#ffffff' },
@@ -100,8 +94,6 @@ const SINGLE_CHAIN_DEFAULTS: ColorRanges = {
 
 export const DEFAULT_RANGES_BY_CHAIN: ColorRangesByChain = {
   solana: SINGLE_CHAIN_DEFAULTS,
-  robinhood: SINGLE_CHAIN_DEFAULTS,
-  bsc: SINGLE_CHAIN_DEFAULTS,
 };
 
 export const DEFAULT_RANGES = SINGLE_CHAIN_DEFAULTS;

@@ -1,32 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
 import { getWinners, reanalyzeWinners, type WinnerItem } from '@/api/notifications';
-import { useWs } from '@/store/ws';
 import type { TokenSnapshot } from '@/api/types';
 import { fmtUsd, shortAddress } from '@/utils/format';
 
 const CHAIN_TABS = [
   { key: 'all', label: 'Todos' },
   { key: 'sol', label: 'SOL' },
-  { key: 'bsc', label: 'BSC' },
-  { key: 'robinhood', label: 'RH' },
 ];
 
 const CATEGORY_LABELS: Record<string, string> = {
   new_creation: 'Nueva',
   completed: 'Completada',
-  new_creation_robinhood: 'Nueva RH',
-  completed_robinhood: 'Completada RH',
-  new_creation_bsc: 'Nueva BSC',
-  completed_bsc: 'Completada BSC',
 };
 
 const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expanded, onToggle }: {
@@ -153,10 +144,9 @@ const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expand
   );
 });
 
-export default function WinnersScreen() {
+export function WinnersPanel() {
   const theme = useTheme();
   const router = useRouter();
-  const { subscribeNotifications, unsubscribeNotifications } = useWs();
   const [winnersList, setWinnersList] = useState<WinnerItem[]>([]);
   const [chainFilter, setChainFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
@@ -170,12 +160,6 @@ export default function WinnersScreen() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
-  useEffect(() => {
-    // Re-fetch winners when new notifications arrive (a new winner may have been added)
-    const unsub = subscribeNotifications('');
-    return () => { unsub?.(); };
-  }, [subscribeNotifications]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -220,60 +204,54 @@ export default function WinnersScreen() {
   }, [theme, router, expandedIds, toggleExpanded]);
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView edges={['top']} style={styles.safe}>
-        <ThemedText type="subtitle" style={styles.title}>Winners</ThemedText>
+    <View style={styles.panel}>
+      <View style={styles.chainTabs}>
+        {CHAIN_TABS.map((tab) => (
+          <Pressable
+            key={tab.key}
+            onPress={() => setChainFilter(tab.key)}
+            style={[styles.chainTab, chainFilter === tab.key && { backgroundColor: theme.accent }]}
+          >
+            <ThemedText type="small" style={{ color: chainFilter === tab.key ? '#000' : theme.textSecondary }}>
+              {tab.label}
+            </ThemedText>
+          </Pressable>
+        ))}
+      </View>
 
-        <View style={styles.chainTabs}>
-          {CHAIN_TABS.map((tab) => (
-            <Pressable
-              key={tab.key}
-              onPress={() => setChainFilter(tab.key)}
-              style={[styles.chainTab, chainFilter === tab.key && { backgroundColor: theme.accent }]}
-            >
-              <ThemedText type="small" style={{ color: chainFilter === tab.key ? '#000' : theme.textSecondary }}>
-                {tab.label}
-              </ThemedText>
-            </Pressable>
-          ))}
+      <View style={[styles.summary, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+        <View style={styles.summaryItem}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>Tokens</ThemedText>
+          <ThemedText type="smallBold" style={{ color: theme.positive }}>{filtered.length}/100</ThemedText>
         </View>
-
-        <View style={[styles.summary, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+        {totalGain != null && (
           <View style={styles.summaryItem}>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>Tokens</ThemedText>
-            <ThemedText type="smallBold" style={{ color: theme.positive }}>{filtered.length}/100</ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>Gain Promedio</ThemedText>
+            <ThemedText type="smallBold" style={{ color: theme.positive }}>+{totalGain.toFixed(0)}%</ThemedText>
           </View>
-          {totalGain != null && (
-            <View style={styles.summaryItem}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>Gain Promedio</ThemedText>
-              <ThemedText type="smallBold" style={{ color: theme.positive }}>+{totalGain.toFixed(0)}%</ThemedText>
-            </View>
-          )}
-        </View>
+        )}
+      </View>
 
-        <FlatList
-          data={filtered}
-          keyExtractor={(item, i) => `winner-${item.address}-${item.category}-${i}`}
-          renderItem={renderItem}
-          initialNumToRender={15}
-          maxToRenderPerBatch={10}
-          windowSize={7}
-          getItemLayout={(_, index) => ({ length: 120, offset: 120 * index, index })}
-          contentContainerStyle={styles.scroll}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
-          ListEmptyComponent={
-            <ThemedText style={styles.empty}>No hay tokens con 100%+ de ganancia</ThemedText>
-          }
-        />
-      </SafeAreaView>
-    </ThemedView>
+      <FlatList
+        data={filtered}
+        keyExtractor={(item, i) => `winner-${item.address}-${item.category}-${i}`}
+        renderItem={renderItem}
+        initialNumToRender={15}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        getItemLayout={(_, index) => ({ length: 120, offset: 120 * index, index })}
+        contentContainerStyle={styles.scroll}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
+        ListEmptyComponent={
+          <ThemedText style={styles.empty}>No hay tokens con 100%+ de ganancia</ThemedText>
+        }
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d0d0d' },
-  safe: { flex: 1 },
-  title: { marginHorizontal: 16, marginTop: 12, marginBottom: 8 },
+  panel: { flex: 1 },
   chainTabs: { flexDirection: 'row', marginBottom: 8, gap: 6, marginHorizontal: 16 },
   chainTab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, backgroundColor: '#1a1a1a' },
   summary: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, padding: 12, borderRadius: 10, borderWidth: 1, gap: 24 },

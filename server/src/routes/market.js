@@ -30,7 +30,7 @@ function cleanValue(v) {
   return typeof v === 'string' ? v.trim() : v;
 }
 
-const VALID_TABS = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc', 'token_info'];
+const VALID_TABS = ['new_creation', 'completed', 'token_info'];
 
 /**
  * GET /api/market/proxies — returns saved proxy configs for all 3 tabs.
@@ -349,12 +349,8 @@ router.get('/debug-tab/:tab', async (req, res) => {
   const tab = req.params.tab;
   const config = trenchesFilters.get('global')?.filters;
   if (!config) return fail(res, new Error('No filters saved — press Confirmar first'), 400);
-  const stored = proxyConfigs.get(tab);
-  if (!stored?.apiKey) return fail(res, new Error(`No proxy/API key for tab: ${tab}`), 400);
-  const connection = tab === 'new_creation'
-    ? { proxy: '', apiKey: stored.apiKey }
-    : stored?.url ? { proxy: stored.url, apiKey: stored.apiKey } : null;
-  if (!connection) return fail(res, new Error(`No connection for tab: ${tab}`), 400);
+  const connection = connectionForTab(tab);
+  if (!connection) return fail(res, new Error(`No API key for tab: ${tab}`), 400);
   const params = buildParamsFromConfig(config, tab);
   const start = Date.now();
   try {
@@ -615,7 +611,7 @@ router.get('/token/:chain/:address/mcap', async (req, res) => {
  * GET /api/market/snapshots-export
  * Export token snapshots for AI analysis.
  * Query:
- *   chain=sol|robinhood|bsc|all (default: all)
+ *   chain=sol|all (default: all)
  *   category=new_creation|completed|all (default: all)
  *   minGainPct=-100 (default: -100 = include losers)
  *   maxTracks=200 (default: 200)
@@ -635,8 +631,8 @@ router.get('/snapshots-export', (req, res) => {
       balanceRatio = '0.5',
     } = req.query;
 
-    const validChains = ['sol', 'robinhood', 'bsc', 'all'];
-    const validCategories = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc', 'all'];
+    const validChains = ['sol', 'all'];
+    const validCategories = ['new_creation', 'completed', 'all'];
 
     if (!validChains.includes(chain)) return fail(res, new Error('Invalid chain'), 400);
     if (!validCategories.includes(category)) return fail(res, new Error('Invalid category'), 400);

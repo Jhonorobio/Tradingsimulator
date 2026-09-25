@@ -5,7 +5,7 @@
  * logic lives in the app.
  */
 
-export const TRENCH_TABS = ['new_creation', 'completed', 'new_creation_robinhood', 'completed_robinhood', 'new_creation_bsc', 'completed_bsc'];
+export const TRENCH_TABS = ['new_creation', 'completed'];
 
 export const DEFAULT_TRENCH_PARAMS = { chain: 'sol', types: ['new_creation'], limit: 50 };
 
@@ -13,20 +13,12 @@ export const DEFAULT_TRENCH_PARAMS = { chain: 'sol', types: ['new_creation'], li
 const TAB_CHAIN = {
   new_creation: 'sol',
   completed: 'sol',
-  new_creation_robinhood: 'robinhood',
-  completed_robinhood: 'robinhood',
-  new_creation_bsc: 'bsc',
-  completed_bsc: 'bsc',
 };
 
 // Map tab name → GMGN trench type (the API category parameter)
 const TAB_TYPE = {
   new_creation: 'new_creation',
   completed: 'completed',
-  new_creation_robinhood: 'new_creation',
-  completed_robinhood: 'completed',
-  new_creation_bsc: 'new_creation',
-  completed_bsc: 'completed',
 };
 
 // Field key -> interpretation scale. Mirrors what the app renders.
@@ -93,11 +85,6 @@ export function buildParamsFromConfig(config, tab) {
   const type = TAB_TYPE[tab] || 'new_creation';
   const p = { chain, types: [type], limit: 50 };
 
-  // Robinhood needs explicit launchpad_platform to include all supported launchpads
-  if (chain === 'robinhood') {
-    p.launchpadPlatform = ['pons_v2', 'longxyz', 'o1', 'bankr', 'flap', 'trench', 'livo'];
-  }
-
   // SOL also needs explicit launchpad_platform for trenches to return all tokens
   if (chain === 'sol') {
     p.launchpadPlatform = [
@@ -108,16 +95,6 @@ export function buildParamsFromConfig(config, tab) {
       'jup_studio', 'Moonshot', 'boop', 'ray_launchpad',
       'meteora_virtual_curve', 'xstocks', 'stonkfun',
       'pool_ray', 'pool_meteora', 'pool_pump_amm', 'pool_orca',
-    ];
-  }
-
-  // BSC also needs explicit launchpad_platform for trenches to return tokens
-  if (chain === 'bsc') {
-    p.launchpadPlatform = [
-      'fourmeme', 'fourmeme_agent', 'bn_fourmeme', 'four_xmode_agent',
-      'cubepeg', 'likwid', 'goplus_creator', 'goplus_skills', 'openfour',
-      'flap', 'flap_stocks', 'flap_aioracle', 'clanker', 'lunafun',
-      'stoxes', 'stoxes_rwa',
     ];
   }
 
