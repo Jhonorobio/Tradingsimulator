@@ -12,11 +12,12 @@ const DEFAULT_TA =
   '%2BGwOfWeQXAdpObsrbWbYS4vdSrTe5DyYZYGZyWWrgjc3wnJs1sBXV54nyBjf8moVolF87pu3FuBkpi6THzirx5zJ5ycXBFGwanMgB%2BnWxySZ3kQkUpBIHGLWcskMvI8%2FyhcTneZcavfpOHocyeASyqWR%2Fxjrj5Wdtg1gYi%2BUGZrW6LrUFO6CausIAiuUmll74MNPL4ke9q8dqdHwOXKacAz2Go8PHNkysFui8nf0lVsuOarFTSN2pAON103FitzKXH2Od6BhuOeFQtvbuHq8%2FN9QW9T12cH3pZ4LsKbIeARo0BqEpwiM7weVCieEPimC7fj3MwDfOQ%2Fl7Kl864A7ZArqBV3N%2FZuaF%2FCeFBJchYndc7XmcgXfwXEmHBEJ0572%2BIu%2FxLFYxxyPe4G2jSsy6lKj2ePgYSvpTm%2BycWirh2GglInPezLLtXephFUXOU%2FmiOLJ%2FtXC2K4%2FezjU0hCYicG1bwyJEKPdnkgjhcEByIkvO8%2BikldoLN4IqHnj7yfriRlntQ%3D%3D--cYKmQ7Xoco6etjgy--LWP33asZkd3yg8juNGqXDA%3D%3D';
 
 // Measured limits (2026-09-26): ~2 req/s sustained trips HTTP 429 with a
-// ~30-60s cooldown; 750ms cadence ran 16/16 clean. fdv moves 1-2x per second.
-const TICK_MS = 750;
+// ~30-60s cooldown; 750ms and 1s cadences run clean. fdv moves 1-2x per second.
+// Cadence fixed at 1s by request; the poller runs ALWAYS (started at module
+// load, never idle-stopped) so data is fresh even with no readers.
+const TICK_MS = 1000;
 const RATE_LIMIT_BACKOFF_MS = 45_000;
 const FETCH_TIMEOUT_MS = 10_000;
-const READER_IDLE_MS = 15_000;
 const STALE_MS = 3_000;
 
 // Screener filters captured from the Photon web app (graduated column,
@@ -42,17 +43,12 @@ const HEADERS = {
 let cache = null; // { data: {columns,titles,...}, savedAt }
 let poller = null;
 let inflight = null;
-let lastReadAt = 0;
 let backoffUntil = 0;
 let fetchCount = 0;
 let errorCount = 0;
 let lastError = null;
 let unauthorized = false;
 let cycleTLS = null;
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
 
 async function getCycleTLS() {
   if (!cycleTLS) cycleTLS = await initCycleTLS();
@@ -140,10 +136,6 @@ function stopPoller() {
 
 function pollTick() {
   try {
-    if (Date.now() - lastReadAt > READER_IDLE_MS) {
-      stopPoller();
-      return;
-    }
     if (Date.now() < backoffUntil) return;
     if (inflight) return;
     coalescedFetch();
@@ -154,18 +146,16 @@ function pollTick() {
 
 /**
  * Photon memescape screener feed (graduated tokens, holders >= 100, ...).
- * Reads are served from the cache a background poller refreshes every 750ms;
- * the first call waits for the initial fetch.
+ * Reads are served from the cache a background poller refreshes every 1s
+ * (always running, started at module load); the first call waits for the
+ * initial fetch.
  *
  * @returns {Promise<{columns: object, titles: object, cached: boolean, ageMs: number, savedAt: number, error?: string}>}
  *   Never throws: on failure it returns the last cached data plus `error`.
  */
 export async function getMemescope() {
-  lastReadAt = Date.now();
-  startPoller();
-
-  // First read, or poller went idle and the cache is old: wait for a fresh
-  // fetch (coalesced — concurrent readers share one upstream request).
+  // First read after boot: wait for a fresh fetch (coalesced — concurrent
+  // readers share one upstream request).
   const stale = !cache || Date.now() - cache.savedAt > STALE_MS;
   if (stale && Date.now() >= backoffUntil) await coalescedFetch();
   if (!cache) {
@@ -204,3 +194,6 @@ export function getMemescopeStatus() {
     method: 'cycletls(chrome131)',
   };
 }
+
+// Always-on: poll Photon from the moment the server boots (no readers needed).
+startPoller();

@@ -5,6 +5,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Platform, useColorScheme } from 'react-native';
 
 import { useSettings } from '@/store/settings';
+import { useMemescope } from '@/store/memescope';
 import { initWs } from '@/api/ws-client';
 import { setAndroidChannel, notificationsAvailable } from '@/utils/notifications';
 
@@ -26,6 +27,8 @@ export default function RootLayout() {
       wsInitialized = true;
       initWs();
     }
+    // Global 1s poller for the Photon feed — runs on every screen.
+    useMemescope.getState().startPolling();
   }, [load]);
 
   useEffect(() => {

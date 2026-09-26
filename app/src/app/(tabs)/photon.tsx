@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,8 +8,8 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
-import { getMemescope } from '@/api/market';
-import type { MemescopeColKey, MemescopeResponse, PhotonToken } from '@/api/market';
+import { useMemescope } from '@/store/memescope';
+import type { MemescopeColKey, PhotonToken } from '@/api/market';
 import { fmtNum, fmtUsd, timeAgo } from '@/utils/format';
 
 const COLS: MemescopeColKey[] = ['col1', 'col2', 'col3'];
@@ -18,7 +18,6 @@ const FALLBACK_TITLES: Record<MemescopeColKey, string> = {
   col2: 'Graduating',
   col3: 'Graduated',
 };
-const POLL_MS = 1000;
 
 interface StatItem {
   icon: keyof typeof Ionicons.glyphMap;
@@ -119,24 +118,13 @@ function PhotonRow({ token }: { token: PhotonToken }) {
 
 export default function PhotonScreen() {
   const theme = useTheme();
-  const [resp, setResp] = useState<MemescopeResponse | null>(null);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const { resp, error: fetchError, startPolling } = useMemescope();
   const [activeCol, setActiveCol] = useState<MemescopeColKey>('col1');
 
-  const load = useCallback(() => {
-    getMemescope()
-      .then((r) => {
-        setResp(r);
-        setFetchError(r.error ?? null);
-      })
-      .catch((e: unknown) => setFetchError(e instanceof Error ? e.message : String(e)));
-  }, []);
-
+  // The global poller starts at app boot; this is just a safety net.
   useEffect(() => {
-    load();
-    const id = setInterval(load, POLL_MS);
-    return () => clearInterval(id);
-  }, [load]);
+    startPolling();
+  }, [startPolling]);
 
   const tokens = useMemo(
     () => resp?.columns?.[activeCol]?.data?.map((d) => d.attributes) ?? [],
@@ -199,7 +187,7 @@ export default function PhotonScreen() {
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Memescope · servidor 750ms · app 1s
+            Memescope · siempre activo (1s)
           </ThemedText>
         </View>
       </SafeAreaView>
