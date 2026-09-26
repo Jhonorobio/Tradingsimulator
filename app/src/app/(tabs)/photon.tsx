@@ -187,7 +187,7 @@ export default function PhotonScreen() {
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Memescope · servidor 1s · app 1s
+            Memescope · servidor 1.3s · push en vivo
           </ThemedText>
         </View>
       </SafeAreaView>

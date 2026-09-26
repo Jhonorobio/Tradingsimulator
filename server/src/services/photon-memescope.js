@@ -3,8 +3,8 @@ import { broadcast, getSubscriptions } from './ws-server.js';
 
 // Photon (photon-sol.tinyastro.io) "memescope" screener feed.
 //
-// Cadence: the server polls Photon EVERY 1s, always (app open or not), and
-// pushes each refresh to WS subscribers on the topic `memescope` (~1 push/s).
+// Cadence: the server polls Photon every 1.3s, always (app open or not), and
+// pushes each refresh to WS subscribers on the topic `memescope`.
 // The HTTP route serves the cache.
 //
 // Cloudflare: the API responds to CycleTLS (chrome131) with browser headers;
@@ -16,9 +16,13 @@ const SEARCH_URL = 'https://photon-sol.tinyastro.io/api/memescope/search';
 const DEFAULT_TA =
   '%2BGwOfWeQXAdpObsrbWbYS4vdSrTe5DyYZYGZyWWrgjc3wnJs1sBXV54nyBjf8moVolF87pu3FuBkpi6THzirx5zJ5ycXBFGwanMgB%2BnWxySZ3kQkUpBIHGLWcskMvI8%2FyhcTneZcavfpOHocyeASyqWR%2Fxjrj5Wdtg1gYi%2BUGZrW6LrUFO6CausIAiuUmll74MNPL4ke9q8dqdHwOXKacAz2Go8PHNkysFui8nf0lVsuOarFTSN2pAON103FitzKXH2Od6BhuOeFQtvbuHq8%2FN9QW9T12cH3pZ4LsKbIeARo0BqEpwiM7weVCieEPimC7fj3MwDfOQ%2Fl7Kl864A7ZArqBV3N%2FZuaF%2FCeFBJchYndc7XmcgXfwXEmHBEJ0572%2BIu%2FxLFYxxyPe4G2jSsy6lKj2ePgYSvpTm%2BycWirh2GglInPezLLtXephFUXOU%2FmiOLJ%2FtXC2K4%2FezjU0hCYicG1bwyJEKPdnkgjhcEByIkvO8%2BikldoLN4IqHnj7yfriRlntQ%3D%3D--cYKmQ7Xoco6etjgy--LWP33asZkd3yg8juNGqXDA%3D%3D';
 
-// Measured limits (2026-09-26): ~2 req/s sustained trips HTTP 429 with a
-// ~30-60s cooldown; 750ms and 1s cadences run clean. fdv moves 1-2x per second.
-const TICK_MS = 1000;
+// Rate-limit sweep (2026-09-26, 5-10 min soaks per cadence, ~1400 requests):
+//   1.0s  → 429 starts at minute 1-2      1.2s → 429 at ~189s
+//   1.3s  → LIMPIO (459/459 in 10 min)    1.4s/1.5s → LIMPIO
+//   1.75s..3.0s → LIMPIO
+// Zero hangs anywhere (avg 200ms, max 1.2s) — a "stuck" feed was the 429
+// backoff (45s), not a hang. 1.3s is the fastest cadence that sustains.
+const TICK_MS = 1300;
 const RATE_LIMIT_BACKOFF_MS = 45_000;
 const FETCH_TIMEOUT_MS = 10_000;
 const STALE_MS = 3_000;
@@ -111,7 +115,7 @@ async function fetchOnce() {
 
   unauthorized = false;
   cache = { data: json, savedAt: Date.now() };
-  // One push per refresh (the 1s tick caps it at ~1 push/s). broadcast()
+  // One push per refresh (the 1.3s tick caps it). broadcast()
   // only reaches subscribed clients — no-op when nobody is listening.
   lastPushAt = Date.now();
   broadcast(MEMESCOPE_TOPIC, { event: 'memescope_updated', data: snapshotPayload() });
@@ -170,8 +174,8 @@ function snapshotPayload() {
 
 /**
  * Photon memescape screener feed (graduated tokens, holders >= 100, ...).
- * The server polls upstream every 1s (always) and pushes each refresh to WS
- * subscribers on `memescope` (~1/s). The HTTP route serves the cache and
+ * The server polls upstream every 1.3s (always) and pushes each refresh to WS
+ * subscribers on `memescope`. The HTTP route serves the cache and
  * fetches on demand when it's missing/stale.
  *
  * @returns {Promise<{columns: object, titles: object, cached: boolean, ageMs: number, savedAt: number, error?: string}>}
@@ -207,6 +211,6 @@ export function getMemescopeStatus() {
   };
 }
 
-// The server polls Photon every 1s from boot, open app or not, and pushes
+// The server polls Photon every 1.3s from boot, open app or not, and pushes
 // every refresh to WS subscribers.
 startPoller();

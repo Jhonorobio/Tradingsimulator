@@ -19,9 +19,10 @@ let started = false;
 /**
  * Global Photon memescape feed, pushed by the server over WebSocket.
  *
- * The server polls Photon every 1s (always) and pushes `memescope_updated`
- * to subscribers every ~1s — the app never polls HTTP for it (one initial
- * cache read fills the screen before the first push arrives).
+ * The server polls Photon every 1.3s (always — rate-limit sweet spot found by
+ * a sweep: 1s trips 429 within 2 min, 1.3s is clean for 10+ min) and pushes
+ * `memescope_updated` to subscribers each time — the app never polls HTTP for
+ * it (one initial cache read fills the screen before the first push arrives).
  */
 export const useMemescope = create<MemescopeState>((set) => ({
   resp: null,
@@ -35,7 +36,7 @@ export const useMemescope = create<MemescopeState>((set) => ({
       .then((r) => set({ resp: r, error: r.error ?? null }))
       .catch((e: unknown) => set({ error: e instanceof Error ? e.message : String(e) }));
 
-    // Keeps the server-side poller alive and receives 1s pushes.
+    // Keeps the server-side poller alive and receives pushes each refresh.
     client.subscribe(TOPIC);
     client.on('memescope_updated', (msg) => {
       const data = (msg?.data ?? null) as MemescopeResponse | null;

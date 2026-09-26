@@ -153,7 +153,7 @@ export interface MemescopeResponse {
 
 /**
  * Photon memescape (graduated/graduating screener). The server polls upstream
- * every 750ms and serves from cache, so polling the app at 1s is safe.
+ * every 1.3s (rate-limit safe) and serves from cache; the app gets pushes.
  */
 export function getMemescope() {
   return api.get<MemescopeResponse>('/api/market/memescope');
