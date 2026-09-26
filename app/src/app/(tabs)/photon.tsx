@@ -118,13 +118,13 @@ function PhotonRow({ token }: { token: PhotonToken }) {
 
 export default function PhotonScreen() {
   const theme = useTheme();
-  const { resp, error: fetchError, startPolling } = useMemescope();
+  const { resp, error: fetchError, startListening } = useMemescope();
   const [activeCol, setActiveCol] = useState<MemescopeColKey>('col1');
 
-  // The global poller starts at app boot; this is just a safety net.
+  // The feed subscribes at app boot; this is just a safety net.
   useEffect(() => {
-    startPolling();
-  }, [startPolling]);
+    startListening();
+  }, [startListening]);
 
   const tokens = useMemo(
     () => resp?.columns?.[activeCol]?.data?.map((d) => d.attributes) ?? [],
@@ -187,7 +187,7 @@ export default function PhotonScreen() {
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Memescope · siempre activo (1s)
+            Memescope · push WebSocket 1s
           </ThemedText>
         </View>
       </SafeAreaView>

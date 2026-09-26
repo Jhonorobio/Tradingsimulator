@@ -2,33 +2,44 @@ import { create } from 'zustand';
 
 import { getMemescope } from '@/api/market';
 import type { MemescopeResponse } from '@/api/market';
+import { getWsClient } from '@/api/ws-client';
 
-const POLL_MS = 1000;
+const TOPIC = 'memescope';
 
 interface MemescopeState {
   resp: MemescopeResponse | null;
   error: string | null;
-  /** Starts the global 1s poller (idempotent — runs for the whole app session). */
-  startPolling: () => void;
+  /** Subscribes to the server's WS feed (idempotent — app-wide, runs forever). */
+  startListening: () => void;
 }
 
-let timer: ReturnType<typeof setInterval> | null = null;
+const client = getWsClient();
+let started = false;
 
 /**
- * Global Photon memescape feed. Polling starts once at app boot (from the
- * root layout) and keeps running on every screen — the tab only reads state.
+ * Global Photon memescape feed, pushed by the server over WebSocket.
+ *
+ * The server only polls Photon while this topic has subscribers, and pushes
+ * `memescope_updated` every 1s — the app never polls HTTP for it (one initial
+ * cache read fills the screen before the first push arrives).
  */
 export const useMemescope = create<MemescopeState>((set) => ({
   resp: null,
   error: null,
-  startPolling: () => {
-    if (timer) return;
-    const load = () => {
-      getMemescope()
-        .then((r) => set({ resp: r, error: r.error ?? null }))
-        .catch((e: unknown) => set({ error: e instanceof Error ? e.message : String(e) }));
-    };
-    load();
-    timer = setInterval(load, POLL_MS);
+  startListening: () => {
+    if (started) return;
+    started = true;
+
+    // Instant snapshot from the server cache (before the first WS push).
+    getMemescope()
+      .then((r) => set({ resp: r, error: r.error ?? null }))
+      .catch((e: unknown) => set({ error: e instanceof Error ? e.message : String(e) }));
+
+    // Keeps the server-side poller alive and receives 1s pushes.
+    client.subscribe(TOPIC);
+    client.on('memescope_updated', (msg) => {
+      const data = (msg?.data ?? null) as MemescopeResponse | null;
+      if (data) set({ resp: data, error: data.error ?? null });
+    });
   },
 }));

@@ -27,8 +27,8 @@ export default function RootLayout() {
       wsInitialized = true;
       initWs();
     }
-    // Global 1s poller for the Photon feed — runs on every screen.
-    useMemescope.getState().startPolling();
+    // Global Photon feed: subscribe once — server polls only while we listen.
+    useMemescope.getState().startListening();
   }, [load]);
 
   useEffect(() => {
