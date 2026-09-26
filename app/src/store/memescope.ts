@@ -20,7 +20,7 @@ let started = false;
  * Global Photon memescape feed, pushed by the server over WebSocket.
  *
  * The server polls Photon every 1s (always) and pushes `memescope_updated`
- * to subscribers every ~3s — the app never polls HTTP for it (one initial
+ * to subscribers every ~1s — the app never polls HTTP for it (one initial
  * cache read fills the screen before the first push arrives).
  */
 export const useMemescope = create<MemescopeState>((set) => ({

@@ -3,9 +3,9 @@ import { broadcast, getSubscriptions } from './ws-server.js';
 
 // Photon (photon-sol.tinyastro.io) "memescope" screener feed.
 //
-// Cadence: the server polls Photon EVERY 1s, always (app open or not).
-// WS subscribers on the topic `memescope` receive a push every ~3s
-// (PUSH_INTERVAL_MS); the HTTP route serves the cache.
+// Cadence: the server polls Photon EVERY 1s, always (app open or not), and
+// pushes each refresh to WS subscribers on the topic `memescope` (~1 push/s).
+// The HTTP route serves the cache.
 //
 // Cloudflare: the API responds to CycleTLS (chrome131) with browser headers;
 // plain curl/Node fetch gets a "Just a moment..." managed challenge.
@@ -19,7 +19,6 @@ const DEFAULT_TA =
 // Measured limits (2026-09-26): ~2 req/s sustained trips HTTP 429 with a
 // ~30-60s cooldown; 750ms and 1s cadences run clean. fdv moves 1-2x per second.
 const TICK_MS = 1000;
-const PUSH_INTERVAL_MS = 3_000; // WS subscribers get a push every ~3s
 const RATE_LIMIT_BACKOFF_MS = 45_000;
 const FETCH_TIMEOUT_MS = 10_000;
 const STALE_MS = 3_000;
@@ -112,12 +111,10 @@ async function fetchOnce() {
 
   unauthorized = false;
   cache = { data: json, savedAt: Date.now() };
-  // Push to WS subscribers at most every PUSH_INTERVAL_MS (no-op when nobody
-  // is listening — broadcast only reaches subscribed clients).
-  if (Date.now() - lastPushAt >= PUSH_INTERVAL_MS) {
-    lastPushAt = Date.now();
-    broadcast(MEMESCOPE_TOPIC, { event: 'memescope_updated', data: snapshotPayload() });
-  }
+  // One push per refresh (the 1s tick caps it at ~1 push/s). broadcast()
+  // only reaches subscribed clients — no-op when nobody is listening.
+  lastPushAt = Date.now();
+  broadcast(MEMESCOPE_TOPIC, { event: 'memescope_updated', data: snapshotPayload() });
   return json;
 }
 
@@ -173,9 +170,9 @@ function snapshotPayload() {
 
 /**
  * Photon memescape screener feed (graduated tokens, holders >= 100, ...).
- * The server polls upstream every 1s (always); WS subscribers on `memescope`
- * get a push every ~3s. The HTTP route serves the cache and fetches on
- * demand when it's missing/stale.
+ * The server polls upstream every 1s (always) and pushes each refresh to WS
+ * subscribers on `memescope` (~1/s). The HTTP route serves the cache and
+ * fetches on demand when it's missing/stale.
  *
  * @returns {Promise<{columns: object, titles: object, cached: boolean, ageMs: number, savedAt: number, error?: string}>}
  *   Never throws: on failure it returns the last cached data plus `error`.
@@ -205,12 +202,11 @@ export function getMemescopeStatus() {
     unauthorized,
     backoffRemainingMs: Math.max(0, backoffUntil - Date.now()),
     lastPushAgoMs: lastPushAt ? Date.now() - lastPushAt : null,
-    pushIntervalMs: PUSH_INTERVAL_MS,
     cookieSource: process.env.PHOTON_TA ? 'env:PHOTON_TA' : 'default',
     method: 'cycletls(chrome131)',
   };
 }
 
-// The server polls Photon every 1s from boot, open app or not; pushes to WS
-// subscribers are throttled to PUSH_INTERVAL_MS (3s).
+// The server polls Photon every 1s from boot, open app or not, and pushes
+// every refresh to WS subscribers.
 startPoller();
