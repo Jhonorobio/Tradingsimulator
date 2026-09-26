@@ -27,6 +27,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="photon"
+        options={{
+          title: 'Photon',
+          tabBarIcon: ({ color, size }) => <Ionicons name="planet" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="history"
         options={{
           title: 'Historial',

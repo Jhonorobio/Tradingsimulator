@@ -99,6 +99,63 @@ export function getXTrackerTokens(opts: {
   return api.get<XTrackerTokensResponse>(`/api/market/xtracker/tokens${suffix ? `?${suffix}` : ''}`);
 }
 
+export interface PhotonAudit {
+  mint_authority?: boolean;
+  freeze_authority?: boolean;
+  top_holders_perc?: number;
+  lp_burned_perc?: number;
+}
+
+export interface PhotonSocials {
+  twitter?: string | null;
+  website?: string | null;
+  telegram?: string | null;
+}
+
+/** Attributes of one token in the Photon memescape screener. */
+export interface PhotonToken {
+  address?: string;
+  tokenAddress?: string;
+  symbol?: string;
+  name?: string;
+  imgUrl?: string | null;
+  fdv?: number | null;
+  volume?: number | null;
+  buys_count?: number | null;
+  sells_count?: number | null;
+  holders_count?: number | null;
+  created_timestamp?: number | null;
+  pooled_sol?: number | null;
+  cur_liq?: { usd?: number; quote?: number } | null;
+  snipers_count?: number | null;
+  dev_holding_perc?: number | null;
+  dev_sold?: boolean | null;
+  ath?: number | null;
+  fromPump?: boolean;
+  platform?: number | string | null;
+  audit?: PhotonAudit;
+  socials?: PhotonSocials;
+}
+
+export type MemescopeColKey = 'col1' | 'col2' | 'col3';
+
+export interface MemescopeResponse {
+  columns: Record<MemescopeColKey, { data: { attributes: PhotonToken }[] }>;
+  titles: Partial<Record<MemescopeColKey, string>>;
+  cached?: boolean;
+  ageMs?: number;
+  savedAt?: number;
+  error?: string | null;
+}
+
+/**
+ * Photon memescape (graduated/graduating screener). The server polls upstream
+ * every 750ms and serves from cache, so polling the app at 1s is safe.
+ */
+export function getMemescope() {
+  return api.get<MemescopeResponse>('/api/market/memescope');
+}
+
 export function getLiveTokenPrice(chain: string, address: string) {
   return api.get<{
     price: number | null;
