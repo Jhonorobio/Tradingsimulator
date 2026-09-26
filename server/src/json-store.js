@@ -49,6 +49,11 @@ export class JsonStore {
     return key in this.#data;
   }
 
+  setAll(data) {
+    this.#data = data && typeof data === 'object' ? data : {};
+    this.#write();
+  }
+
   reload() {
     this.#data = this.#read();
   }

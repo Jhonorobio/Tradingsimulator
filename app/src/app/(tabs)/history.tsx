@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Linking, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +8,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { WinnersPanel } from '@/components/winners-panel';
+import { TrackingPanel } from '@/components/tracking-panel';
 import { useTheme } from '@/hooks/use-theme';
 import { getNotificationHistory } from '@/api/notifications';
 import { useSettings } from '@/store/settings';
@@ -19,12 +20,14 @@ const CATEGORY_OPTIONS = [
   { key: 'recent', label: 'Reciente' },
   { key: 'new', label: 'Nuevas' },
   { key: 'completed', label: 'Completadas' },
+  { key: 'x_tracker', label: 'X Tracker' },
   { key: 'snaps', label: 'Snapshots' },
   { key: 'gain', label: 'Ganancia' },
 ];
 
 const VIEW_TABS = [
   { key: 'history', label: 'Historial' },
+  { key: 'tracking', label: 'Rastreando' },
   { key: 'winners', label: 'Winners' },
 ] as const;
 type ViewKey = (typeof VIEW_TABS)[number]['key'];
@@ -49,7 +52,15 @@ const CHAIN_TABS = [
 const CATEGORY_LABELS: Record<string, string> = {
   new_creation: 'Nueva',
   completed: 'Completada',
+  x_tracker: 'X Tracker',
 };
+
+function fmtFollowers(n?: number | null): string {
+  if (n == null || isNaN(n)) return '';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
 
 const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expanded, onToggle }: {
   item: NotificationHistoryItem; theme: any; onPress: () => void;
@@ -136,6 +147,21 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
           {bundler != null && bundler > 0 && stat('layers', `${(bundler * 100).toFixed(0)}%`, '#f97316')}
           {entrap != null && entrap > 0 && stat('fish', `${(entrap * 100).toFixed(0)}%`, '#ef4444')}
         </View>
+
+        {item.category === 'x_tracker' && (item.tweet_author || item.tweet_url) ? (
+          <Pressable
+            disabled={!item.tweet_url}
+            onPress={() => { if (item.tweet_url) Linking.openURL(item.tweet_url).catch(() => {}); }}
+            style={styles.tweetRow}
+          >
+            <Ionicons name="logo-twitter" size={12} color={theme.accent} />
+            <ThemedText type="small" style={{ color: theme.textSecondary }} numberOfLines={3}>
+              {item.tweet_author ? `@${item.tweet_author}` : 'Tweet'}
+              {item.tweet_followers != null ? ` · ${fmtFollowers(item.tweet_followers)} seg` : ''}
+              {item.tweet_text ? ` — ${item.tweet_text}` : ''}
+            </ThemedText>
+          </Pressable>
+        ) : null}
 
         <View style={styles.cardFooter}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
@@ -245,6 +271,7 @@ export default function HistoryScreen() {
       if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
       if (categoryFilter === 'new' && !h.category.startsWith('new_creation')) return false;
       if (categoryFilter === 'completed' && !h.category.startsWith('completed')) return false;
+      if (categoryFilter === 'x_tracker' && h.category !== 'x_tracker') return false;
       if (searchLower) {
         return (h.symbol?.toLowerCase().includes(searchLower)) || (h.name?.toLowerCase().includes(searchLower));
       }
@@ -301,6 +328,8 @@ export default function HistoryScreen() {
 
         {view === 'winners' ? (
           <WinnersPanel />
+        ) : view === 'tracking' ? (
+          <TrackingPanel />
         ) : (
           <>
             <View style={styles.chainTabs}>
@@ -398,6 +427,7 @@ const styles = StyleSheet.create({
   cardInfo: { flex: 1 },
   cardRight: { alignItems: 'flex-end' },
   statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
+  tweetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 },
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   snapToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },

@@ -13,11 +13,17 @@ import { ApiError } from '@/api/client';
 import type { NotificationConfig, NotificationCategoryFilters, NotificationFilterFields } from '@/api/types';
 import { registerForPushNotificationsAsync, notificationsAvailable } from '@/utils/notifications';
 
-const NOTIF_CATEGORIES = ['new_creation', 'completed'] as const;
+const NOTIF_CATEGORIES = ['new_creation', 'completed', 'x_tracker'] as const;
 const NOTIF_LABELS: Record<string, string> = {
   new_creation: 'Nueva creación (SOL)',
   completed: 'Completado (SOL)',
+  x_tracker: 'X Tracker (tweets)',
 };
+const NOTIF_HINTS: Record<string, string> = {
+  x_tracker: 'Aviso cuando un token rastreado publique su primer tweet, y por cada tweet nuevo de un autor con 1.000+ seguidores.',
+};
+// Solo estas categorías admiten filtros numéricos (x_tracker no tiene).
+const FILTERABLE_CATEGORIES = new Set(['new_creation', 'completed']);
 
 const FILTER_FIELDS: { key: NotificationFilterFields; label: string; suffix?: string }[] = [
   { key: 'smart_degen_count', label: 'Smart Degen' },
@@ -40,6 +46,7 @@ export default function NotificationsScreen() {
   const [notifCategories, setNotifCategories] = useState<NotificationConfig['categories']>({
     new_creation: false,
     completed: false,
+    x_tracker: false,
   });
   const [filters, setFilters] = useState<Record<string, NotificationCategoryFilters>>({});
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
@@ -136,20 +143,27 @@ export default function NotificationsScreen() {
 
             {NOTIF_CATEGORIES.map((cat) => {
               const isExpanded = expandedCat === cat;
+              const expandable = FILTERABLE_CATEGORIES.has(cat);
               const hasFilters = filters[cat] && Object.keys(filters[cat]).length > 0;
+              const toggleExpand = () => setExpandedCat(isExpanded ? null : cat);
               return (
                 <View key={cat}>
                   <View style={[styles.notifRow, { borderColor: theme.border }]}>
-                    <Pressable style={{ flex: 1 }} onPress={() => setExpandedCat(isExpanded ? null : cat)}>
+                    <Pressable style={{ flex: 1 }} onPress={expandable ? toggleExpand : undefined}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                         <ThemedText type="smallBold">{NOTIF_LABELS[cat]}</ThemedText>
                         {hasFilters && <ThemedText type="small" style={{ color: theme.accent }}>*</ThemedText>}
                       </View>
+                      {NOTIF_HINTS[cat] && (
+                        <ThemedText type="small" style={{ color: theme.textSecondary }}>{NOTIF_HINTS[cat]}</ThemedText>
+                      )}
                     </Pressable>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Pressable onPress={() => setExpandedCat(isExpanded ? null : cat)}>
-                        <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
-                      </Pressable>
+                      {expandable && (
+                        <Pressable onPress={toggleExpand}>
+                          <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
+                        </Pressable>
+                      )}
                       <Switch
                         value={notifCategories[cat]}
                         onValueChange={() => toggleNotifCategory(cat)}
@@ -158,7 +172,7 @@ export default function NotificationsScreen() {
                     </View>
                   </View>
 
-                  {isExpanded && (
+                  {isExpanded && expandable && (
                     <View style={[styles.filterPanel, { backgroundColor: theme.backgroundSelected }]}>
                       <View style={styles.filterHeader}>
                         <ThemedText type="small" style={{ color: theme.textSecondary }}>Filtros de notificación</ThemedText>

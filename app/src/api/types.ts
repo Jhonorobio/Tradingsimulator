@@ -218,6 +218,7 @@ export interface NotificationConfig {
   categories: {
     new_creation: boolean;
     completed: boolean;
+    x_tracker: boolean;
   };
   filters?: Record<string, NotificationCategoryFilters>;
 }
@@ -252,6 +253,12 @@ export interface NotificationHistoryItem {
   entered_at: string | null;
   notified_at: string;
   filter_matched_at: string | null;
+  tweet_id?: string | null;
+  tweet_author?: string | null;
+  tweet_followers?: number | null;
+  tweet_text?: string | null;
+  tweet_url?: string | null;
+  tweet_count?: number | null;
 }
 
 export interface TokenSnapshot {

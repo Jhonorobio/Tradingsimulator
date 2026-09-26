@@ -45,6 +45,60 @@ export function getMentions(mint: string, limit = 20) {
   return api.get<MentionsResponse>(`/api/market/mentions/${encodeURIComponent(mint)}?limit=${limit}`);
 }
 
+export interface XTrackerToken {
+  address: string;
+  chain: string;
+  symbol: string | null;
+  name: string | null;
+  logo: string | null;
+  status: 'active' | 'stopped';
+  stop_reason: string | null;
+  categories: string[];
+  first_seen: string;
+  last_seen: string;
+  stopped_at: string | null;
+  mcap: number | null;
+  liquidity: number | null;
+  twitter: string | null;
+  checks: number;
+  no_pairs: number;
+  last_dex_check: string | null;
+  last_x_check: string | null;
+  tweets: number;
+  first_tweet_at: string | null;
+  last_tweet_at: string | null;
+  notified_tweets: number;
+  age_seconds: number | null;
+}
+
+export interface XTrackerTokensResponse {
+  tokens: XTrackerToken[];
+  summary: {
+    active: number;
+    stopped: number;
+    with_twitter: number;
+    with_tweets: number;
+    notified: number;
+  };
+  total: number;
+}
+
+/** Background watchlist: every token that showed up in trenches. */
+export function getXTrackerTokens(opts: {
+  status?: 'active' | 'stopped' | 'all';
+  q?: string;
+  onlyX?: boolean;
+  limit?: number;
+} = {}) {
+  const qs = new URLSearchParams();
+  if (opts.status) qs.set('status', opts.status);
+  if (opts.q) qs.set('q', opts.q);
+  if (opts.onlyX) qs.set('onlyX', '1');
+  if (opts.limit) qs.set('limit', String(opts.limit));
+  const suffix = qs.toString();
+  return api.get<XTrackerTokensResponse>(`/api/market/xtracker/tokens${suffix ? `?${suffix}` : ''}`);
+}
+
 export function getLiveTokenPrice(chain: string, address: string) {
   return api.get<{
     price: number | null;

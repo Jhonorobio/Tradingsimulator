@@ -6,12 +6,17 @@ import initCycleTLS from 'cycletls';
 // curl/Schannel also worked on Windows but curl/OpenSSL is blocked on Linux).
 const MENTIONS_URL = 'https://gmgn.ai/vas/api/v1/twitter/token/search';
 
-// Client-side pacing: 1 request/s globally (extension uses 10s + 900ms stagger
-// per mint; we round-robin through mints instead).
-const MIN_INTERVAL_MS = 1_000;
-// Backoff after a 403/429 (same as the extension's 60s).
+// This endpoint takes no API key and no auth headers (only Accept /
+// Accept-Language), and the extension never paces it either — the queue below
+// only serialises callers so the app panel and the xtracker worker don't
+// stampede each other. Tune with GMGN_MENTIONS_MIN_INTERVAL_MS (0 = no pacing).
+const rawPacing = process.env.GMGN_MENTIONS_MIN_INTERVAL_MS;
+const MIN_INTERVAL_MS = rawPacing != null && rawPacing !== ''
+  ? Math.max(0, Number(rawPacing) || 0)
+  : 50;
+// Backoff after a 403/429 (same as the extension's 60s) — safety net only.
 const BACKOFF_MS = 60_000;
-// Mentions change slowly — 60s cache is plenty for the UI.
+// Mentions change slowly — 60s cache is plenty for the UI panel.
 const CACHE_TTL_MS = 60_000;
 
 const cache = new Map(); // mint -> { data, savedAt }

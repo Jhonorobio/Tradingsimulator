@@ -7,6 +7,7 @@
 
 import { broadcast } from './ws-server.js';
 import { syncTracks } from './token-snapshots.js';
+import { ingestTrenches } from './xtracker-watcher.js';
 
 const ALL_TABS = ['new_creation', 'completed'];
 
@@ -47,6 +48,9 @@ export function upsertTrenches(data, source = 'refresher', tab = null) {
       if (t?.address) map.set(t.address, t);
     }
     updatedTabs.push(key);
+    // Every token seen here joins the background X-Tracker watchlist and stays
+    // there even after it disappears from this list.
+    try { ingestTrenches(list, key); } catch {}
     const canBroadcast = now - lastBroadcast[key] >= BROADCAST_THROTTLE_MS;
     if (canBroadcast) {
       lastBroadcast[key] = now;

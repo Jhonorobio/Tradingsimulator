@@ -11,6 +11,7 @@ import { ensureCalibrated } from './services/gmgn-clock.js';
 import { initWebSocket } from './services/ws-server.js';
 import { startPricePoller } from './services/ws-price-poller.js';
 import { startSnapshotWorker } from './services/token-snapshots.js';
+import { startXTrackerWatcher } from './services/xtracker-watcher.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -51,6 +52,11 @@ startNotificationWatcher({
 
 // Token snapshot capture worker (every 60s)
 startSnapshotWorker();
+
+// Background X-Tracker watchlist worker (Dexscreener mcap + GMGN tweets, 10s)
+startXTrackerWatcher({
+  onError: (err) => console.error('[xtracker]', err?.message),
+});
 
 // Auto-calibrate GMGN clock from Date header, then start refresher
 ensureCalibrated().then(() => {

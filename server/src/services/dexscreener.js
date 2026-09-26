@@ -51,6 +51,7 @@ export async function getTokenInfo(address) {
         sells: Number(best.txns?.h24?.sells) || 0,
       },
       holders: null, // Dexscreener does not expose holders
+      twitter: extractTwitter(best.info),
       pairAddress: best.pairAddress ?? null,
       pairCount: pairs.length,
     };
@@ -76,9 +77,13 @@ export async function searchTokens(query, limit = 20) {
 
 /**
  * Batch fetch for many addresses at once (max 30 per request).
+ * `failed` holds the addresses whose HTTP request errored (network / 5xx) so
+ * callers can tell "no pairs" (dead token) apart from "we don't know yet".
+ * @returns {Promise<{ results: Array<object|null>, failed: Set<string> }>}
  */
-export async function getTokensInfo(addresses) {
+export async function fetchTokensBatch(addresses) {
   const results = [];
+  const failed = new Set();
   for (let i = 0; i < addresses.length; i += 30) {
     const chunk = addresses.slice(i, i + 30);
     try {
@@ -97,10 +102,37 @@ export async function getTokensInfo(addresses) {
         results.push(pair ? mapPair(pair) : null);
       }
     } catch {
-      for (const _ of chunk) results.push(null);
+      for (const addr of chunk) {
+        results.push(null);
+        failed.add(addr);
+      }
     }
   }
+  return { results, failed };
+}
+
+/**
+ * Batch fetch for many addresses at once (max 30 per request).
+ */
+export async function getTokensInfo(addresses) {
+  const { results } = await fetchTokensBatch(addresses);
   return results;
+}
+
+/**
+ * Extracts the X/Twitter handle from a Dexscreener pair's `info.socials`.
+ * @returns {string|null} handle without @, or null
+ */
+function extractTwitter(info) {
+  const socials = info?.socials;
+  if (!Array.isArray(socials)) return null;
+  for (const s of socials) {
+    if (String(s?.type || '').toLowerCase() !== 'twitter') continue;
+    const url = String(s?.url || '');
+    const m = url.match(/(?:twitter|x)\.com\/(?:#!\/)?@?([A-Za-z0-9_]{1,20})/i);
+    if (m && m[1] && !['share', 'intent', 'search', 'i'].includes(m[1].toLowerCase())) return m[1];
+  }
+  return null;
 }
 
 function mapPair(pair) {
@@ -114,8 +146,10 @@ function mapPair(pair) {
     logo: baseToken.icon ?? pair.info?.imageUrl ?? null,
     price: pair.priceUsd != null ? Number(pair.priceUsd) : null,
     marketCap: pair.marketCap != null ? Number(pair.marketCap) : null,
+    fdv: pair.fdv != null ? Number(pair.fdv) : null,
     liquidity: Number(pair.liquidity?.usd) || 0,
     volume24h: Number(pair.volume?.h24) || 0,
+    twitter: extractTwitter(pair.info),
     priceChange: {
       m5: Number(pair.priceChange?.m5) || 0,
       h1: Number(pair.priceChange?.h1) || 0,

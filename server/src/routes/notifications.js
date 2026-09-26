@@ -5,7 +5,7 @@ import { getSnapshots, getAllTracks } from '../services/token-snapshots.js';
 
 const router = Router();
 
-const VALID_CATEGORIES = ['new_creation', 'completed'];
+const VALID_CATEGORIES = ['new_creation', 'completed', 'x_tracker'];
 
 const FILTER_FIELDS = [
   'smart_degen_count', 'renowned_count', 'bot_degen_count', 'bot_degen_rate',
@@ -100,7 +100,7 @@ router.get('/config', (req, res) => {
     if (!entry) {
       return res.json({
         push_token: null,
-        categories: { new_creation: false, completed: false },
+        categories: { new_creation: false, completed: false, x_tracker: false },
         filters: {},
       });
     }
@@ -125,9 +125,13 @@ router.get('/config', (req, res) => {
 router.get('/history', (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 300);
-    const entries = notificationHistory.getAll()
-      .filter((e, i, arr) => arr.findIndex(x => x.address === e.address && x.category === e.category) === i)
+    // Copy before sorting: getAll() returns the store's live array and poller
+    // cap logic relies on its oldest-first insertion order.
+    const entries = [...notificationHistory.getAll()]
+      // Sort first so the newest entry per token wins the dedupe below —
+      // x_tracker can produce several entries for the same address.
       .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''))
+      .filter((e, i, arr) => arr.findIndex(x => x.address === e.address && x.category === e.category) === i)
       .slice(0, limit)
       .map((e) => ({ ...e, snapshots: getSnapshots(e.address, e.category) }));
     res.json({ history: entries });

@@ -14,6 +14,7 @@ import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-heal
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
 import { getMentions, getMentionsStatus, rawMentions } from '../services/gmgn-mentions.js';
 import { getLiveMcap, getLiveMcapStatus } from '../services/gmgn-mcap.js';
+import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
 
 const router = Router();
 
@@ -430,6 +431,35 @@ router.get('/debug-mentions/:mint', async (req, res) => {
 function findInTrenches(chain, address) {
   return findToken(address);
 }
+
+/**
+ * GET /api/market/xtracker/status — diagnostics for the background X-Tracker
+ * watchlist: active/stopped counts, stop reasons, GMGN queue and last ticks.
+ */
+router.get('/xtracker/status', (_req, res) => {
+  try {
+    res.json(getXTrackerStatus());
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * GET /api/market/xtracker/tokens — watchlist behind the "Rastreando" tab.
+ * Query: status=active|stopped|all (default active), q, onlyX=1, limit
+ */
+router.get('/xtracker/tokens', (req, res) => {
+  try {
+    res.json(getXTrackerTokens({
+      status: req.query.status,
+      q: req.query.q,
+      onlyX: req.query.onlyX,
+      limit: req.query.limit,
+    }));
+  } catch (err) {
+    fail(res, err);
+  }
+});
 
 /**
  * GET /api/market/sol-price — current SOL price (GMGN proxy, Dexscreener
