@@ -14,6 +14,7 @@ import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-heal
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
 import { getMentions, getMentionsStatus, rawMentions } from '../services/gmgn-mentions.js';
 import { getLiveMcap, getLiveMcapStatus } from '../services/gmgn-mcap.js';
+import { getMemescope, getMemescopeStatus } from '../services/photon-memescope.js';
 import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
 
 const router = Router();
@@ -712,6 +713,25 @@ router.get('/token/:chain/:address/live-mcap', async (req, res) => {
 /** GET /api/market/live-mcap-status — pacing/backoff of the live mcap fetcher. */
 router.get('/live-mcap-status', (_req, res) => {
   res.json(getLiveMcapStatus());
+});
+
+/**
+ * GET /api/market/memescope — Photon screener feed (graduated tokens,
+ * holders >= 100). Served from cache a background poller refreshes every
+ * 750ms (Cloudflare rate limit: ~2 req/s trips 429 with a 30-60s cooldown).
+ * Never 500s: on upstream failure it returns the last data + `error`.
+ */
+router.get('/memescope', async (_req, res) => {
+  try {
+    res.json(await getMemescope());
+  } catch (err) {
+    fail(res, err, 502);
+  }
+});
+
+/** GET /api/market/memescope-status — poller/pacing diagnostics. */
+router.get('/memescope-status', (_req, res) => {
+  res.json(getMemescopeStatus());
 });
 
 /**
