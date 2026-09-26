@@ -31,14 +31,22 @@ function PhotonRow({ token }: { token: PhotonToken }) {
   const theme = useTheme();
 
   const address = token.address || token.tokenAddress || '';
-  const fdv = token.fdv ?? null;
-  const volume = token.volume ?? null;
-  const holders = token.holders_count ?? null;
-  const liqUsd = token.cur_liq?.usd ?? null;
-  const topHolders = token.audit?.top_holders_perc ?? null;
-  const lpBurned = token.audit?.lp_burned_perc ?? null;
-  const devPct = token.dev_holding_perc ?? null;
-  const snipers = token.snipers_count ?? null;
+  // Photon sends some numbers as strings ("0.0") — coerce before math.
+  const num = (v: unknown): number | null => {
+    if (v == null || v === '') return null;
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const fdv = num(token.fdv);
+  const volume = num(token.volume);
+  const holders = num(token.holders_count);
+  const liqUsd = num(token.cur_liq?.usd);
+  const topHolders = num(token.audit?.top_holders_perc);
+  const lpBurned = num(token.audit?.lp_burned_perc);
+  const devPct = num(token.dev_holding_perc);
+  const snipers = num(token.snipers_count);
+  const ath = num(token.ath);
+  const createdAt = num(token.created_timestamp);
 
   const stats: StatItem[] = [
     { icon: 'people', value: holders != null ? `${fmtNum(holders)}` : null, color: theme.textSecondary },
@@ -46,8 +54,8 @@ function PhotonRow({ token }: { token: PhotonToken }) {
     { icon: 'bar-chart', value: topHolders != null ? `${topHolders.toFixed(0)}%` : null, color: '#f59e0b' },
     { icon: 'flame', value: lpBurned != null ? `LP ${lpBurned.toFixed(0)}%` : null, color: lpBurned === 100 ? '#22c55e' : theme.textSecondary },
     { icon: 'locate', value: snipers != null && snipers > 0 ? `Snp ${snipers}` : null, color: '#ef4444' },
-    { icon: 'code-slash', value: devPct != null && devPct > 0 ? `Dev ${devPct.toFixed(1)}%` : null, color: devPct && devPct > 5 ? '#ef4444' : theme.textSecondary },
-    { icon: 'trophy', value: token.ath ? `ATH ${fmtUsd(token.ath, { compact: true })}` : null, color: '#a855f7' },
+    { icon: 'code-slash', value: devPct != null && devPct > 0 ? `Dev ${devPct.toFixed(1)}%` : null, color: devPct != null && devPct > 5 ? '#ef4444' : theme.textSecondary },
+    { icon: 'trophy', value: ath ? `ATH ${fmtUsd(ath, { compact: true })}` : null, color: '#a855f7' },
   ];
   const visible = stats.filter((s) => s.value != null);
 
@@ -81,7 +89,7 @@ function PhotonRow({ token }: { token: PhotonToken }) {
           <View style={styles.row}>
             <View style={styles.leftGroup}>
               <ThemedText style={[styles.ageText, { color: theme.textSecondary }]}>
-                {timeAgo(token.created_timestamp ?? undefined)}
+                {createdAt != null ? timeAgo(createdAt) : '—'}
                 {token.fromPump ? ' · pump' : ''}
               </ThemedText>
             </View>

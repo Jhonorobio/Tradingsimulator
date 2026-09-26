@@ -102,8 +102,8 @@ export function getXTrackerTokens(opts: {
 export interface PhotonAudit {
   mint_authority?: boolean;
   freeze_authority?: boolean;
-  top_holders_perc?: number;
-  lp_burned_perc?: number;
+  top_holders_perc?: number | string;
+  lp_burned_perc?: number | string;
 }
 
 export interface PhotonSocials {
@@ -112,25 +112,28 @@ export interface PhotonSocials {
   telegram?: string | null;
 }
 
-/** Attributes of one token in the Photon memescape screener. */
+/**
+ * Attributes of one token in the Photon memescape screener.
+ * Photon sends some numerics as strings ("0.0") — coerce at render time.
+ */
 export interface PhotonToken {
   address?: string;
   tokenAddress?: string;
   symbol?: string;
   name?: string;
   imgUrl?: string | null;
-  fdv?: number | null;
-  volume?: number | null;
-  buys_count?: number | null;
-  sells_count?: number | null;
-  holders_count?: number | null;
-  created_timestamp?: number | null;
-  pooled_sol?: number | null;
-  cur_liq?: { usd?: number; quote?: number } | null;
-  snipers_count?: number | null;
-  dev_holding_perc?: number | null;
+  fdv?: number | string | null;
+  volume?: number | string | null;
+  buys_count?: number | string | null;
+  sells_count?: number | string | null;
+  holders_count?: number | string | null;
+  created_timestamp?: number | string | null;
+  pooled_sol?: number | string | null;
+  cur_liq?: { usd?: number | string; quote?: number | string } | null;
+  snipers_count?: number | string | null;
+  dev_holding_perc?: number | string | null;
   dev_sold?: boolean | null;
-  ath?: number | null;
+  ath?: number | string | null;
   fromPump?: boolean;
   platform?: number | string | null;
   audit?: PhotonAudit;
