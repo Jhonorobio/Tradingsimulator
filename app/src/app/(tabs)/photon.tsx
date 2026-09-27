@@ -13,6 +13,9 @@ import type { MemescopeColKey, PhotonToken } from '@/api/market';
 import { fmtNum, fmtUsd, timeAgo } from '@/utils/format';
 
 const COLS: MemescopeColKey[] = ['col1', 'col2', 'col3'];
+// Photon's image CDN (tpi.tradewithphoton.com) returns 403 without a
+// photon-sol.tinyastro.io Referer — verified: any UA + this referer = 200.
+const PHOTON_IMG_HEADERS = { referer: 'https://photon-sol.tinyastro.io/' };
 const FALLBACK_TITLES: Record<MemescopeColKey, string> = {
   col1: 'New',
   col2: 'Graduating',
@@ -64,7 +67,7 @@ function PhotonRow({ token }: { token: PhotonToken }) {
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]}>
       <View style={styles.mainRow}>
         <View style={[styles.avatarWrap, { borderColor: '#a855f7' }]}>
-          <TokenAvatar logo={token.imgUrl} symbol={token.symbol} size={50} borderRadius={4} />
+          <TokenAvatar logo={token.imgUrl} symbol={token.symbol} size={50} borderRadius={4} headers={PHOTON_IMG_HEADERS} />
         </View>
 
         <View style={styles.contentCol}>

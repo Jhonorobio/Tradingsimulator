@@ -8,6 +8,7 @@ export function TokenAvatar({
   size = 40,
   borderRadius,
   borderColor,
+  headers,
 }: {
   logo?: string | null;
   symbol?: string | null;
@@ -15,6 +16,8 @@ export function TokenAvatar({
   borderRadius?: number;
   launchpad?: string | null;
   borderColor?: string;
+  /** Extra HTTP headers for the image request (some CDNs check Referer). */
+  headers?: Record<string, string>;
 }) {
   const theme = useTheme();
   const br = borderRadius ?? size / 2;
@@ -22,7 +25,7 @@ export function TokenAvatar({
   if (logo) {
     return (
       <Image
-        source={{ uri: logo }}
+        source={headers ? { uri: logo, headers } : { uri: logo }}
         style={{ width: size, height: size, borderRadius: br }}
         contentFit="cover"
         transition={150}
