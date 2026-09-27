@@ -254,6 +254,7 @@ export interface NotificationHistoryItem {
   entrapment_ratio: number | null;
   bundle_holders_count?: number | null;
   buys_count?: number | null;
+  tp_holders_count?: number | null;
   snapshots: TokenSnapshot[] | null;
   entered_at: string | null;
   notified_at: string;

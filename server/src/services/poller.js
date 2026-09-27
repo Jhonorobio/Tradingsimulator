@@ -1,10 +1,11 @@
-import { notificationConfig, notifiedTokens, notificationHistory, winners } from '../stores.js';
+import { notificationConfig, notifiedTokens, notificationHistory, pushSubscriptions, winners } from '../stores.js';
 import { getAllTokens, storeSize, onTokensInserted } from './trenches-store.js';
 import { sendPush, checkReceipts } from './push.js';
 import { broadcast } from './ws-server.js';
 import { getSnapshots, getFirstSnapshot, getTrackStarted } from './token-snapshots.js';
 
 const CATEGORIES = ['new_creation', 'completed'];
+const TRENCHES_HISTORY_MAX = 300;
 
 // How many insert cycles between receipt checks (e.g., 60 ≈ 5 min depending on frequency)
 const RECEIPT_CHECK_INTERVAL = 60;
@@ -111,129 +112,136 @@ function checkAndSaveWinner(item) {
 }
 
 /**
+ * Global history pass: records every trenches token once per token+category,
+ * regardless of push config or enabled categories (History must show tokens
+ * even when notifications are off).
+ */
+function recordTrenchesHistory(catsToCheck) {
+  const existing = new Set(notificationHistory.getAll().map((e) => `${e.address}:${e.category}`));
+
+  for (const cat of catsToCheck) {
+    for (const t of getTokensFromStore(cat)) {
+      if (!t.address) continue;
+      const key = `${t.address}:${cat}`;
+      if (existing.has(key)) continue;
+      existing.add(key);
+
+      const historyEntry = {
+        device_id: 'trenches',
+        address: t.address,
+        chain: t.chain || 'sol',
+        symbol: t.symbol || null,
+        name: t.name || null,
+        category: cat,
+        mcap: t.usd_market_cap ?? t.market_cap ?? null,
+        liq: t.liquidity ?? null,
+        vol24h: t.volume_24h ?? null,
+        logo: t.logo || null,
+        smart_degen_count: t.smart_degen_count ?? null,
+        renowned_count: t.renowned_count ?? null,
+        fresh_wallet_rate: t.fresh_wallet_rate ?? null,
+        bot_degen_count: t.bot_degen_count ?? null,
+        bot_degen_rate: t.bot_degen_rate ?? null,
+        rug_ratio: t.rug_ratio ?? null,
+        bundler_rate: t.bundler_rate ?? t.bundler_trader_amount_rate ?? null,
+        entrapment_ratio: t.entrapment_ratio ?? null,
+        entered_at: getTrackStarted(t.address, cat),
+        notified_at: new Date().toISOString(),
+        filter_matched_at: null,
+      };
+      const saved = notificationHistory.add(historyEntry);
+
+      for (const dev of pushSubscriptions.getAll()) {
+        if (dev?.device_id) {
+          broadcast(`notifications:${dev.device_id}`, { event: 'notification_new', data: saved });
+        }
+      }
+
+      checkAndSaveWinner(historyEntry);
+    }
+
+    // Cap this category at TRENCHES_HISTORY_MAX (drop the oldest). The old
+    // chain-wide cap of 300 let the Photon flood evict trenches entries.
+    const catEntries = notificationHistory.getAll().filter((e) => e.category === cat);
+    if (catEntries.length > TRENCHES_HISTORY_MAX) {
+      const ordered = [...catEntries].sort((a, b) => (a.notified_at || '').localeCompare(b.notified_at || ''));
+      for (const old of ordered.slice(0, catEntries.length - TRENCHES_HISTORY_MAX)) {
+        notificationHistory.delete((e) => e.id === old.id);
+      }
+    }
+  }
+}
+
+/**
  * Checks enabled notification configs for the given tabs against the trenches store.
- * Sends push notifications for tokens not yet notified.
+ * History is recorded globally first (see recordTrenchesHistory); this only
+ * sends pushes to devices that enabled the category.
  * Returns { checked, notified, tickets }
  */
 export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
+  const catsToCheck = (tabs || CATEGORIES).filter((cat) => CATEGORIES.includes(cat));
+
+  if (storeSize() > 0) recordTrenchesHistory(catsToCheck);
+
   const all = notificationConfig.getAll();
   const devices = Object.values(all).filter((e) => e?.push_token);
   if (!devices.length) return { checked: 0, notified: 0, tickets: [] };
 
-  if (storeSize() === 0) return { checked: devices.length, notified: 0, tickets: [] };
-
   let notified = 0;
   const tickets = [];
-  const catsToCheck = tabs || CATEGORIES;
 
   for (const entry of devices) {
     const { push_token: token, categories } = entry;
     if (!token || !categories) continue;
 
     for (const cat of catsToCheck) {
-      if (!CATEGORIES.includes(cat)) continue;
       if (!categories[cat]) continue;
 
       const notifiedKey = `${entry.device_id}:${cat}`;
       const alreadyNotified = new Set(notifiedTokens.get(notifiedKey) || []);
-      const historyKey = `history:${entry.device_id}:${cat}`;
-      const alreadyInHistory = new Set(notifiedTokens.get(historyKey) || []);
       const catFilters = entry.filters?.[cat];
 
-      const tokens = getTokensFromStore(cat);
-
-      for (const t of tokens) {
+      for (const t of getTokensFromStore(cat)) {
         if (!t.address) continue;
+        if (alreadyNotified.has(t.address) || !matchesFilters(t, catFilters)) continue;
+        alreadyNotified.add(t.address);
 
-        // Always add token to history (once per token, regardless of notification filter)
-        if (!alreadyInHistory.has(t.address)) {
-          alreadyInHistory.add(t.address);
-
-          const hList = notifiedTokens.get(historyKey) || [];
-          hList.push(t.address);
-          if (hList.length > 2000) hList.shift();
-          notifiedTokens.set(historyKey, hList);
-
-          const historyEntry = {
-            device_id: entry.device_id,
-            address: t.address,
-            chain: t.chain || 'sol',
-            symbol: t.symbol || null,
-            name: t.name || null,
-            category: cat,
-            mcap: t.usd_market_cap ?? t.market_cap ?? null,
-            liq: t.liquidity ?? null,
-            vol24h: t.volume_24h ?? null,
-            logo: t.logo || null,
-            smart_degen_count: t.smart_degen_count ?? null,
-            renowned_count: t.renowned_count ?? null,
-            fresh_wallet_rate: t.fresh_wallet_rate ?? null,
-            bot_degen_count: t.bot_degen_count ?? null,
-            bot_degen_rate: t.bot_degen_rate ?? null,
-            rug_ratio: t.rug_ratio ?? null,
-            bundler_rate: t.bundler_rate ?? t.bundler_trader_amount_rate ?? null,
-            entrapment_ratio: t.entrapment_ratio ?? null,
-            entered_at: getTrackStarted(t.address, cat),
-            notified_at: new Date().toISOString(),
-            filter_matched_at: null,
-          };
-          const saved = notificationHistory.add(historyEntry);
-          broadcast(`notifications:${entry.device_id}`, { event: 'notification_new', data: saved });
-
-          // Cap history at 300 entries per chain
-          const allEntries = notificationHistory.getAll();
-          const chainEntries = allEntries.filter((e) => e.chain === (t.chain || 'sol'));
-          if (chainEntries.length > 300) {
-            const toRemove = chainEntries.slice(0, chainEntries.length - 300);
-            for (const old of toRemove) {
-              notificationHistory.delete((e) => e.id === old.id);
-            }
-          }
-
-          // Check if this token is a winner (100%+ gain, 2+ min to peak)
-          checkAndSaveWinner(historyEntry);
+        // Stamp filter-match time on the global history entry
+        const histEntry = notificationHistory.getAll().find(
+          (e) => e.address === t.address && e.category === cat,
+        );
+        if (histEntry && !histEntry.filter_matched_at) {
+          histEntry.filter_matched_at = new Date().toISOString();
+          notificationHistory.set(histEntry.id, histEntry);
         }
 
-        // Only send push notification if token matches the filter
-        if (!alreadyNotified.has(t.address) && matchesFilters(t, catFilters)) {
-          alreadyNotified.add(t.address);
+        const nList = notifiedTokens.get(notifiedKey) || [];
+        nList.push(t.address);
+        if (nList.length > 500) nList.shift();
+        notifiedTokens.set(notifiedKey, nList);
 
-          // Update history entry with filter match time
-          const allEntries = notificationHistory.getAll();
-          const histEntry = allEntries.find((e) => e.address === t.address && e.category === cat && e.device_id === entry.device_id);
-          if (histEntry && !histEntry.filter_matched_at) {
-            histEntry.filter_matched_at = new Date().toISOString();
-            notificationHistory.set(histEntry.id, histEntry);
-          }
+        const title = `${t.symbol || t.name || 'Token'} — ${cat.replace('_', ' ')}`;
+        const body = [
+          `MCap ${fmtUsd(t.usd_market_cap ?? t.market_cap)}`,
+          `Vol24h ${fmtUsd(t.volume_24h)}`,
+          `SM ${fmtNum(t.smart_degen_count)}`,
+          `KOL ${fmtNum(t.renowned_count)}`,
+          `Fresh ${t.fresh_wallet_rate != null ? (t.fresh_wallet_rate * 100).toFixed(0) + '%' : 'n/a'}`,
+          `Bot ${fmtNum(t.bot_degen_count)} (${t.bot_degen_rate != null ? (t.bot_degen_rate * 100).toFixed(1) + '%' : 'n/a'})`,
+          `Rug ${t.rug_ratio != null ? t.rug_ratio.toFixed(2) : 'n/a'}`,
+        ].join(' · ');
 
-          const nList = notifiedTokens.get(notifiedKey) || [];
-          nList.push(t.address);
-          if (nList.length > 500) nList.shift();
-          notifiedTokens.set(notifiedKey, nList);
-
-          const title = `${t.symbol || t.name || 'Token'} — ${cat.replace('_', ' ')}`;
-          const body = [
-            `MCap ${fmtUsd(t.usd_market_cap ?? t.market_cap)}`,
-            `Vol24h ${fmtUsd(t.volume_24h)}`,
-            `SM ${fmtNum(t.smart_degen_count)}`,
-            `KOL ${fmtNum(t.renowned_count)}`,
-            `Fresh ${t.fresh_wallet_rate != null ? (t.fresh_wallet_rate * 100).toFixed(0) + '%' : 'n/a'}`,
-            `Bot ${fmtNum(t.bot_degen_count)} (${t.bot_degen_rate != null ? (t.bot_degen_rate * 100).toFixed(1) + '%' : 'n/a'})`,
-            `Rug ${t.rug_ratio != null ? t.rug_ratio.toFixed(2) : 'n/a'}`,
-          ].join(' · ');
-
-          const { ticketId, result } = await sendPush(token, {
-            title,
-            body,
-            data: { address: t.address, chain: t.chain || 'sol', symbol: t.symbol, type: cat },
-          });
-          if (result?.data?.status === 'error') {
-            onError(new Error(`Push failed: ${result.data.message}`));
-          } else {
-            notified += 1;
-            if (ticketId) {
-              tickets.push({ ticketId, deviceId: entry.device_id });
-            }
+        const { ticketId, result } = await sendPush(token, {
+          title,
+          body,
+          data: { address: t.address, chain: t.chain || 'sol', symbol: t.symbol, type: cat },
+        });
+        if (result?.data?.status === 'error') {
+          onError(new Error(`Push failed: ${result.data.message}`));
+        } else {
+          notified += 1;
+          if (ticketId) {
+            tickets.push({ ticketId, deviceId: entry.device_id });
           }
         }
       }

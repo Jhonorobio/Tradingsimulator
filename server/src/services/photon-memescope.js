@@ -181,6 +181,7 @@ function ingestPhotonTokens(slice, colKey) {
       entrapment_ratio: null,
       bundle_holders_count: numOrNull(a.bundle_holders_count),
       buys_count: numOrNull(a.buys_count),
+      tp_holders_count: numOrNull(a.tp_holders_count),
       entered_at: now,
       notified_at: now,
       filter_matched_at: null,
