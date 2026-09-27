@@ -143,7 +143,7 @@ function PhotonRow({ token }: { token: PhotonToken }) {
   const router = useRouter();
   const theme = useTheme();
 
-  const address = token.address || token.tokenAddress || '';
+  const address = token.tokenAddress || token.address || '';
   // Photon sends some numbers as strings ("0.0") — coerce before math.
   const num = (v: unknown): number | null => {
     if (v == null || v === '') return null;
@@ -343,7 +343,7 @@ export default function PhotonScreen() {
 
         <FlatList
           data={tokens}
-          keyExtractor={(item, i) => `ph-${item.address || item.tokenAddress || i}-${i}`}
+          keyExtractor={(item, i) => `ph-${item.tokenAddress || item.address || i}-${i}`}
           renderItem={({ item }) => <PhotonRow token={item} />}
           contentContainerStyle={styles.list}
           ListEmptyComponent={

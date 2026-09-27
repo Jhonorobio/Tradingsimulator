@@ -89,7 +89,9 @@ function ingestPhotonTokens(slice) {
   const now = new Date().toISOString();
   for (const it of items) {
     const a = it?.attributes;
-    const address = a?.address || a?.tokenAddress;
+    // `tokenAddress` is the mint (CA); `address` is the pair/pool id — GMGN,
+    // Dexscreener, mentions and trading all resolve the mint.
+    const address = a?.tokenAddress || a?.address;
     if (!address || seen[address]) continue;
     seen[address] = now;
     seenDirty = true;
@@ -394,7 +396,7 @@ export function findPhotonToken(address) {
     if (!Array.isArray(data)) continue;
     const hit = data.find((it) => {
       const a = it?.attributes;
-      return (a?.address || a?.tokenAddress) === address;
+      return (a?.tokenAddress || a?.address) === address;
     });
     if (hit?.attributes) return hit.attributes;
   }
