@@ -289,30 +289,6 @@ export default function TokenScreen() {
           </View>
         </Card>
 
-        {/* ─── Holder Info ─── */}
-        <Card>
-          <ThemedText type="smallBold">Información de Holders</ThemedText>
-          <View style={styles.metrics}>
-            <Metric label="Holders" value={v(d.holders)} />
-            <Metric label="Top 10" value={d.top10HolderRate != null ? `${(d.top10HolderRate * 100).toFixed(1)}%` : '—'} />
-            <Metric label="Smart Degen" value={v(d.smartDegenCount)} />
-            <Metric label="Renowned" value={v(d.renownedCount)} />
-            <Metric label="Sniper" value={v(d.sniperCount)} />
-          </View>
-        </Card>
-
-        {/* ─── Risk Signals ─── */}
-        <Card>
-          <ThemedText type="smallBold">Señales de Riesgo</ThemedText>
-          <View style={styles.metrics}>
-            <Metric label="Rug Ratio" value={d.rugRatio != null ? d.rugRatio.toFixed(3) : '—'} good={d.rugRatio != null && d.rugRatio <= 0.3} warn={d.rugRatio != null && d.rugRatio > 0.3} />
-            <Metric label="Wash Trading" value={d.isWashTrading != null ? (d.isWashTrading ? 'Sí' : 'No') : '—'} good={d.isWashTrading != null && !d.isWashTrading} warn={!!d.isWashTrading} />
-            <Metric label="Honeypot" value={d.isHoneypot != null ? (String(d.isHoneypot) === '1' || String(d.isHoneypot) === 'yes' ? 'Sí' : 'No') : '—'} good={d.isHoneypot != null && !(String(d.isHoneypot) === '1' || String(d.isHoneypot) === 'yes')} warn={d.isHoneypot != null && (String(d.isHoneypot) === '1' || String(d.isHoneypot) === 'yes')} />
-            <Metric label="Bundler Rate" value={d.bundlerRate != null ? `${(d.bundlerRate * 100).toFixed(1)}%` : '—'} />
-            <Metric label="Buy Tax" value={d.buyTax != null ? `${(d.buyTax * 100).toFixed(1)}%` : '—'} />
-          </View>
-        </Card>
-
         {/* ─── X Tracker (mentions) ─── */}
         <MentionsPanel mint={d.address} />
 
