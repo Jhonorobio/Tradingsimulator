@@ -716,9 +716,10 @@ router.get('/live-mcap-status', (_req, res) => {
 });
 
 /**
- * GET /api/market/memescope — Photon screener feed (graduated tokens,
- * holders >= 100). Served from cache a background poller refreshes every
- * 750ms (Cloudflare rate limit: ~2 req/s trips 429 with a 30-60s cooldown).
+ * GET /api/market/memescope — Photon screener feed (New / Graduating /
+ * Graduated) with independent filters per column. Served from cache: the
+ * background poller rotates one column per 1.3s tick (rate-limit safe;
+ * a faster cadence trips Photon's 429 — see photon-memescope.js sweep notes).
  * Never 500s: on upstream failure it returns the last data + `error`.
  */
 router.get('/memescope', async (_req, res) => {
