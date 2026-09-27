@@ -39,12 +39,16 @@ const FILTER_FIELDS: PhotonFilterField[] = [
   { key: 'age', label: 'Edad', unit: 'm' },
   { key: 'holders', label: 'Tenedores', unit: '' },
   { key: 'tpHolders', label: 'Tenedores TP', unit: '' },
-  { key: 'volume', label: 'Volumen', unit: '$' },
-  { key: 'liq', label: 'Liquidez', unit: '$' },
-  { key: 'mktCap', label: 'Market cap', unit: '$' },
   { key: 'topHolders', label: 'Top 10 holders', unit: '%' },
-  { key: 'devPct', label: 'Dev holding', unit: '%' },
+  { key: 'volume', label: 'Volumen', unit: '$' },
+  { key: 'mktCap', label: 'Market cap', unit: '$' },
   { key: 'snipers', label: 'Snipers', unit: '' },
+  { key: 'buys', label: 'Compras', unit: '' },
+  { key: 'sells', label: 'Ventas', unit: '' },
+  { key: 'freshPct', label: 'Fresh holding', unit: '%' },
+  { key: 'bundlePct', label: 'Bundle holding', unit: '%' },
+  { key: 'freshHolders', label: 'Fresh holders', unit: '' },
+  { key: 'bundleHolders', label: 'Bundle holders', unit: '' },
 ];
 
 /** Same defaults the server uses when nothing is saved yet. */
