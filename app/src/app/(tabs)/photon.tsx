@@ -37,8 +37,8 @@ interface PhotonFilterField {
 /** Field keys must match FILTER_FIELDS in server photon-memescope.js. */
 const FILTER_FIELDS: PhotonFilterField[] = [
   { key: 'age', label: 'Edad', unit: 'm' },
-  { key: 'holders', label: 'Tenedores', unit: '' },
-  { key: 'tpHolders', label: 'Tenedores TP', unit: '' },
+  { key: 'holders', label: 'Holders count', unit: '' },
+  { key: 'tpHolders', label: 'Bot holders', unit: '' },
   { key: 'mktCap', label: 'Market cap', unit: '$' },
   { key: 'buys', label: 'Compras', unit: '' },
   { key: 'freshPct', label: 'Fresh holding', unit: '%' },
