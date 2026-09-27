@@ -1,6 +1,6 @@
 import initCycleTLS from 'cycletls';
 import { broadcast, getSubscriptions } from './ws-server.js';
-import { photonFilters } from '../stores.js';
+import { notificationHistory, photonFilters, photonSeen, pushSubscriptions } from '../stores.js';
 
 // Photon (photon-sol.tinyastro.io) "memescope" screener feed.
 //
@@ -63,6 +63,89 @@ const DEFAULT_FILTERS = {
 };
 const COLS = ['col1', 'col3'];
 const FALLBACK_TITLES = { col1: 'New', col3: 'Graduated' };
+
+// History policy for Photon tokens: one entry per address (category
+// `photon`), capped like x_tracker; the seen-map prevents re-inserts.
+const PHOTON_HISTORY_MAX = 300;
+const PHOTON_SEEN_MAX = 5000;
+
+function numOrNull(v) {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Record every token we have never seen before into the notification history
+ * (category `photon`), then push the new entries to all subscribed devices so
+ * the History tab updates live (same event the trenches/x_tracker writers use).
+ */
+function ingestPhotonTokens(slice) {
+  const items = Array.isArray(slice?.data) ? slice.data : [];
+  if (!items.length) return;
+  const seen = photonSeen.get('addresses') || {};
+  let seenDirty = false;
+  const added = [];
+  const now = new Date().toISOString();
+  for (const it of items) {
+    const a = it?.attributes;
+    const address = a?.address || a?.tokenAddress;
+    if (!address || seen[address]) continue;
+    seen[address] = now;
+    seenDirty = true;
+    const saved = notificationHistory.add({
+      device_id: 'photon',
+      address,
+      chain: 'sol',
+      symbol: a.symbol || null,
+      name: a.name || null,
+      category: 'photon',
+      mcap: numOrNull(a.fdv),
+      liq: numOrNull(a.cur_liq?.usd),
+      vol24h: numOrNull(a.volume),
+      logo: a.imgUrl || null,
+      smart_degen_count: null,
+      renowned_count: null,
+      fresh_wallet_rate: null,
+      bot_degen_count: null,
+      bot_degen_rate: null,
+      rug_ratio: null,
+      bundler_rate: null,
+      bundler_trader_amount_rate: null,
+      entrapment_ratio: null,
+      entered_at: now,
+      notified_at: now,
+      filter_matched_at: null,
+    });
+    if (saved) added.push(saved);
+  }
+  if (seenDirty) {
+    const keys = Object.keys(seen);
+    if (keys.length > PHOTON_SEEN_MAX) {
+      for (const k of keys.slice(0, keys.length - PHOTON_SEEN_MAX)) delete seen[k];
+    }
+    photonSeen.set('addresses', seen);
+  }
+  if (!added.length) return;
+
+  // Cap this category at PHOTON_HISTORY_MAX (drop the oldest).
+  const photonEntries = notificationHistory.getAll().filter((e) => e.category === 'photon');
+  if (photonEntries.length > PHOTON_HISTORY_MAX) {
+    const ordered = [...photonEntries].sort((a, b) => (a.notified_at || '').localeCompare(b.notified_at || ''));
+    for (const old of ordered.slice(0, photonEntries.length - PHOTON_HISTORY_MAX)) {
+      notificationHistory.delete((e) => e.id === old.id);
+    }
+  }
+
+  // Live push: History merges `notification_new` on `notifications:{device}`.
+  for (const saved of added) {
+    for (const dev of pushSubscriptions.getAll()) {
+      if (dev?.device_id) {
+        broadcast(`notifications:${dev.device_id}`, { event: 'notification_new', data: saved });
+      }
+    }
+  }
+}
 
 function sanitizeFilters(raw) {
   const out = {};
@@ -198,6 +281,7 @@ async function fetchOnce(colKey) {
   unauthorized = false;
   const slice = json.columns?.[colKey] ?? { data: [] };
   colCache[colKey] = { slice, savedAt: Date.now() };
+  ingestPhotonTokens(slice);
   if (json.titles) titles = json.titles;
   // One push per refresh (the 1.3s tick caps it at ~1 push/s). broadcast()
   // only reaches subscribed clients — no-op when nobody is listening.

@@ -21,6 +21,7 @@ const CATEGORY_OPTIONS = [
   { key: 'new', label: 'Nuevas' },
   { key: 'completed', label: 'Completadas' },
   { key: 'x_tracker', label: 'X Tracker' },
+  { key: 'photon', label: 'Photon' },
   { key: 'snaps', label: 'Snapshots' },
   { key: 'gain', label: 'Ganancia' },
 ];
@@ -53,6 +54,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   new_creation: 'Nueva',
   completed: 'Completada',
   x_tracker: 'X Tracker',
+  photon: 'Photon',
 };
 
 function fmtFollowers(n?: number | null): string {
@@ -272,6 +274,7 @@ export default function HistoryScreen() {
       if (categoryFilter === 'new' && !h.category.startsWith('new_creation')) return false;
       if (categoryFilter === 'completed' && !h.category.startsWith('completed')) return false;
       if (categoryFilter === 'x_tracker' && h.category !== 'x_tracker') return false;
+      if (categoryFilter === 'photon' && h.category !== 'photon') return false;
       if (searchLower) {
         return (h.symbol?.toLowerCase().includes(searchLower)) || (h.name?.toLowerCase().includes(searchLower));
       }
