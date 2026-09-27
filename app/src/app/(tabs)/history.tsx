@@ -113,7 +113,9 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
               {item.symbol || item.name || shortAddress(item.address)}
             </ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {item.chain.toUpperCase()} · {CATEGORY_LABELS[item.category] || item.category}
+              {item.chain.toUpperCase()} · {item.category === 'photon'
+                ? (item.column ? `Photon · ${item.column === 'graduated' ? 'Graduated' : 'New'}` : 'Photon')
+                : (CATEGORY_LABELS[item.category] || item.category)}
             </ThemedText>
           </View>
           <View style={styles.cardRight}>

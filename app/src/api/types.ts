@@ -238,6 +238,7 @@ export interface NotificationHistoryItem {
   symbol: string | null;
   name: string | null;
   category: string;
+  column?: 'new' | 'graduated' | null;
   mcap: number | null;
   liq: number | null;
   vol24h: number | null;
