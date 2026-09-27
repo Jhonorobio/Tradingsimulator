@@ -78,6 +78,12 @@ function numOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+// Photon sends *_perc values as percent (0-100); trenches entries store rates
+// as fractions (0-1) — normalize so the history card renders both the same way.
+function pctToRate(v) {
+  return v == null ? null : v / 100;
+}
+
 function fmtUsd(n) {
   if (n == null || isNaN(n)) return 'n/a';
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
@@ -164,13 +170,17 @@ function ingestPhotonTokens(slice, colKey) {
       logo: a.imgUrl || null,
       smart_degen_count: null,
       renowned_count: null,
-      fresh_wallet_rate: null,
+      // At-appearance snapshot (GMGN-style): fresh%/bundled% come as percent
+      // and are stored as rates; counts/buys are raw.
+      fresh_wallet_rate: pctToRate(numOrNull(a.fresh_holding_perc)),
       bot_degen_count: null,
       bot_degen_rate: null,
       rug_ratio: null,
-      bundler_rate: null,
+      bundler_rate: pctToRate(numOrNull(a.bundle_holding_perc)),
       bundler_trader_amount_rate: null,
       entrapment_ratio: null,
+      bundle_holders_count: numOrNull(a.bundle_holders_count),
+      buys_count: numOrNull(a.buys_count),
       entered_at: now,
       notified_at: now,
       filter_matched_at: null,

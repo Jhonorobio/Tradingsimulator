@@ -80,6 +80,8 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
   const rug = snap?.rug_ratio ?? item.rug_ratio;
   const bundler = snap?.bundler_rate ?? snap?.bundler_trader_amount_rate ?? item.bundler_rate ?? item.bundler_trader_amount_rate;
   const entrap = snap?.entrapment_ratio ?? item.entrapment_ratio;
+  const bundleCnt = item.bundle_holders_count ?? null;
+  const buys = item.buys_count ?? null;
   const snapCount = item.snapshots?.length ?? 0;
 
   // Calculate gain: first mcap vs highest mcap in timeline
@@ -147,6 +149,8 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
             stat('hardware-chip', `${botCount ?? 0}/${(botRate != null ? (botRate * 100).toFixed(0) : '0')}%`, theme.warn)}
           {rug != null && rug > 0 && stat('warning', `${(rug * 100).toFixed(0)}%`, theme.negative)}
           {bundler != null && bundler > 0 && stat('layers', `${(bundler * 100).toFixed(0)}%`, '#f97316')}
+          {bundleCnt != null && bundleCnt > 0 && stat('cube', String(bundleCnt), '#f97316')}
+          {buys != null && buys > 0 && stat('cart', String(buys), theme.accent)}
           {entrap != null && entrap > 0 && stat('fish', `${(entrap * 100).toFixed(0)}%`, '#ef4444')}
         </View>
 
