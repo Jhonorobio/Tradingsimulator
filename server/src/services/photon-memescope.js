@@ -45,31 +45,16 @@ const COMMON_FILTERS =
 
 // Per-column user filters (UI: GET/PUT /api/market/memescope-filters).
 // Each field is a { min?, max? } pair appended as `<param>_from`/`<param>_to`.
-// Validated against the live API (2026-09-27): age (minutes), holders_count,
-// tp_holders_count, volume, mkt_cap (USD), top_holders_perc, snipers_count,
-// buys, sells, fresh_holding_perc / bundle_holding_perc (percent, clamped
-// server-side at 100). Removed on request: usd_liq, dev_holding_perc.
+// Reduced on request (2026-09-27) to the preset the user actually uses:
+// age (minutes), holders_count, tp_holders_count, mkt_cap (USD), buys,
+// fresh_holding_perc (percent). All validated against the live API.
 const FILTER_FIELDS = {
   age: 'age',
   holders: 'holders_count',
   tpHolders: 'tp_holders_count',
-  volume: 'volume',
   mktCap: 'mkt_cap',
-  topHolders: 'top_holders_perc',
-  snipers: 'snipers_count',
   buys: 'buys',
-  sells: 'sells',
   freshPct: 'fresh_holding_perc',
-  bundlePct: 'bundle_holding_perc',
-  freshHolders: 'fresh_holders_count',
-  bundleHolders: 'bundle_holders_count',
-};
-// The Photon API silently IGNORES *_count params for fresh/bundle — the web
-// client applies them client-side over the fetched window (same as we do in
-// applyLocalFilters). The other fields are applied by the API itself.
-const LOCAL_FIELDS = {
-  freshHolders: 'fresh_holders_count',
-  bundleHolders: 'bundle_holders_count',
 };
 // Mirrors the app's first-run defaults (one entry per column).
 const DEFAULT_FILTERS = {
@@ -122,37 +107,12 @@ function buildQuery(colKey) {
   const f = getPhotonFilters()[colKey] ?? {};
   const parts = [COMMON_FILTERS];
   for (const [field, param] of Object.entries(FILTER_FIELDS)) {
-    if (LOCAL_FIELDS[field]) continue; // applied post-fetch in applyLocalFilters
     const v = f[field];
     if (v?.min) parts.push(`${param}_from=${v.min}`);
     if (v?.max) parts.push(`${param}_to=${v.max}`);
   }
   parts.push(`col=${colKey}`);
   return parts.join('&');
-}
-
-/**
- * Local (client-equivalent) filter for fields the API ignores (fresh/bundle
- * counts). Mirrors Photon's numeric range check: missing value counts as 0.
- */
-function applyLocalFilters(items, colKey) {
-  if (!Array.isArray(items) || !items.length) return items;
-  const f = getPhotonFilters()[colKey] ?? {};
-  const checks = [];
-  for (const [field, attr] of Object.entries(LOCAL_FIELDS)) {
-    const pair = f[field];
-    if (pair?.min || pair?.max) checks.push([attr, pair]);
-  }
-  if (!checks.length) return items;
-  return items.filter((it) => {
-    for (const [attr, pair] of checks) {
-      const n = Number(it?.attributes?.[attr]);
-      const v = Number.isFinite(n) ? n : 0;
-      if (pair.min && v < Number(pair.min)) return false;
-      if (pair.max && v > Number(pair.max)) return false;
-    }
-    return true;
-  });
 }
 
 const HEADERS = {
@@ -237,7 +197,6 @@ async function fetchOnce(colKey) {
 
   unauthorized = false;
   const slice = json.columns?.[colKey] ?? { data: [] };
-  if (Array.isArray(slice.data)) slice.data = applyLocalFilters(slice.data, colKey);
   colCache[colKey] = { slice, savedAt: Date.now() };
   if (json.titles) titles = json.titles;
   // One push per refresh (the 1.3s tick caps it at ~1 push/s). broadcast()
