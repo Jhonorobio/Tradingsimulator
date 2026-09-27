@@ -505,7 +505,145 @@ router.get('/prices', async (req, res) => {
  * GET /api/market/token/:chain/:address — token detail.
  * Prefers GMGN trenches data when the token is in trenches (fast, cached 3s);
  * otherwise GMGN proxy (dedicated 2nd key) with Dexscreener fallback.
+ *
+ * External lookups (GMGN proxy → Dexscreener) are the only slow step — they
+ * can take seconds (batch window + upstream latency). The detail screen polls
+ * every 1s, so results are memoized here (inflight dedupe + 5s TTL) and any
+ * local history entry is served instantly while the external fetch warms in
+ * the background (the next poll upgrades to the richer payload).
  */
+const DETAIL_EXT_TTL_MS = 5_000;
+const detailExtCache = new Map(); // address -> { info, at }
+const detailExtInflight = new Map(); // address -> Promise<info|null>
+
+function peekDetailExternal(address) {
+  const hit = detailExtCache.get(address);
+  if (!hit || Date.now() - hit.at >= DETAIL_EXT_TTL_MS) return { has: false, info: null };
+  return { has: true, info: hit.info };
+}
+
+function getDetailExternal(chainSlug, address) {
+  const peek = peekDetailExternal(address);
+  if (peek.has) return Promise.resolve(peek.info);
+  let p = detailExtInflight.get(address);
+  if (!p) {
+    p = getTokenInfo(chainSlug, address).then(
+      (info) => {
+        detailExtCache.set(address, { info: info ?? null, at: Date.now() });
+        if (detailExtCache.size > 400) detailExtCache.delete(detailExtCache.keys().next().value);
+        return info ?? null;
+      },
+      // Treat upstream failures as "no data" and memoize them too, so a
+      // flaky upstream isn't re-hit on every 1s poll tick.
+      () => {
+        detailExtCache.set(address, { info: null, at: Date.now() });
+        return null;
+      },
+    ).finally(() => detailExtInflight.delete(address));
+    detailExtInflight.set(address, p);
+  }
+  return p;
+}
+
+function findHistoryEntry(address) {
+  if (!address) return null;
+  return [...notificationHistory.getAll()].reverse().find((e) => e.address === address) || null;
+}
+
+function externalDetailJson(chain, address, info) {
+  return {
+    chain,
+    address,
+    name: info.name ?? null,
+    symbol: info.symbol ?? null,
+    logo: info.logo ?? null,
+    price: info.price ?? null,
+    marketCap: info.marketCap ?? null,
+    supply: info.supply ?? null,
+    liquidity: info.liquidity ?? 0,
+    volume24h: info.volume24h ?? 0,
+    volume1h: 0,
+    swaps24h: 0,
+    swaps1h: 0,
+    buys24h: 0,
+    sells24h: 0,
+    netBuy24h: 0,
+    priceChange: info.priceChange ?? null,
+    holders: info.holders ?? null,
+    top10HolderRate: null,
+    smartDegenCount: null,
+    renownedCount: null,
+    sniperCount: null,
+    rugRatio: null,
+    isWashTrading: null,
+    isHoneypot: null,
+    bundlerRate: null,
+    buyTax: null,
+    devTeamHoldRate: null,
+    creatorBalanceRate: null,
+    creatorTokenStatus: null,
+    renouncedMint: null,
+    renouncedFreeze: null,
+    dex: info.dex ?? null,
+    dexPairs: 0,
+    twitter: null,
+    telegram: null,
+    website: null,
+    xFollowers: null,
+    ctoFlag: null,
+    createdTimestamp: null,
+    openTimestamp: null,
+    sources: { dex: info.source === 'dexscreener', gmgn: info.source === 'gmgn', trenches: false },
+  };
+}
+
+function historyDetailJson(chain, address, hist) {
+  return {
+    chain,
+    address,
+    name: hist.name ?? null,
+    symbol: hist.symbol ?? null,
+    logo: hist.logo ?? null,
+    price: null,
+    marketCap: toN(hist.mcap),
+    supply: null,
+    liquidity: toN(hist.liq) ?? 0,
+    volume24h: toN(hist.vol24h) ?? 0,
+    volume1h: 0,
+    swaps24h: 0,
+    swaps1h: 0,
+    buys24h: 0,
+    sells24h: 0,
+    netBuy24h: 0,
+    priceChange: null,
+    holders: null,
+    top10HolderRate: null,
+    smartDegenCount: toN(hist.smart_degen_count),
+    renownedCount: toN(hist.renowned_count),
+    sniperCount: null,
+    rugRatio: toN(hist.rug_ratio),
+    isWashTrading: null,
+    isHoneypot: null,
+    bundlerRate: toN(hist.bundler_rate ?? hist.bundler_trader_amount_rate),
+    buyTax: null,
+    devTeamHoldRate: null,
+    creatorBalanceRate: null,
+    creatorTokenStatus: null,
+    renouncedMint: null,
+    renouncedFreeze: null,
+    dex: null,
+    dexPairs: 0,
+    twitter: null,
+    telegram: null,
+    website: null,
+    xFollowers: null,
+    ctoFlag: null,
+    createdTimestamp: null,
+    openTimestamp: null,
+    sources: { dex: false, gmgn: false, trenches: false, history: true },
+  };
+}
+
 router.get('/token/:chain/:address', async (req, res) => {
   try {
     const { chain, address } = req.params;
@@ -661,102 +799,20 @@ router.get('/token/:chain/:address', async (req, res) => {
     }
 
     // GMGN expects the `sol` slug — the app may send `solana`.
-    const info = await getTokenInfo(chain === 'solana' ? 'sol' : chain, address);
-    if (info) {
-      return res.json({
-        chain,
-        address,
-        name: info.name ?? null,
-        symbol: info.symbol ?? null,
-        logo: info.logo ?? null,
-        price: info.price ?? null,
-        marketCap: info.marketCap ?? null,
-        supply: info.supply ?? null,
-        liquidity: info.liquidity ?? 0,
-        volume24h: info.volume24h ?? 0,
-        volume1h: 0,
-        swaps24h: 0,
-        swaps1h: 0,
-        buys24h: 0,
-        sells24h: 0,
-        netBuy24h: 0,
-        priceChange: info.priceChange ?? null,
-        holders: info.holders ?? null,
-        top10HolderRate: null,
-        smartDegenCount: null,
-        renownedCount: null,
-        sniperCount: null,
-        rugRatio: null,
-        isWashTrading: null,
-        isHoneypot: null,
-        bundlerRate: null,
-        buyTax: null,
-        devTeamHoldRate: null,
-        creatorBalanceRate: null,
-        creatorTokenStatus: null,
-        renouncedMint: null,
-        renouncedFreeze: null,
-        dex: info.dex ?? null,
-        dexPairs: 0,
-        twitter: null,
-        telegram: null,
-        website: null,
-        xFollowers: null,
-        ctoFlag: null,
-        createdTimestamp: null,
-        openTimestamp: null,
-        sources: { dex: info.source === 'dexscreener', gmgn: info.source === 'gmgn', trenches: false },
-      });
-    }
+    const slug = chain === 'solana' ? 'sol' : chain || 'sol';
+    const cached = peekDetailExternal(address);
+    if (cached.has && cached.info) return res.json(externalDetailJson(chain, address, cached.info));
 
-    // Last resort: our own history entry (stale but non-empty — beats a 404).
-    const hist = [...notificationHistory.getAll()].reverse().find((e) => e.address === address);
-    if (hist) {
-      return res.json({
-        chain,
-        address,
-        name: hist.name ?? null,
-        symbol: hist.symbol ?? null,
-        logo: hist.logo ?? null,
-        price: null,
-        marketCap: toN(hist.mcap),
-        supply: null,
-        liquidity: toN(hist.liq) ?? 0,
-        volume24h: toN(hist.vol24h) ?? 0,
-        volume1h: 0,
-        swaps24h: 0,
-        swaps1h: 0,
-        buys24h: 0,
-        sells24h: 0,
-        netBuy24h: 0,
-        priceChange: null,
-        holders: null,
-        top10HolderRate: null,
-        smartDegenCount: toN(hist.smart_degen_count),
-        renownedCount: toN(hist.renowned_count),
-        sniperCount: null,
-        rugRatio: toN(hist.rug_ratio),
-        isWashTrading: null,
-        isHoneypot: null,
-        bundlerRate: toN(hist.bundler_rate ?? hist.bundler_trader_amount_rate),
-        buyTax: null,
-        devTeamHoldRate: null,
-        creatorBalanceRate: null,
-        creatorTokenStatus: null,
-        renouncedMint: null,
-        renouncedFreeze: null,
-        dex: null,
-        dexPairs: 0,
-        twitter: null,
-        telegram: null,
-        website: null,
-        xFollowers: null,
-        ctoFlag: null,
-        createdTimestamp: null,
-        openTimestamp: null,
-        sources: { dex: false, gmgn: false, trenches: false, history: true },
-      });
-    }
+    // Local history entry: answer instantly and warm the external lookup in
+    // the background — the next poll (≈1s) upgrades to the richer payload.
+    const hist = findHistoryEntry(address);
+    const ext = getDetailExternal(slug, address);
+    if (hist) return res.json(historyDetailJson(chain, address, hist));
+
+    const info = await ext;
+    if (info) return res.json(externalDetailJson(chain, address, info));
+    const hist2 = findHistoryEntry(address);
+    if (hist2) return res.json(historyDetailJson(chain, address, hist2));
 
     throw Object.assign(new Error('Token not found'), { status: 404 });
   } catch (err) {
