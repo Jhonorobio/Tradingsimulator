@@ -1,6 +1,7 @@
 import initCycleTLS from 'cycletls';
 import { broadcast, getSubscriptions } from './ws-server.js';
-import { notificationHistory, photonFilters, photonSeen, pushSubscriptions } from '../stores.js';
+import { notificationConfig, notificationHistory, photonFilters, photonSeen, pushSubscriptions } from '../stores.js';
+import { sendPush, isValidPushToken } from './push.js';
 
 // Photon (photon-sol.tinyastro.io) "memescope" screener feed.
 //
@@ -64,8 +65,10 @@ const DEFAULT_FILTERS = {
 const COLS = ['col1', 'col3'];
 const FALLBACK_TITLES = { col1: 'New', col3: 'Graduated' };
 
-// History policy for Photon tokens: one entry per address (category
-// `photon`), capped like x_tracker; the seen-map prevents re-inserts.
+// History policy for Photon tokens: one entry per address+column (category
+// `photon`, `column: new|graduated`), capped like x_tracker; the seen-map
+// (keyed `<col>:<mint>`) prevents re-inserts and lets a token notify again
+// when it moves from New to Graduated.
 const PHOTON_HISTORY_MAX = 300;
 const PHOTON_SEEN_MAX = 5000;
 
@@ -75,14 +78,61 @@ function numOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function fmtUsd(n) {
+  if (n == null || isNaN(n)) return 'n/a';
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+  return `$${n.toFixed(2)}`;
+}
+
 /**
- * Record every token we have never seen before into the notification history
- * (category `photon`), then push the new entries to all subscribed devices so
- * the History tab updates live (same event the trenches/x_tracker writers use).
+ * Expo push for freshly ingested Photon entries, to every device that enabled
+ * the column's notification category (`photon_new` / `photon_graduated`).
+ * Fire-and-forget: failures never block the poller.
  */
-function ingestPhotonTokens(slice) {
+async function deliverPhotonPushes(entries, type) {
+  try {
+    const devices = Object.values(notificationConfig.getAll())
+      .filter((d) => d?.categories?.[type] && isValidPushToken(d.push_token));
+    if (!devices.length) return;
+    const label = type === 'photon_graduated' ? 'Photon Graduated' : 'Photon New';
+    for (const saved of entries) {
+      const parts = [];
+      if (saved.mcap != null) parts.push(`MCap ${fmtUsd(saved.mcap)}`);
+      if (saved.vol24h != null) parts.push(`Vol ${fmtUsd(saved.vol24h)}`);
+      if (saved.liq != null) parts.push(`Liq ${fmtUsd(saved.liq)}`);
+      const body = parts.join(' · ') || 'Token nuevo en Photon';
+      for (const dev of devices) {
+        try {
+          const { result } = await sendPush(dev.push_token, {
+            title: `${saved.symbol || saved.name || 'Token'} — ${label}`,
+            body,
+            data: { address: saved.address, chain: 'sol', symbol: saved.symbol, type },
+          });
+          if (result?.data?.status === 'error') {
+            console.error(`[photon] push failed: ${result.data.message}`);
+          }
+        } catch (err) {
+          console.error(`[photon] push deliver error: ${err.message}`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[photon] push error: ${err.message}`);
+  }
+}
+
+/**
+ * Record every token never seen before in this column into the notification
+ * history (category `photon`, `column: new|graduated`), broadcast the entries
+ * so the History tab updates live, and send an Expo push to devices with the
+ * matching category enabled (`photon_new` / `photon_graduated`).
+ */
+function ingestPhotonTokens(slice, colKey) {
   const items = Array.isArray(slice?.data) ? slice.data : [];
   if (!items.length) return;
+  const column = colKey === 'col3' ? 'graduated' : 'new';
+  const notifCat = colKey === 'col3' ? 'photon_graduated' : 'photon_new';
   const seen = photonSeen.get('addresses') || {};
   let seenDirty = false;
   const added = [];
@@ -92,13 +142,19 @@ function ingestPhotonTokens(slice) {
     // `tokenAddress` is the mint (CA); `address` is the pair/pool id — GMGN,
     // Dexscreener, mentions and trading all resolve the mint.
     const address = a?.tokenAddress || a?.address;
-    if (!address || seen[address]) continue;
-    seen[address] = now;
+    if (!address) continue;
+    // Per-column dedupe: a token first ingested in New still notifies when it
+    // later appears in Graduated. Legacy (unprefixed) keys only block New —
+    // they predate column tracking and the token may still graduate.
+    const key = `${colKey}:${address}`;
+    if (seen[key] || (column === 'new' && seen[address])) continue;
+    seen[key] = now;
     seenDirty = true;
     const saved = notificationHistory.add({
       device_id: 'photon',
       address,
       chain: 'sol',
+      column,
       symbol: a.symbol || null,
       name: a.name || null,
       category: 'photon',
@@ -147,6 +203,9 @@ function ingestPhotonTokens(slice) {
       }
     }
   }
+
+  // Expo push (fire-and-forget) for devices with the column's category on.
+  deliverPhotonPushes(added, notifCat).catch(() => {});
 }
 
 function sanitizeFilters(raw) {
@@ -283,7 +342,7 @@ async function fetchOnce(colKey) {
   unauthorized = false;
   const slice = json.columns?.[colKey] ?? { data: [] };
   colCache[colKey] = { slice, savedAt: Date.now() };
-  ingestPhotonTokens(slice);
+  ingestPhotonTokens(slice, colKey);
   if (json.titles) titles = json.titles;
   // One push per refresh (the 1.3s tick caps it at ~1 push/s). broadcast()
   // only reaches subscribed clients — no-op when nobody is listening.

@@ -219,6 +219,8 @@ export interface NotificationConfig {
     new_creation: boolean;
     completed: boolean;
     x_tracker: boolean;
+    photon_new: boolean;
+    photon_graduated: boolean;
   };
   filters?: Record<string, NotificationCategoryFilters>;
 }

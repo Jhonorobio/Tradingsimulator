@@ -5,7 +5,7 @@ import { getSnapshots, getAllTracks } from '../services/token-snapshots.js';
 
 const router = Router();
 
-const VALID_CATEGORIES = ['new_creation', 'completed', 'x_tracker'];
+const VALID_CATEGORIES = ['new_creation', 'completed', 'x_tracker', 'photon_new', 'photon_graduated'];
 
 const FILTER_FIELDS = [
   'smart_degen_count', 'renowned_count', 'bot_degen_count', 'bot_degen_rate',
@@ -100,7 +100,7 @@ router.get('/config', (req, res) => {
     if (!entry) {
       return res.json({
         push_token: null,
-        categories: { new_creation: false, completed: false, x_tracker: false },
+        categories: { new_creation: false, completed: false, x_tracker: false, photon_new: false, photon_graduated: false },
         filters: {},
       });
     }

@@ -13,14 +13,18 @@ import { ApiError } from '@/api/client';
 import type { NotificationConfig, NotificationCategoryFilters, NotificationFilterFields } from '@/api/types';
 import { registerForPushNotificationsAsync, notificationsAvailable } from '@/utils/notifications';
 
-const NOTIF_CATEGORIES = ['new_creation', 'completed', 'x_tracker'] as const;
+const NOTIF_CATEGORIES = ['new_creation', 'completed', 'x_tracker', 'photon_new', 'photon_graduated'] as const;
 const NOTIF_LABELS: Record<string, string> = {
   new_creation: 'Nueva creación (SOL)',
   completed: 'Completado (SOL)',
   x_tracker: 'X Tracker (tweets)',
+  photon_new: 'Photon — New',
+  photon_graduated: 'Photon — Graduated',
 };
 const NOTIF_HINTS: Record<string, string> = {
   x_tracker: 'Aviso cuando un token rastreado publique su primer tweet, y por cada tweet nuevo de un autor con 1.000+ seguidores.',
+  photon_new: 'Aviso cuando un token entre a la columna New de Photon. Se respetan los filtros de la pestaña Photon.',
+  photon_graduated: 'Aviso cuando un token aparezca en la columna Graduated de Photon. Se respetan los filtros de la pestaña Photon.',
 };
 // Solo estas categorías admiten filtros numéricos (x_tracker no tiene).
 const FILTERABLE_CATEGORIES = new Set(['new_creation', 'completed']);
@@ -47,6 +51,8 @@ export default function NotificationsScreen() {
     new_creation: false,
     completed: false,
     x_tracker: false,
+    photon_new: false,
+    photon_graduated: false,
   });
   const [filters, setFilters] = useState<Record<string, NotificationCategoryFilters>>({});
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
