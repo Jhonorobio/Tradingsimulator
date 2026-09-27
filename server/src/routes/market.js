@@ -716,10 +716,10 @@ router.get('/live-mcap-status', (_req, res) => {
 });
 
 /**
- * GET /api/market/memescope — Photon screener feed (New / Graduating /
- * Graduated) with independent filters per column. Served from cache: the
- * background poller rotates one column per 1.3s tick (rate-limit safe;
- * a faster cadence trips Photon's 429 — see photon-memescope.js sweep notes).
+ * GET /api/market/memescope — Photon screener feed (New / Graduated) with
+ * independent filters per column. Served from cache: the background poller
+ * rotates one column per 1.3s tick (rate-limit safe; a faster cadence trips
+ * Photon's 429 — see photon-memescope.js sweep notes).
  * Never 500s: on upstream failure it returns the last data + `error`.
  */
 router.get('/memescope', async (_req, res) => {
@@ -749,9 +749,9 @@ router.get('/memescope-filters', (_req, res) => {
 
 /**
  * PUT /api/market/memescope-filters — save per-column filters.
- * Body: { filters: { col1: {age:{min,max}, holders:{...}, ...}, col2, col3 } }
+ * Body: { filters: { col1: {age:{min,max}, holders:{...}, ...}, col3 } }
  * Sanitized server-side (numeric values only); picked up by the poller on the
- * next rotation step (~4s per column).
+ * next rotation step (~2.6s per column).
  */
 router.put('/memescope-filters', (req, res) => {
   try {

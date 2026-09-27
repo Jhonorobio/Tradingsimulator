@@ -9,10 +9,10 @@ import { photonFilters } from '../stores.js';
 // apply to the requested column (verified: grad filters on col1 → 0 items).
 // We therefore keep an independent query per category:
 //   col1 New         — commons only (no holders/age cap)
-//   col2 Graduating  — commons + age <= 30min
 //   col3 Graduated   — commons + age <= 30min + holders >= 100 (original)
+// (col2 Graduating was removed on request 2026-09-27.)
 // and ROTATE one column per tick (1.3s), so upstream traffic stays at
-// 1 req / 1.3s (rate-limit safe) while every column refreshes ~3.9s.
+// 1 req / 1.3s (rate-limit safe) while every column refreshes ~2.6s.
 // Each refresh pushes the merged payload to WS topic `memescope`.
 //
 // Cloudflare: the API responds to CycleTLS (chrome131) with browser headers;
@@ -33,7 +33,7 @@ const DEFAULT_TA =
 const TICK_MS = 1300;
 const RATE_LIMIT_BACKOFF_MS = 45_000;
 const FETCH_TIMEOUT_MS = 10_000;
-const COL_STALE_MS = 8_000; // > 2 full rotation cycles (3 x 1.3s)
+const COL_STALE_MS = 8_000; // > 3 full rotation cycles (2 x 1.3s)
 export const MEMESCOPE_TOPIC = 'memescope';
 
 // Screener prefs captured from the Photon web app (main dexes/platforms,
@@ -74,11 +74,10 @@ const LOCAL_FIELDS = {
 // Mirrors the app's first-run defaults (one entry per column).
 const DEFAULT_FILTERS = {
   col1: {},
-  col2: { age: { max: '30' } },
   col3: { age: { max: '30' }, tpHolders: { min: '100' } },
 };
-const COLS = ['col1', 'col2', 'col3'];
-const FALLBACK_TITLES = { col1: 'New', col2: 'Graduating', col3: 'Graduated' };
+const COLS = ['col1', 'col3'];
+const FALLBACK_TITLES = { col1: 'New', col3: 'Graduated' };
 
 function sanitizeFilters(raw) {
   const out = {};
@@ -169,7 +168,7 @@ const HEADERS = {
   },
 };
 
-const colCache = { col1: null, col2: null, col3: null }; // { slice, savedAt }
+const colCache = { col1: null, col3: null }; // { slice, savedAt }
 let titles = null;
 let nextColIdx = 0;
 let poller = null;
@@ -315,7 +314,7 @@ function snapshotPayload() {
 }
 
 /**
- * Photon memescape screener feed (New / Graduating / Graduated).
+ * Photon memescape screener feed (New / Graduated).
  * The server polls upstream one column per 1.3s tick (rotation) and pushes
  * each refresh to WS subscribers on `memescope`. The HTTP route serves the
  * merged cache and fills missing/stale columns on demand.
@@ -333,7 +332,7 @@ export async function getMemescope() {
       if (inflight) await inflight.promise;
     }
   }
-  if (!colCache.col1 && !colCache.col2 && !colCache.col3) {
+  if (!colCache.col1 && !colCache.col3) {
     return { ...snapshotPayload(), error: lastError?.message || 'NO_DATA' };
   }
   return snapshotPayload();

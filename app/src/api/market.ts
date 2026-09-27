@@ -15,7 +15,7 @@ export function saveTrenchesFilters(filters: unknown) {
 }
 
 // ── Photon memescape: independent screener filters per column ──
-export type PhotonCol = 'col1' | 'col2' | 'col3';
+export type PhotonCol = 'col1' | 'col3'; // col2 (Graduating) removed 2026-09-27
 export interface PhotonRange {
   min?: string;
   max?: string;

@@ -20,10 +20,10 @@ import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
 import { useMemescope } from '@/store/memescope';
 import { getPhotonFilters, savePhotonFilters } from '@/api/market';
-import type { MemescopeColKey, PhotonColFilters, PhotonFilters, PhotonRange, PhotonToken } from '@/api/market';
+import type { MemescopeColKey, PhotonCol, PhotonColFilters, PhotonFilters, PhotonRange, PhotonToken } from '@/api/market';
 import { fmtNum, fmtUsd, timeAgo } from '@/utils/format';
 
-const COLS: MemescopeColKey[] = ['col1', 'col2', 'col3'];
+const COLS: PhotonCol[] = ['col1', 'col3'];
 // Photon's image CDN (tpi.tradewithphoton.com) returns 403 without a
 // photon-sol.tinyastro.io Referer — verified: any UA + this referer = 200.
 const PHOTON_IMG_HEADERS = { referer: 'https://photon-sol.tinyastro.io/' };
@@ -54,7 +54,6 @@ const FILTER_FIELDS: PhotonFilterField[] = [
 /** Same defaults the server uses when nothing is saved yet. */
 const FILTER_DEFAULTS: PhotonFilters = {
   col1: {},
-  col2: { age: { max: '30' } },
   col3: { age: { max: '30' }, tpHolders: { min: '100' } },
 };
 
@@ -80,11 +79,10 @@ function normalizeColFilters(raw: unknown): PhotonColFilters {
   return out;
 }
 
-function normalizeFilters(raw: unknown): Record<MemescopeColKey, PhotonColFilters> {
-  const obj = (raw ?? {}) as Partial<Record<MemescopeColKey, unknown>>;
+function normalizeFilters(raw: unknown): Record<PhotonCol, PhotonColFilters> {
+  const obj = (raw ?? {}) as Partial<Record<PhotonCol, unknown>>;
   return {
     col1: normalizeColFilters(obj.col1 ?? FILTER_DEFAULTS.col1),
-    col2: normalizeColFilters(obj.col2 ?? FILTER_DEFAULTS.col2),
     col3: normalizeColFilters(obj.col3 ?? FILTER_DEFAULTS.col3),
   };
 }
@@ -242,9 +240,9 @@ function PhotonRow({ token }: { token: PhotonToken }) {
 export default function PhotonScreen() {
   const theme = useTheme();
   const { resp, error: fetchError, startListening, refresh } = useMemescope();
-  const [activeCol, setActiveCol] = useState<MemescopeColKey>('col1');
+  const [activeCol, setActiveCol] = useState<PhotonCol>('col1');
 
-  const [filters, setFilters] = useState<Record<MemescopeColKey, PhotonColFilters>>(FILTER_DEFAULTS);
+  const [filters, setFilters] = useState<Record<PhotonCol, PhotonColFilters>>(FILTER_DEFAULTS);
   const [editorVisible, setEditorVisible] = useState(false);
   const [draft, setDraft] = useState<PhotonColFilters>(emptyColFilters());
   const [saving, setSaving] = useState(false);
@@ -283,7 +281,7 @@ export default function PhotonScreen() {
 
   const confirmFilters = useCallback(async () => {
     if (saving) return;
-    const next = { ...filters, [activeCol]: draft } as Record<MemescopeColKey, PhotonColFilters>;
+    const next = { ...filters, [activeCol]: draft } as Record<PhotonCol, PhotonColFilters>;
     setSaving(true);
     try {
       const res = await savePhotonFilters(next as PhotonFilters);
