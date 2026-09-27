@@ -1,5 +1,6 @@
 import initCycleTLS from 'cycletls';
 import { broadcast, getSubscriptions } from './ws-server.js';
+import { photonFilters } from '../stores.js';
 
 // Photon (photon-sol.tinyastro.io) "memescope" screener feed.
 //
@@ -42,15 +43,82 @@ const COMMON_FILTERS =
   '&platform=bonk%2Cbelieve%2Cmoonshotdbc%2Cjupiter%2Cbags%2Cwendev%2Cmayhem%2Cbonker%2Cprintr%2Cstonk' +
   '&pump_rewards_enabled=true&quote_token=wsol%2Cusdc%2Cusd1%2Ccustom';
 
-// Independent filters per category (verified against the API: each request
-// returns ONLY the requested column populated).
-const COL_QUERIES = {
-  col1: `${COMMON_FILTERS}&col=col1`, // New — no holders/age filter
-  col2: `${COMMON_FILTERS}&age_to=30&col=col2`, // Graduating — fresh launches
-  col3: `${COMMON_FILTERS}&age_to=30&extra_filters_count=10&tp_holders_count_from=100&col=col3`, // Graduated
+// Per-column user filters (UI: GET/PUT /api/market/memescope-filters).
+// Each field is a { min?, max? } pair appended as `<param>_from`/`<param>_to`.
+// All params validated against the live API (2026-09-26): age (minutes),
+// holders_count / tp_holders_count (the Graduated tab uses tp>=100),
+// volume, usd_liq, mkt_cap (USD), top_holders_perc, dev_holding_perc (%),
+// snipers_count. `extra_filters_count` proved to be cosmetic (same results).
+const FILTER_FIELDS = {
+  age: 'age',
+  holders: 'holders_count',
+  tpHolders: 'tp_holders_count',
+  volume: 'volume',
+  liq: 'usd_liq',
+  mktCap: 'mkt_cap',
+  topHolders: 'top_holders_perc',
+  devPct: 'dev_holding_perc',
+  snipers: 'snipers_count',
+};
+// Mirrors the app's first-run defaults (one entry per column).
+const DEFAULT_FILTERS = {
+  col1: {},
+  col2: { age: { max: '30' } },
+  col3: { age: { max: '30' }, tpHolders: { min: '100' } },
 };
 const COLS = ['col1', 'col2', 'col3'];
 const FALLBACK_TITLES = { col1: 'New', col2: 'Graduating', col3: 'Graduated' };
+
+function sanitizeFilters(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const col of COLS) {
+    const c = raw[col];
+    if (!c || typeof c !== 'object') continue;
+    const clean = {};
+    for (const field of Object.keys(FILTER_FIELDS)) {
+      const v = c[field];
+      if (!v || typeof v !== 'object') continue;
+      const pair = {};
+      for (const side of ['min', 'max']) {
+        const val = v[side];
+        if (typeof val === 'string' && /^\d+(\.\d+)?$/.test(val)) pair[side] = val;
+      }
+      if (pair.min || pair.max) clean[field] = pair;
+    }
+    if (Object.keys(clean).length) out[col] = clean;
+  }
+  return out;
+}
+
+/** Effective filters per column (stored config merged over defaults). */
+export function getPhotonFilters() {
+  const entry = photonFilters.get('global');
+  const stored = sanitizeFilters(entry?.filters ?? entry ?? {});
+  const out = {};
+  for (const col of COLS) out[col] = stored[col] ?? DEFAULT_FILTERS[col] ?? {};
+  return out;
+}
+
+/** Save per-column filters (sanitized) and persist to data/photon_filters.json. */
+export function setPhotonFilters(raw) {
+  const clean = sanitizeFilters(raw);
+  photonFilters.set('global', { filters: clean, updated_at: new Date().toISOString() });
+  return getPhotonFilters();
+}
+
+/** Build the query string for a column from COMMON + its active filters. */
+function buildQuery(colKey) {
+  const f = getPhotonFilters()[colKey] ?? {};
+  const parts = [COMMON_FILTERS];
+  for (const [field, param] of Object.entries(FILTER_FIELDS)) {
+    const v = f[field];
+    if (v?.min) parts.push(`${param}_from=${v.min}`);
+    if (v?.max) parts.push(`${param}_to=${v.max}`);
+  }
+  parts.push(`col=${colKey}`);
+  return parts.join('&');
+}
 
 const HEADERS = {
   accept: '*/*',
@@ -103,7 +171,7 @@ function toObj(data) {
 async function fetchOnce(colKey) {
   fetchCount += 1;
   const client = await getCycleTLS();
-  const request = client(`${SEARCH_URL}?${COL_QUERIES[colKey]}`, { client: 'chrome131', headers: HEADERS }, 'GET');
+  const request = client(`${SEARCH_URL}?${buildQuery(colKey)}`, { client: 'chrome131', headers: HEADERS }, 'GET');
   let timer;
   let resp;
   try {

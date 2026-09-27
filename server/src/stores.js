@@ -8,6 +8,7 @@ export const notifiedTokens = new JsonStore('notified_tokens');
 export const notificationHistory = new JsonArrayStore('notification_history');
 export const winners = new JsonArrayStore('winners');
 export const trenchesFilters = new JsonStore('trenches_filters');
+export const photonFilters = new JsonStore('photon_filters');
 export const proxyConfigs = new JsonStore('proxy_configs');
 export const notificationConfig = new JsonStore('notification_config');
 // Background X-Tracker watchlist: every token seen in trenches, kept alive even

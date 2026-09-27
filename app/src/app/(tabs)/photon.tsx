@@ -1,5 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -9,13 +19,119 @@ import { ThemedView } from '@/components/themed-view';
 import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
 import { useMemescope } from '@/store/memescope';
-import type { MemescopeColKey, PhotonToken } from '@/api/market';
+import { getPhotonFilters, savePhotonFilters } from '@/api/market';
+import type { MemescopeColKey, PhotonColFilters, PhotonFilters, PhotonRange, PhotonToken } from '@/api/market';
 import { fmtNum, fmtUsd, timeAgo } from '@/utils/format';
 
 const COLS: MemescopeColKey[] = ['col1', 'col2', 'col3'];
 // Photon's image CDN (tpi.tradewithphoton.com) returns 403 without a
 // photon-sol.tinyastro.io Referer — verified: any UA + this referer = 200.
 const PHOTON_IMG_HEADERS = { referer: 'https://photon-sol.tinyastro.io/' };
+
+interface PhotonFilterField {
+  key: string;
+  label: string;
+  unit: string;
+}
+
+/** Field keys must match FILTER_FIELDS in server photon-memescope.js. */
+const FILTER_FIELDS: PhotonFilterField[] = [
+  { key: 'age', label: 'Edad', unit: 'm' },
+  { key: 'holders', label: 'Tenedores', unit: '' },
+  { key: 'tpHolders', label: 'Tenedores TP', unit: '' },
+  { key: 'volume', label: 'Volumen', unit: '$' },
+  { key: 'liq', label: 'Liquidez', unit: '$' },
+  { key: 'mktCap', label: 'Market cap', unit: '$' },
+  { key: 'topHolders', label: 'Top 10 holders', unit: '%' },
+  { key: 'devPct', label: 'Dev holding', unit: '%' },
+  { key: 'snipers', label: 'Snipers', unit: '' },
+];
+
+/** Same defaults the server uses when nothing is saved yet. */
+const FILTER_DEFAULTS: PhotonFilters = {
+  col1: {},
+  col2: { age: { max: '30' } },
+  col3: { age: { max: '30' }, tpHolders: { min: '100' } },
+};
+
+function emptyColFilters(): PhotonColFilters {
+  const o: PhotonColFilters = {};
+  for (const f of FILTER_FIELDS) o[f.key] = { min: '', max: '' };
+  return o;
+}
+
+function normalizeColFilters(raw: unknown): PhotonColFilters {
+  const out = emptyColFilters();
+  if (!raw || typeof raw !== 'object') return out;
+  for (const f of FILTER_FIELDS) {
+    const v = (raw as Record<string, unknown>)[f.key];
+    if (v && typeof v === 'object') {
+      const rv = v as PhotonRange;
+      out[f.key] = {
+        min: typeof rv.min === 'string' ? rv.min : '',
+        max: typeof rv.max === 'string' ? rv.max : '',
+      };
+    }
+  }
+  return out;
+}
+
+function normalizeFilters(raw: unknown): Record<MemescopeColKey, PhotonColFilters> {
+  const obj = (raw ?? {}) as Partial<Record<MemescopeColKey, unknown>>;
+  return {
+    col1: normalizeColFilters(obj.col1 ?? FILTER_DEFAULTS.col1),
+    col2: normalizeColFilters(obj.col2 ?? FILTER_DEFAULTS.col2),
+    col3: normalizeColFilters(obj.col3 ?? FILTER_DEFAULTS.col3),
+  };
+}
+
+function RangeField({
+  field,
+  values,
+  onChange,
+}: {
+  field: PhotonFilterField;
+  values: PhotonRange;
+  onChange: (side: 'min' | 'max', value: string) => void;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.fieldRow}>
+      <ThemedText type="small" style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+        {field.label}
+      </ThemedText>
+      <View style={styles.fieldInputs}>
+        <View style={styles.inputGroup}>
+          <TextInput
+            value={values.min ?? ''}
+            onChangeText={(v) => onChange('min', v)}
+            placeholder="mín"
+            placeholderTextColor={theme.textSecondary}
+            keyboardType="numeric"
+            style={[styles.fieldInput, { color: theme.text }]}
+          />
+          <ThemedText style={[styles.inputUnit, { color: theme.textSecondary }]}>
+            {field.unit}
+          </ThemedText>
+        </View>
+        <ThemedText style={[styles.rangeSep, { color: theme.textSecondary }]}>—</ThemedText>
+        <View style={styles.inputGroup}>
+          <TextInput
+            value={values.max ?? ''}
+            onChangeText={(v) => onChange('max', v)}
+            placeholder="máx"
+            placeholderTextColor={theme.textSecondary}
+            keyboardType="numeric"
+            style={[styles.fieldInput, { color: theme.text }]}
+          />
+          <ThemedText style={[styles.inputUnit, { color: theme.textSecondary }]}>
+            {field.unit}
+          </ThemedText>
+        </View>
+      </View>
+    </View>
+  );
+}
 const FALLBACK_TITLES: Record<MemescopeColKey, string> = {
   col1: 'New',
   col2: 'Graduating',
@@ -121,13 +237,62 @@ function PhotonRow({ token }: { token: PhotonToken }) {
 
 export default function PhotonScreen() {
   const theme = useTheme();
-  const { resp, error: fetchError, startListening } = useMemescope();
+  const { resp, error: fetchError, startListening, refresh } = useMemescope();
   const [activeCol, setActiveCol] = useState<MemescopeColKey>('col1');
+
+  const [filters, setFilters] = useState<Record<MemescopeColKey, PhotonColFilters>>(FILTER_DEFAULTS);
+  const [editorVisible, setEditorVisible] = useState(false);
+  const [draft, setDraft] = useState<PhotonColFilters>(emptyColFilters());
+  const [saving, setSaving] = useState(false);
 
   // The feed subscribes at app boot; this is just a safety net.
   useEffect(() => {
     startListening();
   }, [startListening]);
+
+  // Saved server-side filters (shared by every client).
+  useEffect(() => {
+    let cancelled = false;
+    getPhotonFilters()
+      .then((res) => {
+        if (cancelled || !res.filters) return;
+        setFilters(normalizeFilters(res.filters));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const openFilterEditor = useCallback(() => {
+    setDraft(filters[activeCol] ?? emptyColFilters());
+    setEditorVisible(true);
+  }, [activeCol, filters]);
+
+  const closeFilterEditor = useCallback(() => setEditorVisible(false), []);
+
+  const resetDraft = useCallback(() => {
+    setDraft(normalizeFilters(FILTER_DEFAULTS)[activeCol]);
+  }, [activeCol]);
+
+  const setDraftValue = useCallback((key: string, side: 'min' | 'max', value: string) => {
+    setDraft((prev) => ({ ...prev, [key]: { ...prev[key], [side]: value } }));
+  }, []);
+
+  const confirmFilters = useCallback(async () => {
+    if (saving) return;
+    const next = { ...filters, [activeCol]: draft } as Record<MemescopeColKey, PhotonColFilters>;
+    setSaving(true);
+    try {
+      const res = await savePhotonFilters(next as PhotonFilters);
+      if (res?.filters) setFilters(normalizeFilters(res.filters));
+      else setFilters(next);
+      setEditorVisible(false);
+      refresh();
+    } catch {
+      // keep the editor open on failure — retry possible
+    } finally {
+      setSaving(false);
+    }
+  }, [activeCol, draft, filters, refresh, saving]);
 
   const tokens = useMemo(
     () => resp?.columns?.[activeCol]?.data?.map((d) => d.attributes) ?? [],
@@ -152,9 +317,16 @@ export default function PhotonScreen() {
                   : 'cargando…'}
             </ThemedText>
           </View>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {tokens.length} tokens
-          </ThemedText>
+          <View style={styles.topActions}>
+            <Pressable
+              onPress={openFilterEditor}
+              style={[styles.filterBtn, { borderColor: theme.border, backgroundColor: theme.backgroundElement }]}>
+              <Ionicons name="funnel" size={16} color={theme.textSecondary} />
+            </Pressable>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              {tokens.length} tokens
+            </ThemedText>
+          </View>
         </View>
 
         <View style={styles.tabsRow}>
@@ -194,6 +366,50 @@ export default function PhotonScreen() {
           </ThemedText>
         </View>
       </SafeAreaView>
+
+      {/* ── Per-column filter editor ── */}
+      <Modal visible={editorVisible} transparent animationType="slide" onRequestClose={closeFilterEditor}>
+        <View style={styles.modalBackdrop}>
+          <Pressable style={styles.backdropTouch} onPress={closeFilterEditor} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <ThemedText type="smallBold" style={styles.sheetTitle}>
+                Filtros — {titles[activeCol] ?? FALLBACK_TITLES[activeCol]}
+              </ThemedText>
+              <Pressable onPress={resetDraft} hitSlop={8}>
+                <ThemedText type="small" style={styles.resetText}>Restablecer</ThemedText>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.sheetBody}
+              contentContainerStyle={styles.sheetBodyContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled">
+              {FILTER_FIELDS.map((f) => (
+                <RangeField
+                  key={f.key}
+                  field={f}
+                  values={draft[f.key] ?? { min: '', max: '' }}
+                  onChange={(side, v) => setDraftValue(f.key, side, v)}
+                />
+              ))}
+            </ScrollView>
+            <View style={styles.sheetFooter}>
+              <Pressable onPress={closeFilterEditor} style={styles.cancelBtn}>
+                <ThemedText type="smallBold" style={{ color: '#ffffff' }}>Cancelar</ThemedText>
+              </Pressable>
+              <Pressable onPress={confirmFilters} style={[styles.confirmBtn, saving && { opacity: 0.6 }]}>
+                <ThemedText type="smallBold" style={{ color: '#000000' }}>
+                  {saving ? 'Guardando…' : 'Confirmar'}
+                </ThemedText>
+              </Pressable>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -280,4 +496,97 @@ const styles = StyleSheet.create({
   },
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 1 },
   statValue: { fontSize: 12, fontWeight: '500' },
+
+  /* ── Top actions (filter button) ── */
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  filterBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* ── Sheets (filter editor) ── */
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: '#00000088',
+    justifyContent: 'flex-end',
+  },
+  backdropTouch: { flex: 1 },
+  sheet: {
+    backgroundColor: '#121212',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    maxHeight: '88%',
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#333333',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  sheetTitle: { fontSize: 16, color: '#ffffff' },
+  resetText: { color: '#9a9a9a', fontSize: 14 },
+  sheetBody: { flexGrow: 0 },
+  sheetBodyContent: { paddingBottom: 8 },
+  sheetFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingVertical: 14,
+    paddingBottom: 20,
+  },
+  cancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#2c2c2e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* ── Filter fields ── */
+  fieldRow: { marginBottom: 14 },
+  fieldLabel: { fontSize: 12, marginBottom: 6 },
+  fieldInputs: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  inputGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1c1c1e',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 40,
+  },
+  fieldInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+  },
+  inputUnit: { fontSize: 12, marginLeft: 6 },
+  rangeSep: { fontSize: 13 },
 });

@@ -11,6 +11,8 @@ interface MemescopeState {
   error: string | null;
   /** Subscribes to the server's WS feed (idempotent — app-wide, runs forever). */
   startListening: () => void;
+  /** Re-reads the server snapshot (used after saving filters). */
+  refresh: () => Promise<void>;
 }
 
 const client = getWsClient();
@@ -42,5 +44,13 @@ export const useMemescope = create<MemescopeState>((set) => ({
       const data = (msg?.data ?? null) as MemescopeResponse | null;
       if (data) set({ resp: data, error: data.error ?? null });
     });
+  },
+  refresh: async () => {
+    try {
+      const r = await getMemescope();
+      set({ resp: r, error: r.error ?? null });
+    } catch (e: unknown) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
   },
 }));

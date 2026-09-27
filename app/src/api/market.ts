@@ -14,6 +14,24 @@ export function saveTrenchesFilters(filters: unknown) {
   return api.put<{ ok: boolean }>('/api/market/trenches/filters', { filters });
 }
 
+// ── Photon memescape: independent screener filters per column ──
+export type PhotonCol = 'col1' | 'col2' | 'col3';
+export interface PhotonRange {
+  min?: string;
+  max?: string;
+}
+/** Field key (age, holders, volume, …) → { min?, max? } — see FILTER_FIELDS in the server. */
+export type PhotonColFilters = Record<string, PhotonRange>;
+export type PhotonFilters = Record<PhotonCol, PhotonColFilters>;
+
+export function getPhotonFilters() {
+  return api.get<{ filters: PhotonFilters }>('/api/market/memescope-filters');
+}
+
+export function savePhotonFilters(filters: PhotonFilters) {
+  return api.put<{ ok: boolean; filters: PhotonFilters }>('/api/market/memescope-filters', { filters });
+}
+
 export function getTokenDetail(chain: string, address: string) {
   return api.get<TokenDetail>(`/api/market/token/${chain}/${address}`);
 }

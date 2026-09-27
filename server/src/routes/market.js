@@ -14,7 +14,7 @@ import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-heal
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
 import { getMentions, getMentionsStatus, rawMentions } from '../services/gmgn-mentions.js';
 import { getLiveMcap, getLiveMcapStatus } from '../services/gmgn-mcap.js';
-import { getMemescope, getMemescopeStatus } from '../services/photon-memescope.js';
+import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters } from '../services/photon-memescope.js';
 import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
 
 const router = Router();
@@ -733,6 +733,34 @@ router.get('/memescope', async (_req, res) => {
 /** GET /api/market/memescope-status — poller/pacing diagnostics. */
 router.get('/memescope-status', (_req, res) => {
   res.json(getMemescopeStatus());
+});
+
+/**
+ * GET /api/market/memescope-filters — effective per-column screener filters
+ * (defaults merged with the saved config in data/photon_filters.json).
+ */
+router.get('/memescope-filters', (_req, res) => {
+  try {
+    res.json({ filters: getPhotonFilters() });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * PUT /api/market/memescope-filters — save per-column filters.
+ * Body: { filters: { col1: {age:{min,max}, holders:{...}, ...}, col2, col3 } }
+ * Sanitized server-side (numeric values only); picked up by the poller on the
+ * next rotation step (~4s per column).
+ */
+router.put('/memescope-filters', (req, res) => {
+  try {
+    const raw = req.body?.filters;
+    if (raw == null) return fail(res, new Error('filters is required'), 400);
+    res.json({ ok: true, filters: setPhotonFilters(raw) });
+  } catch (err) {
+    fail(res, err);
+  }
 });
 
 /**
