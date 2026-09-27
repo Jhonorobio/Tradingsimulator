@@ -74,8 +74,8 @@ export default function TokenScreen() {
       const d = await getTokenDetail(chain || 'sol', address);
       setDetail(d);
       setError(null);
-    } catch {
-      if (!detail) setError('No se pudo cargar el token');
+    } catch (e) {
+      if (!detail) setError(e instanceof ApiError ? e.message : 'No se pudo cargar el token');
     }
   }, [address, chain]);
 
@@ -101,8 +101,8 @@ export default function TokenScreen() {
           if (!active) return;
           setDetail(d);
           setError(null);
-        } catch {
-          if (active && !detail) setError('No se pudo cargar el token');
+        } catch (e) {
+          if (active && !detail) setError(e instanceof ApiError ? e.message : 'No se pudo cargar el token');
         }
         const wait = Math.max(1000 - (Date.now() - start), 0);
         await new Promise((r) => setTimeout(r, wait));

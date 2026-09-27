@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { runMarket, runConfigCheck } from '../cli/gmgn.js';
 import { fetchTrenches, getPairCooldowns } from '../cli/args.js';
-import { trenchesFilters, proxyConfigs } from '../stores.js';
+import { trenchesFilters, proxyConfigs, notificationHistory } from '../stores.js';
 import { getTokenInfo as getDexTokenInfo, searchTokens as dexSearch } from '../services/dexscreener.js';
 import { findToken } from '../services/trenches-store.js';
 import { getProxyMarketCap } from '../services/gmgn-proxy.js';
@@ -14,7 +14,7 @@ import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-heal
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
 import { getMentions, getMentionsStatus, rawMentions } from '../services/gmgn-mentions.js';
 import { getLiveMcap, getLiveMcapStatus } from '../services/gmgn-mcap.js';
-import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters } from '../services/photon-memescope.js';
+import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters, findPhotonToken } from '../services/photon-memescope.js';
 import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
 
 const router = Router();
@@ -22,6 +22,12 @@ const router = Router();
 function deviceId(req) {
   return req.headers['x-device-id'] || req.params.deviceId || '';
 }
+
+const toN = (v) => {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 function fail(res, err, status = 500) {
   const message = err?.message || String(err);
@@ -601,53 +607,158 @@ router.get('/token/:chain/:address', async (req, res) => {
       });
     }
 
-    const info = await getTokenInfo(chain, address);
-    if (!info) throw Object.assign(new Error('Token not found'), { status: 404 });
+    // Photon memescope fallback: bonding-curve tokens are unknown to both
+    // Dexscreener and GMGN, but their attributes live in our screener cache.
+    const ph = findPhotonToken(address);
+    if (ph) {
+      const top10 = toN(ph.audit?.top_holders_perc);
+      const buys = toN(ph.buys_count) ?? 0;
+      const sells = toN(ph.sells_count) ?? 0;
+      return res.json({
+        chain,
+        address,
+        name: ph.name ?? null,
+        symbol: ph.symbol ?? null,
+        logo: ph.imgUrl ?? null,
+        price: null,
+        marketCap: toN(ph.fdv),
+        supply: null,
+        liquidity: toN(ph.cur_liq?.usd) ?? 0,
+        volume24h: toN(ph.volume) ?? 0,
+        volume1h: 0,
+        swaps24h: 0,
+        swaps1h: 0,
+        buys24h: buys,
+        sells24h: sells,
+        netBuy24h: buys - sells,
+        priceChange: null,
+        holders: toN(ph.holders_count),
+        top10HolderRate: top10 == null ? null : top10 > 1 ? top10 / 100 : top10,
+        smartDegenCount: null,
+        renownedCount: null,
+        sniperCount: toN(ph.snipers_count),
+        rugRatio: null,
+        isWashTrading: null,
+        isHoneypot: null,
+        bundlerRate: null,
+        buyTax: null,
+        devTeamHoldRate: null,
+        creatorBalanceRate: null,
+        creatorTokenStatus: null,
+        renouncedMint: null,
+        renouncedFreeze: null,
+        dex: null,
+        dexPairs: 0,
+        twitter: ph.socials?.twitter ?? null,
+        telegram: ph.socials?.telegram ?? null,
+        website: ph.socials?.website ?? null,
+        xFollowers: null,
+        ctoFlag: null,
+        createdTimestamp: toN(ph.created_timestamp),
+        openTimestamp: null,
+        sources: { dex: false, gmgn: false, trenches: false, photon: true },
+      });
+    }
 
-    res.json({
-      chain,
-      address,
-      name: info.name ?? null,
-      symbol: info.symbol ?? null,
-      logo: info.logo ?? null,
-      price: info.price ?? null,
-      marketCap: info.marketCap ?? null,
-      supply: info.supply ?? null,
-      liquidity: info.liquidity ?? 0,
-      volume24h: info.volume24h ?? 0,
-      volume1h: 0,
-      swaps24h: 0,
-      swaps1h: 0,
-      buys24h: 0,
-      sells24h: 0,
-      netBuy24h: 0,
-      priceChange: info.priceChange ?? null,
-      holders: info.holders ?? null,
-      top10HolderRate: null,
-      smartDegenCount: null,
-      renownedCount: null,
-      sniperCount: null,
-      rugRatio: null,
-      isWashTrading: null,
-      isHoneypot: null,
-      bundlerRate: null,
-      buyTax: null,
-      devTeamHoldRate: null,
-      creatorBalanceRate: null,
-      creatorTokenStatus: null,
-      renouncedMint: null,
-      renouncedFreeze: null,
-      dex: info.dex ?? null,
-      dexPairs: 0,
-      twitter: null,
-      telegram: null,
-      website: null,
-      xFollowers: null,
-      ctoFlag: null,
-      createdTimestamp: null,
-      openTimestamp: null,
-      sources: { dex: info.source === 'dexscreener', gmgn: info.source === 'gmgn', trenches: false },
-    });
+    // GMGN expects the `sol` slug — the app may send `solana`.
+    const info = await getTokenInfo(chain === 'solana' ? 'sol' : chain, address);
+    if (info) {
+      return res.json({
+        chain,
+        address,
+        name: info.name ?? null,
+        symbol: info.symbol ?? null,
+        logo: info.logo ?? null,
+        price: info.price ?? null,
+        marketCap: info.marketCap ?? null,
+        supply: info.supply ?? null,
+        liquidity: info.liquidity ?? 0,
+        volume24h: info.volume24h ?? 0,
+        volume1h: 0,
+        swaps24h: 0,
+        swaps1h: 0,
+        buys24h: 0,
+        sells24h: 0,
+        netBuy24h: 0,
+        priceChange: info.priceChange ?? null,
+        holders: info.holders ?? null,
+        top10HolderRate: null,
+        smartDegenCount: null,
+        renownedCount: null,
+        sniperCount: null,
+        rugRatio: null,
+        isWashTrading: null,
+        isHoneypot: null,
+        bundlerRate: null,
+        buyTax: null,
+        devTeamHoldRate: null,
+        creatorBalanceRate: null,
+        creatorTokenStatus: null,
+        renouncedMint: null,
+        renouncedFreeze: null,
+        dex: info.dex ?? null,
+        dexPairs: 0,
+        twitter: null,
+        telegram: null,
+        website: null,
+        xFollowers: null,
+        ctoFlag: null,
+        createdTimestamp: null,
+        openTimestamp: null,
+        sources: { dex: info.source === 'dexscreener', gmgn: info.source === 'gmgn', trenches: false },
+      });
+    }
+
+    // Last resort: our own history entry (stale but non-empty — beats a 404).
+    const hist = [...notificationHistory.getAll()].reverse().find((e) => e.address === address);
+    if (hist) {
+      return res.json({
+        chain,
+        address,
+        name: hist.name ?? null,
+        symbol: hist.symbol ?? null,
+        logo: hist.logo ?? null,
+        price: null,
+        marketCap: toN(hist.mcap),
+        supply: null,
+        liquidity: toN(hist.liq) ?? 0,
+        volume24h: toN(hist.vol24h) ?? 0,
+        volume1h: 0,
+        swaps24h: 0,
+        swaps1h: 0,
+        buys24h: 0,
+        sells24h: 0,
+        netBuy24h: 0,
+        priceChange: null,
+        holders: null,
+        top10HolderRate: null,
+        smartDegenCount: toN(hist.smart_degen_count),
+        renownedCount: toN(hist.renowned_count),
+        sniperCount: null,
+        rugRatio: toN(hist.rug_ratio),
+        isWashTrading: null,
+        isHoneypot: null,
+        bundlerRate: toN(hist.bundler_rate ?? hist.bundler_trader_amount_rate),
+        buyTax: null,
+        devTeamHoldRate: null,
+        creatorBalanceRate: null,
+        creatorTokenStatus: null,
+        renouncedMint: null,
+        renouncedFreeze: null,
+        dex: null,
+        dexPairs: 0,
+        twitter: null,
+        telegram: null,
+        website: null,
+        xFollowers: null,
+        ctoFlag: null,
+        createdTimestamp: null,
+        openTimestamp: null,
+        sources: { dex: false, gmgn: false, trenches: false, history: true },
+      });
+    }
+
+    throw Object.assign(new Error('Token not found'), { status: 404 });
   } catch (err) {
     fail(res, err, err?.status || 500);
   }

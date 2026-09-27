@@ -381,6 +381,26 @@ export async function getMemescope() {
   return snapshotPayload();
 }
 
+/**
+ * Look up a token address in the current memescope caches — used as a
+ * fallback by GET /token/:chain/:address (Photon-only tokens are unknown to
+ * trenches/GMGN/Dexscreener while they are on the bonding curve).
+ * @returns {object|null} Photon token attributes
+ */
+export function findPhotonToken(address) {
+  if (!address) return null;
+  for (const c of COLS) {
+    const data = colCache[c]?.slice?.data;
+    if (!Array.isArray(data)) continue;
+    const hit = data.find((it) => {
+      const a = it?.attributes;
+      return (a?.address || a?.tokenAddress) === address;
+    });
+    if (hit?.attributes) return hit.attributes;
+  }
+  return null;
+}
+
 /** Poller diagnostics (for /api/market/memescope-status). */
 export function getMemescopeStatus() {
   const colAges = {};

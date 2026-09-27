@@ -33,7 +33,8 @@ async function pollSubscribedTokens() {
 
 async function fetchAndBroadcast(chain, address, topic) {
   try {
-    const info = await getProxyTokenInfo(chain, address);
+    // GMGN expects the `sol` slug — clients may subscribe as `token:solana:…`.
+    const info = await getProxyTokenInfo(chain === 'solana' ? 'sol' : chain, address);
     if (!info) return;
     broadcast(topic, {
       event: 'token_price',
