@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Linking, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -11,7 +12,6 @@ import { WinnersPanel } from '@/components/winners-panel';
 import { TrackingPanel } from '@/components/tracking-panel';
 import { useTheme } from '@/hooks/use-theme';
 import { getNotificationHistory } from '@/api/notifications';
-import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
 import type { NotificationHistoryItem, TokenSnapshot } from '@/api/types';
 import { fmtNum, fmtUsd, shortAddress } from '@/utils/format';
@@ -233,11 +233,12 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
   );
 });
 
+const HISTORY_CACHE_KEY = 'history_cache_v1';
+
 export default function HistoryScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const { deviceId } = useSettings();
-  const { notifications: wsNotifications, subscribeNotifications, unsubscribeNotifications } = useWs();
+  const { notifications: wsNotifications, connected } = useWs();
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
   const [view, setView] = useState<ViewKey>('history');
   const [search, setSearch] = useState('');
@@ -245,22 +246,44 @@ export default function HistoryScreen() {
   const [categoryFilter, setCategoryFilter] = useState('recent');
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
       const res = await getNotificationHistory(300);
-      setHistory(res.history);
-    } catch {}
+      // Merge WS events newer than the response (arrived during the fetch).
+      const newest = res.history[0]?.notified_at ?? '';
+      const ids = new Set(res.history.map((e) => e.id));
+      const extra = useWs.getState().notifications.filter(
+        (n) => n.id != null && !ids.has(n.id) && (!newest || (n.notified_at ?? '') > newest),
+      );
+      setHistory([...extra, ...res.history].slice(0, 300));
+      setLoadError(false);
+      AsyncStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(res.history)).catch(() => {});
+    } catch {
+      setLoadError(true);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
+  // Instant first paint from the last successful load while the fetch runs.
   useEffect(() => {
-    if (!deviceId) return;
-    subscribeNotifications(deviceId);
-    return () => { unsubscribeNotifications(deviceId); };
-  }, [deviceId, subscribeNotifications, unsubscribeNotifications]);
+    AsyncStorage.getItem(HISTORY_CACHE_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        setHistory((prev) => (prev.length ? prev : JSON.parse(raw)));
+      })
+      .catch(() => {});
+  }, []);
+
+  // The socket was down (reconnect happened) — refill whatever was missed.
+  const prevConnected = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (prevConnected.current === false && connected) load();
+    prevConnected.current = connected;
+  }, [connected, load]);
 
   useEffect(() => {
     if (wsNotifications.length === 0) return;
@@ -401,6 +424,17 @@ export default function HistoryScreen() {
                 style={[styles.searchInput, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
               />
             </View>
+
+            {loadError && (
+              <Card style={{ borderColor: theme.warn, backgroundColor: `${theme.warn}15` }}>
+                <ThemedText type="small" style={{ color: theme.warn }}>
+                  {history.length === 0 ? 'No se pudo cargar el historial.' : 'Sin conexión — mostrando datos guardados.'}
+                </ThemedText>
+                <Pressable onPress={() => load()} hitSlop={6}>
+                  <ThemedText type="linkPrimary">Reintentar</ThemedText>
+                </Pressable>
+              </Card>
+            )}
 
             <FlatList
               data={filtered}

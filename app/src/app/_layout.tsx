@@ -6,6 +6,7 @@ import { Platform, useColorScheme } from 'react-native';
 
 import { useSettings } from '@/store/settings';
 import { useMemescope } from '@/store/memescope';
+import { useWs } from '@/store/ws';
 import { initWs } from '@/api/ws-client';
 import { setAndroidChannel, notificationsAvailable } from '@/utils/notifications';
 
@@ -15,7 +16,7 @@ let wsInitialized = false;
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const { ready, load } = useSettings();
+  const { ready, load, deviceId } = useSettings();
   const router = useRouter();
   const routerRef = useRef(router);
   routerRef.current = router;
@@ -30,6 +31,12 @@ export default function RootLayout() {
     // Global Photon feed: subscribe once — server polls only while we listen.
     useMemescope.getState().startListening();
   }, [load]);
+
+  // Global notifications: History merges these live. The client keeps the
+  // topic in its set, so it re-subscribes automatically on every reconnect.
+  useEffect(() => {
+    if (ready && deviceId) useWs.getState().subscribeNotifications(deviceId);
+  }, [ready, deviceId]);
 
   useEffect(() => {
     if (ready) SplashScreen.hideAsync().catch(() => {});

@@ -96,9 +96,15 @@ export const useWs = create<WsState>((set, get) => ({
   },
 
   subscribeNotifications: (deviceId: string) => {
+    // Global subscription (called once from the root layout): drop any
+    // previous device listener first, then keep this one for the whole
+    // session — the client re-sends it automatically on every reconnect.
+    for (const [key, fn] of notificationCleanups) {
+      fn();
+      notificationCleanups.delete(key);
+      client.unsubscribe(`notifications:${key}`);
+    }
     const topic = `notifications:${deviceId}`;
-    const prev = notificationCleanups.get(deviceId);
-    if (prev) { prev(); notificationCleanups.delete(deviceId); }
     client.subscribe(topic);
     const unsub = client.on('notification_new', (msg: any) => {
       if (msg.data) {
