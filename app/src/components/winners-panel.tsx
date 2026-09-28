@@ -8,7 +8,7 @@ import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
 import { getWinners, reanalyzeWinners, type WinnerItem } from '@/api/notifications';
 import type { TokenSnapshot } from '@/api/types';
-import { fmtUsd, shortAddress } from '@/utils/format';
+import { fmtNum, fmtUsd, shortAddress } from '@/utils/format';
 
 const CHAIN_TABS = [
   { key: 'all', label: 'Todos' },
@@ -115,6 +115,11 @@ const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expand
               const sRug = s.rug_ratio;
               const sBundler = s.bundler_rate ?? s.bundler_trader_amount_rate;
               const sEntrap = s.entrapment_ratio;
+              const sBundleCnt = s.bundle_holders_count;
+              const sBuys = s.buys_count;
+              const sTpHolders = s.tp_holders_count;
+              const sTopHolders = s.top_holders_rate;
+              const sHolders = s.holders_count;
               const snapStat = (icon: string, value: string, color: string) => (
                 <View style={styles.snapStatItem}>
                   <Ionicons name={icon as any} size={10} color={color} />
@@ -133,8 +138,13 @@ const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expand
                   {sFresh != null && sFresh > 0 && snapStat('leaf', `${(sFresh * 100).toFixed(0)}%`, theme.positive)}
                   {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
                     snapStat('hardware-chip', `${sBotCount ?? 0}/${(sBot != null ? (sBot * 100).toFixed(0) : '0')}%`, theme.warn)}
+                  {sTpHolders != null && sTpHolders > 0 && snapStat('hardware-chip', String(sTpHolders), theme.warn)}
+                  {sTopHolders != null && sTopHolders > 0 && snapStat('stats-chart', `${(sTopHolders * 100).toFixed(1)}%`, sTopHolders > 0.5 ? theme.warn : theme.accent)}
+                  {sHolders != null && sHolders > 0 && snapStat('person', fmtNum(sHolders), theme.accent)}
                   {sRug != null && sRug > 0 && snapStat('warning', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
                   {sBundler != null && sBundler > 0 && snapStat('layers', `${(sBundler * 100).toFixed(0)}%`, '#f97316')}
+                  {sBundleCnt != null && sBundleCnt > 0 && snapStat('cube', String(sBundleCnt), '#f97316')}
+                  {sBuys != null && sBuys > 0 && snapStat('cart', String(sBuys), theme.accent)}
                   {sEntrap != null && sEntrap > 0 && snapStat('fish', `${(sEntrap * 100).toFixed(0)}%`, '#ef4444')}
                 </View>
               );

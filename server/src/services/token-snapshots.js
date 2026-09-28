@@ -26,6 +26,8 @@ const SNAPSHOT_FIELDS = [
   'smart_degen_count', 'renowned_count', 'fresh_wallet_rate',
   'bot_degen_count', 'bot_degen_rate', 'rug_ratio',
   'bundler_rate', 'bundler_trader_amount_rate', 'entrapment_ratio',
+  'bundle_holders_count', 'buys_count', 'tp_holders_count',
+  'top_holders_rate', 'holders_count',
 ];
 
 function load() {
@@ -77,6 +79,11 @@ function photonSnapshotSource(address) {
     volume_24h: numOrNull(a.volume),
     fresh_wallet_rate: pctToRateOrNull(a.fresh_holding_perc),
     bundler_rate: pctToRateOrNull(a.bundle_holding_perc),
+    bundle_holders_count: numOrNull(a.bundle_holders_count),
+    buys_count: numOrNull(a.buys_count),
+    tp_holders_count: numOrNull(a.tp_holders_count),
+    top_holders_rate: pctToRateOrNull(a.audit?.top_holders_perc),
+    holders_count: numOrNull(a.holders_count),
   };
 }
 

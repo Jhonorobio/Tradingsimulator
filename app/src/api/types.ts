@@ -285,6 +285,11 @@ export interface TokenSnapshot {
   bundler_rate: number | null;
   bundler_trader_amount_rate: number | null;
   entrapment_ratio: number | null;
+  bundle_holders_count?: number | null;
+  buys_count?: number | null;
+  tp_holders_count?: number | null;
+  top_holders_rate?: number | null;
+  holders_count?: number | null;
 }
 
 export interface ProxyConfig {
