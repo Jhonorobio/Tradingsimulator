@@ -440,8 +440,8 @@ function findInTrenches(chain, address) {
 }
 
 /**
- * GET /api/market/xtracker/status — diagnostics for the background X-Tracker
- * watchlist: active/stopped counts, stop reasons, GMGN queue and last ticks.
+ * GET /api/market/xtracker/status — diagnostics for the background Tracker
+ * watchlist: active/stopped counts, stop reasons and last ticks.
  */
 router.get('/xtracker/status', (_req, res) => {
   try {
@@ -453,14 +453,13 @@ router.get('/xtracker/status', (_req, res) => {
 
 /**
  * GET /api/market/xtracker/tokens — watchlist behind the "Rastreando" tab.
- * Query: status=active|stopped|all (default active), q, onlyX=1, limit
+ * Query: status=active|stopped|all (default active), q, limit
  */
 router.get('/xtracker/tokens', (req, res) => {
   try {
     res.json(getXTrackerTokens({
       status: req.query.status,
       q: req.query.q,
-      onlyX: req.query.onlyX,
       limit: req.query.limit,
     }));
   } catch (err) {

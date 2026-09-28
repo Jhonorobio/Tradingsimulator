@@ -70,7 +70,7 @@ function MentionRow({ item, onPress }: { item: MentionItem; onPress: () => void 
 }
 
 /**
- * "X Tracker": token mentions pulled from GMGN's internal Twitter endpoint.
+ * "Tweets": token mentions pulled from GMGN's internal Twitter endpoint.
  * Polls every 30s (server caches 60s and paces upstream at 1 req/s).
  */
 export function MentionsPanel({ mint, limit = 10 }: { mint: string; limit?: number }) {
@@ -114,7 +114,7 @@ export function MentionsPanel({ mint, limit = 10 }: { mint: string; limit?: numb
           <ThemedText type="smallBold" style={{ fontSize: 11 }}>X</ThemedText>
         </View>
         <ThemedText type="smallBold" style={{ flex: 1 }}>
-          X Tracker{items.length ? ` · ${items.length} menc.` : ''}
+          Tweets{items.length ? ` · ${items.length} menc.` : ''}
         </ThemedText>
         {updatedAt ? (
           <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>

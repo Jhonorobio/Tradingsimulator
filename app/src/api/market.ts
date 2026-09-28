@@ -77,15 +77,9 @@ export interface XTrackerToken {
   stopped_at: string | null;
   mcap: number | null;
   liquidity: number | null;
-  twitter: string | null;
   checks: number;
   no_pairs: number;
   last_dex_check: string | null;
-  last_x_check: string | null;
-  tweets: number;
-  first_tweet_at: string | null;
-  last_tweet_at: string | null;
-  notified_tweets: number;
   age_seconds: number | null;
 }
 
@@ -94,24 +88,21 @@ export interface XTrackerTokensResponse {
   summary: {
     active: number;
     stopped: number;
-    with_twitter: number;
-    with_tweets: number;
-    notified: number;
+    photon: number;
+    trenches: number;
   };
   total: number;
 }
 
-/** Background watchlist: every token that showed up in trenches. */
+/** Background watchlist: every token that showed up in trenches or photon. */
 export function getXTrackerTokens(opts: {
   status?: 'active' | 'stopped' | 'all';
   q?: string;
-  onlyX?: boolean;
   limit?: number;
 } = {}) {
   const qs = new URLSearchParams();
   if (opts.status) qs.set('status', opts.status);
   if (opts.q) qs.set('q', opts.q);
-  if (opts.onlyX) qs.set('onlyX', '1');
   if (opts.limit) qs.set('limit', String(opts.limit));
   const suffix = qs.toString();
   return api.get<XTrackerTokensResponse>(`/api/market/xtracker/tokens${suffix ? `?${suffix}` : ''}`);

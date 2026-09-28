@@ -20,7 +20,7 @@ const CATEGORY_OPTIONS = [
   { key: 'recent', label: 'Reciente' },
   { key: 'new', label: 'Nuevas' },
   { key: 'completed', label: 'Completadas' },
-  { key: 'x_tracker', label: 'X Tracker' },
+  { key: 'x_tracker', label: 'Tracker' },
   { key: 'photon', label: 'Photon' },
   { key: 'snaps', label: 'Snapshots' },
   { key: 'gain', label: 'Ganancia' },
@@ -53,7 +53,7 @@ const CHAIN_TABS = [
 const CATEGORY_LABELS: Record<string, string> = {
   new_creation: 'Nueva',
   completed: 'Completada',
-  x_tracker: 'X Tracker',
+  x_tracker: 'Tracker',
   photon: 'Photon',
 };
 

@@ -19,6 +19,7 @@ const STATUS_TABS = [
 type StatusKey = (typeof STATUS_TABS)[number]['key'];
 
 const STOP_LABELS: Record<string, string> = {
+  mcap_below_8k: 'MCap < 8K',
   mcap_below_10k: 'MCap < 10K',
   no_pairs: 'Sin par',
   max_age: '1h cumplida',
@@ -94,9 +95,6 @@ const TrackingCard = React.memo(function TrackingCard({ item, theme, onPress }: 
         </View>
 
         <View style={styles.statsRow}>
-          {item.twitter ? stat('logo-twitter', `@${item.twitter}`, theme.accent) : null}
-          {item.tweets > 0 ? stat('chatbubble-ellipses', `${item.tweets} tweets`, theme.accent) : null}
-          {item.notified_tweets > 0 ? stat('notifications', `${item.notified_tweets} avisos`, theme.positive) : null}
           {item.liquidity != null && item.liquidity > 0
             ? stat('water', `Liq ${fmtUsd(item.liquidity, { compact: true })}`, theme.textSecondary)
             : null}
@@ -108,8 +106,6 @@ const TrackingCard = React.memo(function TrackingCard({ item, theme, onPress }: 
             {shortAddress(item.address)}
           </ThemedText>
           <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>
-            {active && item.last_x_check ? `X ${fmtTime(item.last_x_check)}` : ''}
-            {active && item.last_x_check && item.last_dex_check ? ' · ' : ''}
             {active && item.last_dex_check ? `DEX ${fmtTime(item.last_dex_check)}` : ''}
           </ThemedText>
         </View>
@@ -159,8 +155,7 @@ export function TrackingPanel() {
       if (!q) return true;
       return (t.symbol || '').toLowerCase().includes(q)
         || (t.name || '').toLowerCase().includes(q)
-        || t.address.toLowerCase().includes(q)
-        || (t.twitter || '').toLowerCase().includes(q);
+        || t.address.toLowerCase().includes(q);
     });
   }, [tokens, status, search]);
 
@@ -196,16 +191,16 @@ export function TrackingPanel() {
 
       <View style={[styles.summary, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
         <View style={styles.summaryItem}>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>Con X</ThemedText>
-          <ThemedText type="smallBold" style={{ color: theme.accent }}>{summary?.with_twitter ?? 0}</ThemedText>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>Activos</ThemedText>
+          <ThemedText type="smallBold" style={{ color: theme.positive }}>{summary?.active ?? 0}</ThemedText>
         </View>
         <View style={styles.summaryItem}>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>Con tweets</ThemedText>
-          <ThemedText type="smallBold" style={{ color: theme.accent }}>{summary?.with_tweets ?? 0}</ThemedText>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>Photon</ThemedText>
+          <ThemedText type="smallBold" style={{ color: theme.accent }}>{summary?.photon ?? 0}</ThemedText>
         </View>
         <View style={styles.summaryItem}>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>Avisos</ThemedText>
-          <ThemedText type="smallBold" style={{ color: theme.positive }}>{summary?.notified ?? 0}</ThemedText>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>Trenches</ThemedText>
+          <ThemedText type="smallBold" style={{ color: theme.accent }}>{summary?.trenches ?? 0}</ThemedText>
         </View>
       </View>
 
@@ -213,7 +208,7 @@ export function TrackingPanel() {
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Buscar por símbolo, X o mint..."
+          placeholder="Buscar por símbolo o mint..."
           placeholderTextColor={theme.textSecondary}
           style={[styles.searchInput, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
         />

@@ -3,6 +3,7 @@ import { broadcast, getSubscriptions } from './ws-server.js';
 import { notificationConfig, notificationHistory, photonFilters, photonSeen, pushSubscriptions } from '../stores.js';
 import { sendPush, isValidPushToken } from './push.js';
 import { ensureTrack } from './token-snapshots.js';
+import { ingestTrenches } from './xtracker-watcher.js';
 
 // Photon (photon-sol.tinyastro.io) "memescope" screener feed.
 //
@@ -144,6 +145,24 @@ function ingestPhotonTokens(slice, colKey) {
   let seenDirty = false;
   const added = [];
   const now = new Date().toISOString();
+  // Every token in the slice joins the background Tracker watchlist (category
+  // `photon`), including repeats — each appearance refreshes last_seen/mcap.
+  const tracked = [];
+  for (const it of items) {
+    const a = it?.attributes;
+    const address = a?.tokenAddress || a?.address;
+    if (!address) continue;
+    tracked.push({
+      address,
+      chain: 'sol',
+      symbol: a.symbol || null,
+      name: a.name || null,
+      logo: a.imgUrl || null,
+      usd_market_cap: numOrNull(a.fdv),
+      liquidity: numOrNull(a.cur_liq?.usd),
+    });
+  }
+  try { ingestTrenches(tracked, 'photon'); } catch {}
   for (const it of items) {
     const a = it?.attributes;
     // `tokenAddress` is the mint (CA); `address` is the pair/pool id — GMGN,

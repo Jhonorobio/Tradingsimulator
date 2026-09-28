@@ -13,20 +13,20 @@ import { ApiError } from '@/api/client';
 import type { NotificationConfig, NotificationCategoryFilters, NotificationFilterFields } from '@/api/types';
 import { registerForPushNotificationsAsync, notificationsAvailable } from '@/utils/notifications';
 
-const NOTIF_CATEGORIES = ['new_creation', 'completed', 'x_tracker', 'photon_new', 'photon_graduated'] as const;
+// The legacy `x_tracker` key is kept in config/state (round-trip compat) but
+// no longer rendered: the Tracker sends no notifications.
+const NOTIF_CATEGORIES = ['new_creation', 'completed', 'photon_new', 'photon_graduated'] as const;
 const NOTIF_LABELS: Record<string, string> = {
   new_creation: 'Nueva creación (SOL)',
   completed: 'Completado (SOL)',
-  x_tracker: 'X Tracker (tweets)',
   photon_new: 'Photon — New',
   photon_graduated: 'Photon — Graduated',
 };
 const NOTIF_HINTS: Record<string, string> = {
-  x_tracker: 'Aviso cuando un token rastreado publique su primer tweet, y por cada tweet nuevo de un autor con 1.000+ seguidores.',
   photon_new: 'Aviso cuando un token entre a la columna New de Photon. Se respetan los filtros de la pestaña Photon.',
   photon_graduated: 'Aviso cuando un token aparezca en la columna Graduated de Photon. Se respetan los filtros de la pestaña Photon.',
 };
-// Solo estas categorías admiten filtros numéricos (x_tracker no tiene).
+// Solo estas categorías admiten filtros numéricos (photon no tiene).
 const FILTERABLE_CATEGORIES = new Set(['new_creation', 'completed']);
 
 const FILTER_FIELDS: { key: NotificationFilterFields; label: string; suffix?: string }[] = [

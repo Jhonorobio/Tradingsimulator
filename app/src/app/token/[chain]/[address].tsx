@@ -318,7 +318,7 @@ export default function TokenScreen() {
           </View>
         </Card>
 
-        {/* ─── X Tracker (mentions) ─── */}
+        {/* ─── Tweets (GMGN mentions) ─── */}
         <MentionsPanel mint={d.address} />
 
         {/* ─── Trenches Warning ─── */}
