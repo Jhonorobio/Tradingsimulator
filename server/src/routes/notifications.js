@@ -129,9 +129,13 @@ router.get('/history', (req, res) => {
     // cap logic relies on its oldest-first insertion order.
     const entries = [...notificationHistory.getAll()]
       // Sort first so the newest entry per token wins the dedupe below —
-      // x_tracker can produce several entries for the same address.
+      // x_tracker can produce several entries for the same address. Photon
+      // keeps one entry per column (new/graduated), so `column` joins the key.
       .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''))
-      .filter((e, i, arr) => arr.findIndex(x => x.address === e.address && x.category === e.category) === i)
+      .filter((e, i, arr) => arr.findIndex(
+        (x) => x.address === e.address && x.category === e.category
+          && (x.column ?? null) === (e.column ?? null),
+      ) === i)
       .slice(0, limit)
       .map((e) => ({ ...e, snapshots: getSnapshots(e.address, e.category) }));
     res.json({ history: entries });
