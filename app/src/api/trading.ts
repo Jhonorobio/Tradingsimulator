@@ -33,3 +33,7 @@ export function sell(tokenAddress: string, chain = 'sol', quantity?: number, gas
     gas_sol: gasSol,
   });
 }
+
+export function discard(tokenAddress: string, chain = 'sol') {
+  return api.post<TradeResult>('/api/trade/discard', { token_address: tokenAddress, chain });
+}

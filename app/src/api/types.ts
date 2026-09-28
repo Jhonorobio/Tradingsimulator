@@ -190,6 +190,7 @@ export interface TokenDetail {
 export interface TradeResult {
   id: number;
   side: 'buy' | 'sell';
+  discarded?: boolean;
   token: { address: string; chain: string; symbol: string | null; name: string | null; logo: string | null };
   quantity: number;
   market_cap: number;

@@ -209,6 +209,67 @@ export function sell(deviceId, token, { marketCap, quantity, gasSol, solPrice })
 }
 
 /**
+ * Discard a position without paying gas (escape hatch when the value dropped
+ * below the gas fee). Closes at the current market value, credits it to the
+ * wallet and records a sell order marked `discarded: true` so stats stay honest.
+ */
+export function discard(deviceId, token, { marketCap, solPrice }) {
+  const wallet = ensureWallet(deviceId);
+  const devPositions = getDevicePositions(deviceId);
+  const posIdx = devPositions.findIndex((p) => p.token_address === token.address);
+  if (posIdx < 0 || devPositions[posIdx].quantity <= 0) throw new Error('No position to discard');
+
+  const position = devPositions[posIdx];
+  devPositions.splice(posIdx, 1);
+  saveDevicePositions(deviceId, devPositions);
+
+  const proceedsUsd = position.quantity * marketCap;
+  const proceedsSol = solPrice > 0 ? proceedsUsd / solPrice : proceedsUsd;
+  wallet.balance_sol += proceedsSol;
+  saveWallet(deviceId, wallet);
+
+  const orderId = nextOrderId(deviceId);
+  const order = {
+    id: orderId,
+    device_id: deviceId,
+    side: 'sell',
+    discarded: true,
+    token_address: token.address,
+    chain: token.chain,
+    symbol: token.symbol,
+    name: token.name,
+    logo: token.logo,
+    quantity: position.quantity,
+    price_usdc: marketCap,
+    total_usdc: proceedsUsd,
+    gas_usdc: 0,
+    cost_usdc: position.cost_usdc,
+    created_at: new Date().toISOString(),
+  };
+  const devOrders = getDeviceOrders(deviceId);
+  devOrders.push(order);
+  saveDeviceOrders(deviceId, devOrders);
+
+  return {
+    id: orderId,
+    side: 'sell',
+    discarded: true,
+    token,
+    quantity: position.quantity,
+    market_cap: marketCap,
+    total_usdc: proceedsUsd,
+    total_sol: proceedsSol,
+    gas_sol: 0,
+    gas_usdc: 0,
+    cost_usdc: position.cost_usdc,
+    pnl_usdc: proceedsUsd - position.cost_usdc,
+    balance_usd: wallet.balance_usd,
+    balance_sol: wallet.balance_sol,
+    position_remaining: 0,
+  };
+}
+
+/**
  * Convert between USD and SOL budget.
  */
 export function convert(deviceId, { direction, amount, solPrice }) {

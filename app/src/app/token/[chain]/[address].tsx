@@ -14,7 +14,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
 import { getLiveMcap, getTokenDetail } from '@/api/market';
-import { buy, getPortfolio, sell } from '@/api/trading';
+import { buy, discard, getPortfolio, sell } from '@/api/trading';
 import { ApiError } from '@/api/client';
 import type { Position, TokenDetail, TradeResult } from '@/api/types';
 import { fmtNum, fmtUsd, shortAddress } from '@/utils/format';
@@ -204,6 +204,35 @@ export default function TokenScreen() {
     }
   };
 
+  const doDiscard = async () => {
+    if (!address || !position) return;
+    Alert.alert(
+      'Eliminar compra',
+      'Se cerrará la posición al valor actual, sin pagar gas, y se registrará como pérdida. ¿Continuar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            setSubmitting(true);
+            try {
+              const res = await discard(address, chain || 'sol');
+              setResult(res);
+              setTab('buy');
+              await loadDetail();
+              await loadPosition();
+            } catch (err) {
+              Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo eliminar la posición');
+            } finally {
+              setSubmitting(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   if (error && !detail) {
     return (
       <ThemedView style={styles.center}>
@@ -330,7 +359,7 @@ export default function TokenScreen() {
         {result && (
           <Card style={{ borderColor: result.side === 'buy' ? theme.positive : theme.negative }}>
             <ThemedText type="smallBold" style={{ color: result.side === 'buy' ? theme.positive : theme.negative }}>
-              {result.side === 'buy' ? 'Compra ejecutada' : 'Venta ejecutada'}
+              {result.discarded ? 'Posición eliminada' : result.side === 'buy' ? 'Compra ejecutada' : 'Venta ejecutada'}
             </ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {fmtUsd(result.total_usdc)} al MC {fmtUsd(result.market_cap, { compact: true })} · gas {fmtNum(result.gas_sol, { decimals: 4 })} SOL
@@ -394,6 +423,11 @@ export default function TokenScreen() {
                 {submitting ? 'Ejecutando…' : 'Vender'}
               </ThemedText>
             </Pressable>
+            <Pressable onPress={doDiscard} disabled={submitting} style={({ pressed }) => [styles.discardBtn, { borderColor: theme.negative }, pressed && { opacity: 0.7 }]}>
+              <ThemedText type="small" style={{ color: theme.negative, textAlign: 'center' }}>
+                Eliminar compra (sin gas)
+              </ThemedText>
+            </Pressable>
           </Card>
         )}
       </ScrollView>
@@ -444,6 +478,7 @@ const styles = StyleSheet.create({
   tab: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 16, marginTop: 8 },
   buyBtn: { marginTop: 12, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
+  discardBtn: { marginTop: 8, paddingVertical: 12, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
   pctRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   pctBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', borderWidth: 1 },
   loadingAvatar: { width: 56, height: 56, borderRadius: 28 },

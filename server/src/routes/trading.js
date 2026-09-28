@@ -179,6 +179,26 @@ router.post('/trade/sell', async (req, res) => {
 });
 
 /**
+ * POST /api/trade/discard
+ * Body: { token_address, chain? } — closes the position at current market
+ * value without paying gas (for when the value dropped below the gas fee).
+ */
+router.post('/trade/discard', async (req, res) => {
+  try {
+    const id = deviceId(req);
+    const { token_address, chain } = req.body;
+    if (!token_address) throw Object.assign(new Error('token_address is required'), { status: 400 });
+
+    const solPrice = await solPriceUsd();
+    const { token, marketCap, source } = await resolveToken(token_address, chain || 'sol');
+    const result = trading.discard(id, token, { marketCap, solPrice });
+    res.json({ ...result, price_source: source, sol_price: solPrice });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
  * GET /api/portfolio — positions + live valuation + stats
  * Header: X-Device-Id
  */
