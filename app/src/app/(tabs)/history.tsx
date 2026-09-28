@@ -14,7 +14,7 @@ import { getNotificationHistory } from '@/api/notifications';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
 import type { NotificationHistoryItem, TokenSnapshot } from '@/api/types';
-import { fmtUsd, shortAddress } from '@/utils/format';
+import { fmtNum, fmtUsd, shortAddress } from '@/utils/format';
 
 const CATEGORY_OPTIONS = [
   { key: 'recent', label: 'Reciente' },
@@ -84,6 +84,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
   const buys = item.buys_count ?? null;
   const tpHolders = item.tp_holders_count ?? null;
   const topHolders = item.top_holders_rate ?? null;
+  const holdersTotal = item.holders_count ?? null;
   const snapCount = item.snapshots?.length ?? 0;
 
   // Calculate gain: first mcap vs highest mcap in timeline
@@ -153,6 +154,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
             stat('hardware-chip', `${botCount ?? 0}/${(botRate != null ? (botRate * 100).toFixed(0) : '0')}%`, theme.warn)}
           {tpHolders != null && tpHolders > 0 && stat('hardware-chip', String(tpHolders), theme.warn)}
           {topHolders != null && topHolders > 0 && stat('stats-chart', `${(topHolders * 100).toFixed(1)}%`, topHolders > 0.5 ? theme.warn : theme.accent)}
+          {holdersTotal != null && holdersTotal > 0 && stat('person', fmtNum(holdersTotal), theme.accent)}
           {rug != null && rug > 0 && stat('warning', `${(rug * 100).toFixed(0)}%`, theme.negative)}
           {bundler != null && bundler > 0 && stat('layers', `${(bundler * 100).toFixed(0)}%`, '#f97316')}
           {bundleCnt != null && bundleCnt > 0 && stat('cube', String(bundleCnt), '#f97316')}
