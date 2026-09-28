@@ -256,6 +256,7 @@ export interface NotificationHistoryItem {
   bundle_holders_count?: number | null;
   buys_count?: number | null;
   tp_holders_count?: number | null;
+  top_holders_rate?: number | null;
   snapshots: TokenSnapshot[] | null;
   entered_at: string | null;
   notified_at: string;

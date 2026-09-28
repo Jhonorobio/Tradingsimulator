@@ -182,6 +182,7 @@ function ingestPhotonTokens(slice, colKey) {
       bundle_holders_count: numOrNull(a.bundle_holders_count),
       buys_count: numOrNull(a.buys_count),
       tp_holders_count: numOrNull(a.tp_holders_count),
+      top_holders_rate: pctToRate(numOrNull(a.audit?.top_holders_perc)),
       entered_at: now,
       notified_at: now,
       filter_matched_at: null,
