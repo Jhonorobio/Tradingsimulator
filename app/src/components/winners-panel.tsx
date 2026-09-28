@@ -18,6 +18,8 @@ const CHAIN_TABS = [
 const CATEGORY_LABELS: Record<string, string> = {
   new_creation: 'Nueva',
   completed: 'Completada',
+  photon: 'Photon',
+  x_tracker: 'X Tracker',
 };
 
 const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expanded, onToggle }: {

@@ -7,6 +7,7 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { getCurrentData } from './trenches-store.js';
+import { findPhotonToken } from './photon-memescope.js';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirname, '..', '..', 'data'));
 const FILE = path.join(DATA_DIR, 'token-snapshots.json');
@@ -16,6 +17,9 @@ let store = {};
 
 // Active tracks: { "address:category": trackIndex }
 const activeTracks = new Map();
+
+// 3 days of 1-minute samples — long-lived tokens never grow the file unbounded.
+const TRACK_SNAPSHOTS_MAX = 4320;
 
 const SNAPSHOT_FIELDS = [
   'usd_market_cap', 'market_cap', 'liquidity', 'volume_24h',
@@ -49,6 +53,33 @@ function takeSnapshot(token) {
   return snap;
 }
 
+function numOrNull(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pctToRateOrNull(v) {
+  const n = numOrNull(v);
+  return n == null ? null : n / 100;
+}
+
+/**
+ * Snapshot source for a Photon (memescope) token: attributes are read live
+ * from the screener cache; fields only trenches provides come back null.
+ */
+function photonSnapshotSource(address) {
+  const a = findPhotonToken(address);
+  if (!a) return null;
+  return {
+    usd_market_cap: numOrNull(a.fdv),
+    liquidity: numOrNull(a.cur_liq?.usd),
+    volume_24h: numOrNull(a.volume),
+    fresh_wallet_rate: pctToRateOrNull(a.fresh_holding_perc),
+    bundler_rate: pctToRateOrNull(a.bundle_holding_perc),
+  };
+}
+
 /**
  * Called after upsertTrenches. Detects new tokens and disappeared tokens.
  * - New token → opens a new track
@@ -66,18 +97,11 @@ export function syncTracks() {
     currentByCategory[tab] = new Set(tokens.map((t) => t.address));
   }
 
-  // Close tracks for tokens that disappeared
-  for (const [key, trackIdx] of activeTracks.entries()) {
+  // Deregister tokens that disappeared — but keep their track OPEN so the
+  // timeline continues seamlessly if the token reappears later.
+  for (const key of activeTracks.keys()) {
     const [address, category] = key.split(':');
-    const currentSet = currentByCategory[category];
-    if (!currentSet || !currentSet.has(address)) {
-      // Token disappeared from this category
-      const entry = store[address];
-      if (entry?.tracks?.[trackIdx]) {
-        entry.tracks[trackIdx].ended = now;
-      }
-      activeTracks.delete(key);
-    }
+    if (!currentByCategory[category]?.has(address)) activeTracks.delete(key);
   }
 
   // Open tracks for new tokens
@@ -116,10 +140,33 @@ export function syncTracks() {
 }
 
 /**
+ * Ensures an open track exists for address+category, seeded with a first
+ * snapshot (Photon ingest/bootstrap; trenches tracks open via syncTracks).
+ * Returns true when a new track was created.
+ */
+export function ensureTrack(address, category, seed = {}, startedAt = null) {
+  if (!address || !category) return false;
+  if (!store[address]) store[address] = { chain: 'sol', tracks: [] };
+  const tracks = store[address].tracks;
+  const openIdx = tracks.findIndex((t) => t.category === category && !t.ended);
+  const key = `${address}:${category}`;
+  if (openIdx >= 0) {
+    if (!activeTracks.has(key)) activeTracks.set(key, openIdx);
+    return false;
+  }
+  const started = startedAt || new Date().toISOString();
+  const snap = { t: started };
+  for (const f of SNAPSHOT_FIELDS) snap[f] = seed[f] ?? null;
+  tracks.push({ category, started, ended: null, snapshots: [snap] });
+  activeTracks.set(key, tracks.length - 1);
+  save();
+  return true;
+}
+
+/**
  * Called every 1 minute. Captures a snapshot for all active tracks.
  */
 export function captureSnapshots() {
-  const now = new Date().toISOString();
   let captured = 0;
 
   for (const [key, trackIdx] of activeTracks.entries()) {
@@ -131,17 +178,16 @@ export function captureSnapshots() {
       continue;
     }
 
-    // Find the token in current trenches data
-    const tokens = getCurrentData(category);
-    const token = tokens.find((t) => t.address === address);
-    if (!token) {
-      // Token disappeared — close track
-      track.ended = now;
-      activeTracks.delete(key);
-      continue;
-    }
+    // Trenches tokens come from the store; Photon tracks sample the live
+    // screener cache. Absent tokens keep their track open — the timeline
+    // resumes when they reappear.
+    const token = category === 'photon'
+      ? photonSnapshotSource(address)
+      : getCurrentData(category).find((t) => t.address === address);
+    if (!token) continue;
 
     track.snapshots.push(takeSnapshot(token));
+    if (track.snapshots.length > TRACK_SNAPSHOTS_MAX) track.snapshots.shift();
     captured++;
   }
 

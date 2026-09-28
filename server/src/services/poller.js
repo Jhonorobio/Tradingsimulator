@@ -300,6 +300,17 @@ export function startNotificationWatcher({ onError = () => {} } = {}) {
 
   // Migrate existing history entries to winners
   migrateHistoryToWinners();
+
+  // Live winners check: any entry (photon or trenches) can cross +100% at any
+  // moment — re-evaluate every minute so winners appear with their snapshots.
+  setInterval(() => {
+    try {
+      for (const entry of notificationHistory.getAll()) checkAndSaveWinner(entry);
+    } catch (err) {
+      onError(err);
+    }
+  }, 60_000);
+  console.log('[poller] Live winners check started (every 60s)');
 }
 
 function migrateHistoryToWinners() {

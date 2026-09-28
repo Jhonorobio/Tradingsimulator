@@ -2,6 +2,7 @@ import initCycleTLS from 'cycletls';
 import { broadcast, getSubscriptions } from './ws-server.js';
 import { notificationConfig, notificationHistory, photonFilters, photonSeen, pushSubscriptions } from '../stores.js';
 import { sendPush, isValidPushToken } from './push.js';
+import { ensureTrack } from './token-snapshots.js';
 
 // Photon (photon-sol.tinyastro.io) "memescope" screener feed.
 //
@@ -156,6 +157,14 @@ function ingestPhotonTokens(slice, colKey) {
     if (seen[key] || (column === 'new' && seen[address])) continue;
     seen[key] = now;
     seenDirty = true;
+    // Open the 1-minute timeline track for this token (category `photon`).
+    ensureTrack(address, 'photon', {
+      usd_market_cap: numOrNull(a.fdv),
+      liquidity: numOrNull(a.cur_liq?.usd),
+      volume_24h: numOrNull(a.volume),
+      fresh_wallet_rate: pctToRate(numOrNull(a.fresh_holding_perc)),
+      bundler_rate: pctToRate(numOrNull(a.bundle_holding_perc)),
+    }, now);
     const saved = notificationHistory.add({
       device_id: 'photon',
       address,
@@ -496,6 +505,30 @@ export function getMemescopeStatus() {
   };
 }
 
+/**
+ * Open tracks for Photon history entries ingested before timeline tracking
+ * existed, seeded with their at-appearance values so Gain/winners work too.
+ */
+function bootstrapPhotonTracks() {
+  try {
+    for (const e of notificationHistory.getAll()) {
+      if (e?.category !== 'photon' || !e?.address) continue;
+      ensureTrack(e.address, 'photon', {
+        usd_market_cap: e.mcap,
+        liquidity: e.liq,
+        volume_24h: e.vol24h,
+        fresh_wallet_rate: e.fresh_wallet_rate,
+        bundler_rate: e.bundler_rate,
+      }, e.entered_at || e.notified_at || null);
+    }
+  } catch (err) {
+    console.error('[photon] bootstrap tracks error:', err.message);
+  }
+}
+
 // The server rotates through the 3 column queries every 1.3s from boot,
 // open app or not, and pushes every refresh to WS subscribers.
 startPoller();
+// Deferred: ensureTrack lives in token-snapshots.js, which imports this
+// module back — calling it at top level would hit the TDZ during the cycle.
+setTimeout(() => bootstrapPhotonTracks(), 0);
