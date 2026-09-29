@@ -14,6 +14,10 @@ export const photonFilters = new JsonStore('photon_filters');
 export const photonSeen = new JsonStore('photon_seen');
 export const proxyConfigs = new JsonStore('proxy_configs');
 export const notificationConfig = new JsonStore('notification_config');
+// Tweet notifications delivered per Tracker condition (watchlist / others):
+// each condition is capped at TWEET_COND_LIMIT and the counter is deleted
+// when the user toggles the condition in Notifications settings.
+export const tweetCondCounts = new JsonStore('tweet_cond_counts');
 // Background X-Tracker watchlist: every token seen in trenches, kept alive even
 // after it disappears from the list. Stopped when mcap < 10k, no pairs for 3
 // consecutive checks or older than MAX_AGE_MS.

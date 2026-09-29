@@ -18,14 +18,17 @@
  *      Old and new tweets count alike: whatever matches a device's enabled
  *      condition is announced — the first fetches drain the old backlog at
  *      MAX_NOTIFY_PER_TICK per token per tick, and tweets no device wants
- *      stay pending until a matching condition is enabled. Each delivered
- *      tweet pushes "… — Tracker" and writes a history entry under category
- *      `x_tracker` (the "Tracker" filter).
+ *      stay pending until a matching condition is enabled. Each condition
+ *      (watchlist / others) delivers at most TWEET_COND_LIMIT notifications
+ *      total per device; the counter resets when the condition is toggled.
+ *      Every delivered tweet pushes "… — Tracker" and stores an `x_tracker`
+ *      history record that is merged into the token's original card as
+ *      "notificó por tweet" + hora (separate Tracker cards are not shown).
  *
  * State is mutated in memory and flushed to disk at most once per tick.
  */
 
-import { tokenWatchlist, notificationConfig, notificationHistory } from '../stores.js';
+import { tokenWatchlist, notificationConfig, notificationHistory, tweetCondCounts, pushSubscriptions } from '../stores.js';
 import { fetchTokensBatch } from './dexscreener.js';
 import { getMentions, getMentionsStatus } from './gmgn-mentions.js';
 import { sendPush } from './push.js';
@@ -212,6 +215,30 @@ export function hasActiveTweetConditions(flags) {
   return hasAnyTweetFlag(flags);
 }
 
+// ─── tweet condition quota ─────────────────────────────────────────────────
+
+const TWEET_COND_LIMIT = 2; // notificaciones totales por condición y dispositivo
+
+/** Notifications still available for a device+condition (0 = exhausted). */
+export function tweetCondQuotaLeft(deviceId, cond) {
+  if (!deviceId || !TWEET_CONDITIONS.includes(cond)) return TWEET_COND_LIMIT;
+  const n = Number(tweetCondCounts.get(`${deviceId}:${cond}`)) || 0;
+  return Math.max(0, TWEET_COND_LIMIT - n);
+}
+
+/** Counts one delivered notification against the condition's quota. */
+export function bumpTweetCondQuota(deviceId, cond) {
+  if (!deviceId || !TWEET_CONDITIONS.includes(cond)) return;
+  const key = `${deviceId}:${cond}`;
+  tweetCondCounts.set(key, (Number(tweetCondCounts.get(key)) || 0) + 1);
+}
+
+/** Clears the quota — called when the user toggles the condition. */
+export function resetTweetCondQuota(deviceId, cond) {
+  if (!deviceId || !TWEET_CONDITIONS.includes(cond)) return;
+  tweetCondCounts.delete(`${deviceId}:${cond}`);
+}
+
 /** Devices with at least one tracker_tweets flag enabled, with their flags. */
 function trackerTweetDevices() {
   return Object.values(notificationConfig.getAll())
@@ -339,7 +366,11 @@ async function handleMentions(address, res, devices) {
     const id = i?.tweet_id != null ? String(i.tweet_id) : '';
     if (!id || notified.has(id)) continue;
     const type = classifyTweetAuthor(i?.user?.screen_name || null);
-    if (devices.some(({ flags }) => cats.some((c) => flags?.[type]?.[c]))) pending.push(i);
+    // A condition whose quota is exhausted keeps waiting too: after the user
+    // toggles it again the backlog resumes from where it stopped.
+    const wanted = devices.some(({ device, flags }) =>
+      cats.some((c) => flags?.[type]?.[c]) && tweetCondQuotaLeft(device.device_id, type) > 0);
+    if (wanted) pending.push(i);
   }
   if (!pending.length) return;
 
@@ -355,8 +386,8 @@ async function handleMentions(address, res, devices) {
   }
 }
 
-/** Sends the tweet to every device whose matching condition is enabled. */
-async function deliverToMatching(entry, tweet, devices) {
+/** Sends the tweet to every device whose matching condition still has quota. */
+export async function deliverToMatching(entry, tweet, devices) {
   const author = tweet?.user?.screen_name || null;
   const type = classifyTweetAuthor(author);
   const cats = entryTweetCategories(entry);
@@ -370,10 +401,41 @@ async function deliverToMatching(entry, tweet, devices) {
   for (const { device, flags } of devices) {
     const matchedCat = cats.find((c) => flags?.[type]?.[c]);
     if (!matchedCat) continue;
+    if (tweetCondQuotaLeft(device.device_id, type) <= 0) continue;
     const ok = await deliver(entry, tweet, device, { author, followers, text, url });
-    if (ok) anyOk = true;
+    if (ok) {
+      anyOk = true;
+      bumpTweetCondQuota(device.device_id, type);
+    }
   }
   return anyOk;
+}
+
+/**
+ * Live update: the raw `x_tracker` record is not rendered as its own card
+ * anymore, so rebroadcast the token's ORIGINAL history card with
+ * `tweet_notified_at` refreshed from every stored tweet record.
+ */
+function broadcastTweetUpdate(savedEntry, deviceId) {
+  const all = notificationHistory.getAll();
+  const original = all
+    .filter((h) => h.address === savedEntry.address && h.category !== 'x_tracker')
+    .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''))[0];
+  if (!original) return; // no original card — GET /history will attach later
+  const times = all
+    .filter((h) => h.address === savedEntry.address && h.category === 'x_tracker')
+    .map((h) => h.notified_at)
+    .filter(Boolean)
+    .sort()
+    .slice(-5);
+  const payload = { ...original, tweet_notified_at: times };
+  const targets = new Set([deviceId]);
+  for (const dev of pushSubscriptions.getAll()) {
+    if (dev?.device_id) targets.add(dev.device_id);
+  }
+  for (const id of targets) {
+    broadcast(`notifications:${id}`, { event: 'notification_new', data: payload });
+  }
 }
 
 async function deliver(entry, tweet, device, info) {
@@ -429,7 +491,7 @@ async function deliver(entry, tweet, device, info) {
     // History is written only after a successful push, so a retry never
     // duplicates the entry.
     const saved = notificationHistory.add(historyEntry);
-    broadcast(`notifications:${device.device_id}`, { event: 'notification_new', data: saved });
+    broadcastTweetUpdate(saved, device.device_id);
 
     const all = notificationHistory.getAll().filter((h) => h.category === 'x_tracker');
     if (all.length > HISTORY_MAX_X) {

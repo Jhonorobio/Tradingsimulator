@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { notificationConfig, notificationHistory, winners } from '../stores.js';
 import { isValidPushToken } from '../services/push.js';
 import { getSnapshots, getAllTracks } from '../services/token-snapshots.js';
+import { resetTweetCondQuota } from '../services/xtracker-watcher.js';
 
 const router = Router();
 
@@ -102,6 +103,13 @@ router.put('/config', (req, res) => {
     let trackerTweets;
     if (tracker_tweets !== undefined) {
       trackerTweets = sanitizeTrackerTweets(tracker_tweets) || defaultTrackerTweets();
+      // Toggling a condition resets its "2 notifications" quota.
+      for (const cond of TWEET_CONDITIONS) {
+        const before = JSON.stringify(existing?.tracker_tweets?.[cond] ?? null);
+        if (before !== JSON.stringify(trackerTweets[cond])) {
+          resetTweetCondQuota(id, cond);
+        }
+      }
     } else {
       trackerTweets = sanitizeTrackerTweets(existing?.tracker_tweets) || defaultTrackerTweets();
     }
@@ -152,6 +160,47 @@ router.get('/config', (req, res) => {
 });
 
 /**
+ * Notification history cards, newest first, capped at `limit`.
+ *
+ * Tweet records (category `x_tracker`) are never rendered as their own card.
+ * Instead every stored tweet record is merged into the token's ORIGINAL card
+ * as `tweet_notified_at` (ascending ISO times, last 5) so the card shows
+ * "notificó por tweet" + hora alongside the normal data/timeline.
+ */
+export function buildHistoryEntries(limit) {
+  // Copy before sorting: getAll() returns the store's live array and poller
+  // cap logic relies on its oldest-first insertion order.
+  const all = [...notificationHistory.getAll()]
+    // Sort first so the newest entry per token wins the dedupe below — the
+    // same address can produce several categories. Photon keeps one entry
+    // per column (new/graduated), so `column` joins the key.
+    .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''));
+
+  // Tweet times per address — collected before dedupe/limit so every tweet
+  // record counts even when several exist for the same token.
+  const tweetsByAddr = new Map();
+  for (const e of all) {
+    if (e.category !== 'x_tracker' || !e.address) continue;
+    const list = tweetsByAddr.get(e.address) || [];
+    if (e.notified_at) list.push(e.notified_at);
+    tweetsByAddr.set(e.address, list);
+  }
+
+  return all
+    .filter((e) => e.category !== 'x_tracker')
+    .filter((e, i, arr) => arr.findIndex(
+      (x) => x.address === e.address && x.category === e.category
+        && (x.column ?? null) === (e.column ?? null),
+    ) === i)
+    .slice(0, limit)
+    .map((e) => {
+      const card = { ...e, snapshots: getSnapshots(e.address, e.category) };
+      const times = tweetsByAddr.get(e.address);
+      return times?.length ? { ...card, tweet_notified_at: [...times].sort().slice(-5) } : card;
+    });
+}
+
+/**
  * GET /api/notifications/history
  * Header: X-Device-Id
  * Query: limit (default 50, max 200)
@@ -160,20 +209,7 @@ router.get('/config', (req, res) => {
 router.get('/history', (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 300);
-    // Copy before sorting: getAll() returns the store's live array and poller
-    // cap logic relies on its oldest-first insertion order.
-    const entries = [...notificationHistory.getAll()]
-      // Sort first so the newest entry per token wins the dedupe below —
-      // x_tracker can produce several entries for the same address. Photon
-      // keeps one entry per column (new/graduated), so `column` joins the key.
-      .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''))
-      .filter((e, i, arr) => arr.findIndex(
-        (x) => x.address === e.address && x.category === e.category
-          && (x.column ?? null) === (e.column ?? null),
-      ) === i)
-      .slice(0, limit)
-      .map((e) => ({ ...e, snapshots: getSnapshots(e.address, e.category) }));
-    res.json({ history: entries });
+    res.json({ history: buildHistoryEntries(limit) });
   } catch (err) {
     fail(res, err);
   }

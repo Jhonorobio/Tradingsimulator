@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Linking, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -56,13 +56,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   x_tracker: 'Tracker',
   photon: 'Photon',
 };
-
-function fmtFollowers(n?: number | null): string {
-  if (n == null || isNaN(n)) return '';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
 
 const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expanded, onToggle }: {
   item: NotificationHistoryItem; theme: any; onPress: () => void;
@@ -162,19 +155,15 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
           {entrap != null && entrap > 0 && stat('fish', `${(entrap * 100).toFixed(0)}%`, '#ef4444')}
         </View>
 
-        {item.category === 'x_tracker' && (item.tweet_author || item.tweet_url) ? (
-          <Pressable
-            disabled={!item.tweet_url}
-            onPress={() => { if (item.tweet_url) Linking.openURL(item.tweet_url).catch(() => {}); }}
-            style={styles.tweetRow}
-          >
+        {item.tweet_notified_at?.length ? (
+          <View style={styles.tweetRow}>
             <Ionicons name="logo-twitter" size={12} color={theme.accent} />
-            <ThemedText type="small" style={{ color: theme.textSecondary }} numberOfLines={3}>
-              {item.tweet_author ? `@${item.tweet_author}` : 'Tweet'}
-              {item.tweet_followers != null ? ` · ${fmtFollowers(item.tweet_followers)} seg` : ''}
-              {item.tweet_text ? ` — ${item.tweet_text}` : ''}
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Notificó por tweet · {item.tweet_notified_at
+                .map((t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+                .join(', ')}
             </ThemedText>
-          </Pressable>
+          </View>
         ) : null}
 
         <View style={styles.cardFooter}>
@@ -298,10 +287,25 @@ export default function HistoryScreen() {
   useEffect(() => {
     if (wsNotifications.length === 0) return;
     setHistory((prev) => {
-      const seen = new Set(prev.map((h) => `${h.address}:${h.notified_at}`));
-      const newItems = wsNotifications.filter((n) => !seen.has(`${n.address}:${n.notified_at}`));
-      if (newItems.length === 0) return prev;
-      return [...newItems, ...prev].slice(0, 200);
+      // Merge by id so a live event can UPDATE an existing card (e.g. a new
+      // "notificó por tweet" time) as well as add brand-new ones.
+      const byId = new Map(prev.map((h) => [h.id, h]));
+      let changed = false;
+      for (const n of wsNotifications) {
+        if (n.id == null) continue;
+        const cur = byId.get(n.id);
+        if (cur === undefined) {
+          byId.set(n.id, n);
+          changed = true;
+        } else if (JSON.stringify(cur) !== JSON.stringify(n)) {
+          byId.set(n.id, n);
+          changed = true;
+        }
+      }
+      if (!changed) return prev;
+      return [...byId.values()]
+        .sort((a, b) => (b.notified_at || '').localeCompare(a.notified_at || ''))
+        .slice(0, 200);
     });
   }, [wsNotifications]);
 
@@ -318,7 +322,7 @@ export default function HistoryScreen() {
       if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
       if (categoryFilter === 'new' && !h.category.startsWith('new_creation')) return false;
       if (categoryFilter === 'completed' && !h.category.startsWith('completed')) return false;
-      if (categoryFilter === 'x_tracker' && h.category !== 'x_tracker') return false;
+      if (categoryFilter === 'x_tracker' && !(h.tweet_notified_at?.length)) return false;
       if (categoryFilter === 'photon' && h.category !== 'photon') return false;
       if (searchLower) {
         return (h.symbol?.toLowerCase().includes(searchLower)) || (h.name?.toLowerCase().includes(searchLower));

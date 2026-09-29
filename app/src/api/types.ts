@@ -282,6 +282,8 @@ export interface NotificationHistoryItem {
   tweet_text?: string | null;
   tweet_url?: string | null;
   tweet_count?: number | null;
+  /** Times this token's card was notified by a Tracker tweet (last 5, ascending). */
+  tweet_notified_at?: string[];
 }
 
 export interface TokenSnapshot {
