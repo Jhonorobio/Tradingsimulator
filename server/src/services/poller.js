@@ -3,6 +3,7 @@ import { getAllTokens, storeSize, onTokensInserted } from './trenches-store.js';
 import { sendPush, checkReceipts } from './push.js';
 import { broadcast } from './ws-server.js';
 import { getSnapshots, getFirstSnapshot, getTrackStarted } from './token-snapshots.js';
+import { hasActiveTweetConditions } from './xtracker-watcher.js';
 
 const CATEGORIES = ['new_creation', 'completed'];
 const TRENCHES_HISTORY_MAX = 300;
@@ -194,6 +195,10 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
     const { push_token: token, categories } = entry;
     if (!token || !categories) continue;
 
+    // Tweet conditions replace the normal arrival pushes: while any
+    // condition is active for this device, nothing here is delivered.
+    const tweetMode = hasActiveTweetConditions(entry.tracker_tweets);
+
     for (const cat of catsToCheck) {
       if (!categories[cat]) continue;
 
@@ -203,7 +208,20 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
 
       for (const t of getTokensFromStore(cat)) {
         if (!t.address) continue;
-        if (alreadyNotified.has(t.address) || !matchesFilters(t, catFilters)) continue;
+        if (alreadyNotified.has(t.address)) continue;
+
+        if (tweetMode) {
+          // Consume silently: turning the conditions off later must not
+          // retro-push every token seen while they were active.
+          alreadyNotified.add(t.address);
+          const silList = notifiedTokens.get(notifiedKey) || [];
+          silList.push(t.address);
+          if (silList.length > 500) silList.shift();
+          notifiedTokens.set(notifiedKey, silList);
+          continue;
+        }
+
+        if (!matchesFilters(t, catFilters)) continue;
         alreadyNotified.add(t.address);
 
         // Stamp filter-match time on the global history entry
@@ -211,8 +229,10 @@ export async function pollOnce({ tabs = null, onError = () => {} } = {}) {
           (e) => e.address === t.address && e.category === cat,
         );
         if (histEntry && !histEntry.filter_matched_at) {
-          histEntry.filter_matched_at = new Date().toISOString();
-          notificationHistory.set(histEntry.id, histEntry);
+          notificationHistory.update(
+            (e) => e.id === histEntry.id,
+            { filter_matched_at: new Date().toISOString() },
+          );
         }
 
         const nList = notifiedTokens.get(notifiedKey) || [];

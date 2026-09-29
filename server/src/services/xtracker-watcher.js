@@ -207,6 +207,11 @@ function hasAnyTweetFlag(flags) {
   return false;
 }
 
+/** True when the device has at least one tracker tweet condition enabled. */
+export function hasActiveTweetConditions(flags) {
+  return hasAnyTweetFlag(flags);
+}
+
 /** Devices with at least one tracker_tweets flag enabled, with their flags. */
 function trackerTweetDevices() {
   return Object.values(notificationConfig.getAll())

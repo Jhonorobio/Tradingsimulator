@@ -3,7 +3,7 @@ import { broadcast, getSubscriptions } from './ws-server.js';
 import { notificationConfig, notificationHistory, photonFilters, photonSeen, pushSubscriptions } from '../stores.js';
 import { sendPush, isValidPushToken } from './push.js';
 import { ensureTrack } from './token-snapshots.js';
-import { ingestTrenches } from './xtracker-watcher.js';
+import { ingestTrenches, hasActiveTweetConditions } from './xtracker-watcher.js';
 
 // Photon (photon-sol.tinyastro.io) "memescope" screener feed.
 //
@@ -100,8 +100,11 @@ function fmtUsd(n) {
  */
 async function deliverPhotonPushes(entries, type) {
   try {
+    // Tweet conditions replace the normal arrival pushes: while any
+    // condition is active for a device, photon pushes are skipped for it.
     const devices = Object.values(notificationConfig.getAll())
-      .filter((d) => d?.categories?.[type] && isValidPushToken(d.push_token));
+      .filter((d) => d?.categories?.[type] && isValidPushToken(d.push_token)
+        && !hasActiveTweetConditions(d.tracker_tweets));
     if (!devices.length) return;
     const label = type === 'photon_graduated' ? 'Photon Graduated' : 'Photon New';
     for (const saved of entries) {
