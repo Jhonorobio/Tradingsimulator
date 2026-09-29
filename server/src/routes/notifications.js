@@ -103,7 +103,7 @@ router.put('/config', (req, res) => {
     let trackerTweets;
     if (tracker_tweets !== undefined) {
       trackerTweets = sanitizeTrackerTweets(tracker_tweets) || defaultTrackerTweets();
-      // Toggling a condition resets its "2 notifications" quota.
+      // Toggling a condition resets every token's "2 notifications" quota.
       for (const cond of TWEET_CONDITIONS) {
         const before = JSON.stringify(existing?.tracker_tweets?.[cond] ?? null);
         if (before !== JSON.stringify(trackerTweets[cond])) {

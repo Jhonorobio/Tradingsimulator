@@ -20,9 +20,11 @@
  *      MAX_NOTIFY_PER_TICK per token per tick, and tweets no device wants
  *      stay pending until a matching condition is enabled. Each condition
  *      (watchlist / others) delivers at most TWEET_COND_LIMIT notifications
- *      per device, each one from a DIFFERENT tweet author; repeats from an
- *      already-notified author are skipped and the counter resets when the
- *      condition is toggled.
+ *      PER TOKEN per device, each one from a DIFFERENT tweet author — a
+ *      newly tracked token starts with a fresh quota, so one token's
+ *      notifications never block another's; repeats from an
+ *      already-notified author are skipped and every token's counters reset
+ *      when the condition is toggled.
  *      Every delivered tweet pushes "… — Tracker" and stores an `x_tracker`
  *      history record that is merged into the token's original card as
  *      "notificó por tweet" + hora (separate Tracker cards are not shown).
@@ -188,6 +190,7 @@ function pruneStopped() {
     const at = new Date(e.stopped_at || e.first_seen).getTime();
     if (Number.isFinite(at) && at < cutoff) {
       delete watchlist[address];
+      dropTokenQuota(address);
       dirty = true;
     }
   }
@@ -217,51 +220,73 @@ export function hasActiveTweetConditions(flags) {
   return hasAnyTweetFlag(flags);
 }
 
-// ─── tweet condition quota ─────────────────────────────────────────────────
+// ─── tweet condition quota (per token) ─────────────────────────────────────
 
-const TWEET_COND_LIMIT = 2; // usuarios distintos por condición y dispositivo
+const TWEET_COND_LIMIT = 2; // usuarios distintos por condición, por token
 
-/** Authors already notified for a device+condition (lowercased handles). */
-function condAuthors(deviceId, cond) {
-  if (!deviceId || !TWEET_CONDITIONS.includes(cond)) return [];
-  const raw = tweetCondCounts.get(`${deviceId}:${cond}`);
-  if (raw == null) return [];
-  if (typeof raw === 'object' && Array.isArray(raw.authors)) return raw.authors;
-  // Legacy numeric counter (pre distinct-authors): map it onto fake authors
-  // so an old count of 2 still blocks until the condition is toggled.
-  const n = Number(raw) || 0;
-  return Array.from({ length: Math.max(0, Math.min(n, TWEET_COND_LIMIT)) }, (_, i) => `legacy${i}`);
+function quotaKey(deviceId, cond, address) {
+  return `${deviceId}:${cond}:${address}`;
 }
 
-/** Notifications still available for a device+condition (0 = exhausted). */
-export function tweetCondQuotaLeft(deviceId, cond) {
-  return Math.max(0, TWEET_COND_LIMIT - condAuthors(deviceId, cond).length);
+/** Authors already notified for this token+device+condition (lowercased). */
+function condAuthors(entry, deviceId, cond) {
+  const address = entry?.address;
+  if (!deviceId || !TWEET_CONDITIONS.includes(cond) || !address) return [];
+  const raw = tweetCondCounts.get(quotaKey(deviceId, cond, address));
+  if (raw == null) return [];
+  if (typeof raw === 'object' && Array.isArray(raw.authors)) return raw.authors;
+  return [];
+}
+
+/** Notifications still available for this token+device+condition. */
+export function tweetCondQuotaLeft(entry, deviceId, cond) {
+  return Math.max(0, TWEET_COND_LIMIT - condAuthors(entry, deviceId, cond).length);
 }
 
 /**
- * Whether a device+condition may notify a tweet from `authorKey`: the
- * condition must have quota left AND this author must not have been
- * notified yet (each of the 2 notifications comes from a different user).
+ * Whether this token+device+condition may notify a tweet from `authorKey`:
+ * the token's quota must have room AND this author must not have been
+ * notified for THIS token yet (each of the 2 notifications comes from a
+ * different user). Quota is tracked per token, so a freshly tracked token
+ * always starts with TWEET_COND_LIMIT slots — one token's notifications
+ * never block another's.
  */
-export function tweetCondCanNotify(deviceId, cond, authorKey) {
-  if (tweetCondQuotaLeft(deviceId, cond) <= 0) return false;
+export function tweetCondCanNotify(entry, deviceId, cond, authorKey) {
+  if (!entry?.address) return false;
+  if (tweetCondQuotaLeft(entry, deviceId, cond) <= 0) return false;
   const key = String(authorKey || 'tweet').toLowerCase();
-  return !condAuthors(deviceId, cond).includes(key);
+  return !condAuthors(entry, deviceId, cond).includes(key);
 }
 
-/** Counts one delivered notification against the condition's quota. */
-export function recordTweetCondAuthor(deviceId, cond, authorKey) {
-  if (!deviceId || !TWEET_CONDITIONS.includes(cond)) return;
+/** Counts one delivered notification against THIS token's quota. */
+export function recordTweetCondAuthor(entry, deviceId, cond, authorKey) {
+  const address = entry?.address;
+  if (!deviceId || !TWEET_CONDITIONS.includes(cond) || !address) return;
   const key = String(authorKey || 'tweet').toLowerCase();
-  const authors = condAuthors(deviceId, cond);
+  const authors = condAuthors(entry, deviceId, cond);
   if (authors.includes(key)) return;
-  tweetCondCounts.set(`${deviceId}:${cond}`, { authors: [...authors, key].slice(-TWEET_COND_LIMIT) });
+  tweetCondCounts.set(quotaKey(deviceId, cond, address), { authors: [...authors, key].slice(-TWEET_COND_LIMIT) });
 }
 
-/** Clears the quota — called when the user toggles the condition. */
+/** Clears every token's quota for a condition — called on toggle. */
 export function resetTweetCondQuota(deviceId, cond) {
   if (!deviceId || !TWEET_CONDITIONS.includes(cond)) return;
-  tweetCondCounts.delete(`${deviceId}:${cond}`);
+  const prefix = `${deviceId}:${cond}:`;
+  const legacy = `${deviceId}:${cond}`; // pre per-token global counter
+  for (const key of Object.keys(tweetCondCounts.getAll())) {
+    if (key === legacy || key.startsWith(prefix)) tweetCondCounts.delete(key);
+  }
+}
+
+/** Drops a pruned token's quota entries so the store can't grow forever. */
+function dropTokenQuota(address) {
+  if (!address) return;
+  for (const deviceId of Object.keys(notificationConfig.getAll())) {
+    for (const cond of TWEET_CONDITIONS) {
+      const key = `${deviceId}:${cond}:${address}`;
+      if (tweetCondCounts.has(key)) tweetCondCounts.delete(key);
+    }
+  }
 }
 
 /** Devices with at least one tracker_tweets flag enabled, with their flags. */
@@ -396,7 +421,7 @@ async function handleMentions(address, res, devices) {
     // keeps waiting too: after the user toggles it again the backlog resumes
     // from where it stopped (and blocked tweets never eat the tick quota).
     const wanted = devices.some(({ device, flags }) =>
-      cats.some((c) => flags?.[type]?.[c]) && tweetCondCanNotify(device.device_id, type, authorKey));
+      cats.some((c) => flags?.[type]?.[c]) && tweetCondCanNotify(e, device.device_id, type, authorKey));
     if (wanted) pending.push(i);
   }
   if (!pending.length) return;
@@ -428,11 +453,11 @@ export async function deliverToMatching(entry, tweet, devices) {
   for (const { device, flags } of devices) {
     const matchedCat = cats.find((c) => flags?.[type]?.[c]);
     if (!matchedCat) continue;
-    if (!tweetCondCanNotify(device.device_id, type, author)) continue;
+    if (!tweetCondCanNotify(entry, device.device_id, type, author)) continue;
     const ok = await deliver(entry, tweet, device, { author, followers, text, url });
     if (ok) {
       anyOk = true;
-      recordTweetCondAuthor(device.device_id, type, author);
+      recordTweetCondAuthor(entry, device.device_id, type, author);
     }
   }
   return anyOk;
