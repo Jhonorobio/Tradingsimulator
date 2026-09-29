@@ -15,9 +15,12 @@
  *      category:
  *        - watchlist: tweets by @AutorunAlert / @bitecong
  *        - others:    every other tweet (no follower minimum)
- *      The first poll is a silent baseline — tweets that already existed are
- *      never announced. Each new tweet pushes "… — Tracker" and writes a
- *      history entry under category `x_tracker` (the "Tracker" filter).
+ *      Old and new tweets count alike: whatever matches a device's enabled
+ *      condition is announced — the first fetches drain the old backlog at
+ *      MAX_NOTIFY_PER_TICK per token per tick, and tweets no device wants
+ *      stay pending until a matching condition is enabled. Each delivered
+ *      tweet pushes "… — Tracker" and writes a history entry under category
+ *      `x_tracker` (the "Tracker" filter).
  *
  * State is mutated in memory and flushed to disk at most once per tick.
  */
@@ -120,7 +123,7 @@ function newEntry(address, token) {
     no_pairs: 0,
     last_dex_check: null,
     last_x_check: null,
-    tweets: { seen_ids: [], notified_ids: [] },
+    tweets: { notified_ids: [] },
   };
 }
 
@@ -319,45 +322,32 @@ async function handleMentions(address, res, devices) {
 
   const sorted = [...items].sort((a, b) => tweetTime(b) - tweetTime(a));
   const state = e.tweets && typeof e.tweets === 'object' ? e.tweets : (e.tweets = {});
-  const seen = new Set(state.seen_ids || []);
   const notified = new Set(state.notified_ids || []);
 
-  const fresh = sorted.filter((i) => {
+  // Old and new tweets alike: anything not delivered yet is pending. Tweets
+  // no device currently wants stay pending WITHOUT consuming the per-tick
+  // quota, so enabling a condition later still announces them (and matching
+  // ones below in the list are never starved by non-matching ones above).
+  const cats = entryTweetCategories(e);
+  const pending = [];
+  for (const i of sorted) {
     const id = i?.tweet_id != null ? String(i.tweet_id) : '';
-    return id && !seen.has(id) && !notified.has(id);
-  });
-
-  if (seen.size === 0 && notified.size === 0) {
-    // First poll for this token: silent baseline — record what already
-    // exists so only tweets published from now on are announced.
-    for (const i of sorted) {
-      const id = i?.tweet_id != null ? String(i.tweet_id) : '';
-      if (id) seen.add(id);
-    }
-    state.seen_ids = [...seen].slice(-MAX_IDS);
-    dirty = true;
-    return;
+    if (!id || notified.has(id)) continue;
+    const type = classifyTweetAuthor(i?.user?.screen_name || null);
+    if (devices.some(({ flags }) => cats.some((c) => flags?.[type]?.[c]))) pending.push(i);
   }
+  if (!pending.length) return;
 
-  const toNotify = fresh.slice(0, MAX_NOTIFY_PER_TICK);
-  if (!toNotify.length) return;
-  for (const t of toNotify) seen.add(String(t.tweet_id));
-  state.seen_ids = [...seen].slice(-MAX_IDS);
-  dirty = true;
-
-  // A tweet is only consumed when at least one device actually accepted it;
-  // otherwise the id stays unseen and the next tick retries (a user may have
-  // just enabled the matching condition).
+  const toNotify = pending.slice(0, MAX_NOTIFY_PER_TICK);
   const okIds = new Set();
   for (const tweet of toNotify) {
-    const id = String(tweet.tweet_id);
     const anyPush = await deliverToMatching(e, tweet, devices);
-    if (anyPush) okIds.add(id);
-    else seen.delete(id);
+    if (anyPush) okIds.add(String(tweet.tweet_id));
   }
-  state.seen_ids = [...seen].slice(-MAX_IDS);
-  state.notified_ids = [...new Set([...notified, ...okIds])].slice(-MAX_IDS);
-  dirty = true;
+  if (okIds.size) {
+    state.notified_ids = [...new Set([...notified, ...okIds])].slice(-MAX_IDS);
+    dirty = true;
+  }
 }
 
 /** Sends the tweet to every device whose matching condition is enabled. */
