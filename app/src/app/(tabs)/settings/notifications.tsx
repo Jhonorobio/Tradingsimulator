@@ -30,7 +30,6 @@ const NOTIF_HINTS: Record<string, string> = {
 const FILTERABLE_CATEGORIES = new Set(['new_creation', 'completed']);
 
 type TrackerTweets = NonNullable<NotificationConfig['tracker_tweets']>;
-type TrackerTweetCategory = keyof TrackerTweets['watchlist'];
 const EMPTY_TWEET_FLAGS: TrackerTweets = {
   watchlist: { new_creation: false, completed: false, photon_new: false, photon_graduated: false },
   others: { new_creation: false, completed: false, photon_new: false, photon_graduated: false },
@@ -109,10 +108,12 @@ export default function NotificationsScreen() {
     await persistConfig(next, filters, trackerTweets);
   };
 
-  const toggleTweetFlag = async (cond: 'watchlist' | 'others', cat: TrackerTweetCategory) => {
+  // Unified conditions: one switch applies the flag to ALL categories, so the
+  // tweet notification is global (trenches + photon alike).
+  const setTweetCondition = async (cond: 'watchlist' | 'others', value: boolean) => {
     const next: TrackerTweets = {
       ...trackerTweets,
-      [cond]: { ...trackerTweets[cond], [cat]: !trackerTweets[cond][cat] },
+      [cond]: { new_creation: value, completed: value, photon_new: value, photon_graduated: value },
     };
     setTrackerTweets(next);
     await persistConfig(notifCategories, filters, next);
@@ -141,7 +142,9 @@ export default function NotificationsScreen() {
     await persistConfig(notifCategories, next, trackerTweets);
   };
 
-  const tweetFlagsOn = [...Object.values(trackerTweets.watchlist), ...Object.values(trackerTweets.others)].some(Boolean);
+  const watchlistTweetsOn = Object.values(trackerTweets.watchlist).some(Boolean);
+  const othersTweetsOn = Object.values(trackerTweets.others).some(Boolean);
+  const tweetFlagsOn = watchlistTweetsOn || othersTweetsOn;
   const isAnyNotifOn = Object.values(notifCategories).some(Boolean) || tweetFlagsOn;
 
   return (
@@ -201,32 +204,6 @@ export default function NotificationsScreen() {
                     </View>
                   </View>
 
-                  <View style={[styles.tweetBox, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
-                    <ThemedText type="small" style={{ color: theme.textSecondary }}>Tweets de tokens en Tracker</ThemedText>
-                    <View style={styles.tweetRow}>
-                      <View style={{ flex: 1 }}>
-                        <ThemedText type="small">Cuentas vigiladas</ThemedText>
-                        <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>@AutorunAlert · @bitecong</ThemedText>
-                      </View>
-                      <Switch
-                        value={trackerTweets.watchlist[cat]}
-                        onValueChange={() => toggleTweetFlag('watchlist', cat)}
-                        trackColor={{ true: theme.accent }}
-                      />
-                    </View>
-                    <View style={styles.tweetRow}>
-                      <View style={{ flex: 1 }}>
-                        <ThemedText type="small">Otras cuentas</ThemedText>
-                        <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>Cada tweet que no sea de esas dos</ThemedText>
-                      </View>
-                      <Switch
-                        value={trackerTweets.others[cat]}
-                        onValueChange={() => toggleTweetFlag('others', cat)}
-                        trackColor={{ true: theme.accent }}
-                      />
-                    </View>
-                  </View>
-
                   {isExpanded && expandable && (
                     <View style={[styles.filterPanel, { backgroundColor: theme.backgroundSelected }]}>
                       <View style={styles.filterHeader}>
@@ -267,6 +244,41 @@ export default function NotificationsScreen() {
                 </View>
               );
             })}
+          </Card>
+
+          <Card>
+            <View style={styles.rowBetween}>
+              <ThemedText type="smallBold">Tweets de tokens en Tracker</ThemedText>
+              {tweetFlagsOn && <ThemedText type="small" style={{ color: theme.positive }}>Activo</ThemedText>}
+            </View>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Vale para todas las categorías: avisa cuando un token que está en rastreo tenga un tweet,
+              venga de trenches o de photon.
+            </ThemedText>
+            <View style={[styles.tweetBox, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+              <View style={styles.tweetRow}>
+                <View style={{ flex: 1 }}>
+                  <ThemedText type="small">Cuentas vigiladas</ThemedText>
+                  <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>@AutorunAlert · @bitecong</ThemedText>
+                </View>
+                <Switch
+                  value={watchlistTweetsOn}
+                  onValueChange={(v) => setTweetCondition('watchlist', v)}
+                  trackColor={{ true: theme.accent }}
+                />
+              </View>
+              <View style={styles.tweetRow}>
+                <View style={{ flex: 1 }}>
+                  <ThemedText type="small">Otras cuentas</ThemedText>
+                  <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>Cada tweet que no sea de esas dos</ThemedText>
+                </View>
+                <Switch
+                  value={othersTweetsOn}
+                  onValueChange={(v) => setTweetCondition('others', v)}
+                  trackColor={{ true: theme.accent }}
+                />
+              </View>
+            </View>
           </Card>
         </ScrollView>
       </SafeAreaView>
