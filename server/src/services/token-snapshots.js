@@ -105,9 +105,13 @@ export function syncTracks() {
   }
 
   // Deregister tokens that disappeared — but keep their track OPEN so the
-  // timeline continues seamlessly if the token reappears later.
+  // timeline continues seamlessly if the token reappears later. Only the
+  // trenches tabs are governed by these lists: Photon tracks stay registered
+  // (captureSnapshots skips them while absent from the live screener cache),
+  // otherwise every trenches refresh would silently kill photon timelines.
   for (const key of activeTracks.keys()) {
     const [address, category] = key.split(':');
+    if (!TABS.includes(category)) continue;
     if (!currentByCategory[category]?.has(address)) activeTracks.delete(key);
   }
 
@@ -211,6 +215,11 @@ export function getSnapshots(address, category) {
   if (!entry) return [];
   const track = entry.tracks.find((t) => t.category === category && !t.ended);
   return track?.snapshots ?? [];
+}
+
+/** Whether a track is currently registered for snapshot sampling. */
+export function isTrackActive(address, category) {
+  return activeTracks.has(`${address}:${category}`);
 }
 
 /**
