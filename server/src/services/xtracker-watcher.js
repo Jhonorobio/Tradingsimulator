@@ -20,7 +20,9 @@
  *      MAX_NOTIFY_PER_TICK per token per tick, and tweets no device wants
  *      stay pending until a matching condition is enabled. Each condition
  *      (watchlist / others) delivers at most TWEET_COND_LIMIT notifications
- *      total per device; the counter resets when the condition is toggled.
+ *      per device, each one from a DIFFERENT tweet author; repeats from an
+ *      already-notified author are skipped and the counter resets when the
+ *      condition is toggled.
  *      Every delivered tweet pushes "… — Tracker" and stores an `x_tracker`
  *      history record that is merged into the token's original card as
  *      "notificó por tweet" + hora (separate Tracker cards are not shown).
@@ -217,20 +219,43 @@ export function hasActiveTweetConditions(flags) {
 
 // ─── tweet condition quota ─────────────────────────────────────────────────
 
-const TWEET_COND_LIMIT = 2; // notificaciones totales por condición y dispositivo
+const TWEET_COND_LIMIT = 2; // usuarios distintos por condición y dispositivo
+
+/** Authors already notified for a device+condition (lowercased handles). */
+function condAuthors(deviceId, cond) {
+  if (!deviceId || !TWEET_CONDITIONS.includes(cond)) return [];
+  const raw = tweetCondCounts.get(`${deviceId}:${cond}`);
+  if (raw == null) return [];
+  if (typeof raw === 'object' && Array.isArray(raw.authors)) return raw.authors;
+  // Legacy numeric counter (pre distinct-authors): map it onto fake authors
+  // so an old count of 2 still blocks until the condition is toggled.
+  const n = Number(raw) || 0;
+  return Array.from({ length: Math.max(0, Math.min(n, TWEET_COND_LIMIT)) }, (_, i) => `legacy${i}`);
+}
 
 /** Notifications still available for a device+condition (0 = exhausted). */
 export function tweetCondQuotaLeft(deviceId, cond) {
-  if (!deviceId || !TWEET_CONDITIONS.includes(cond)) return TWEET_COND_LIMIT;
-  const n = Number(tweetCondCounts.get(`${deviceId}:${cond}`)) || 0;
-  return Math.max(0, TWEET_COND_LIMIT - n);
+  return Math.max(0, TWEET_COND_LIMIT - condAuthors(deviceId, cond).length);
+}
+
+/**
+ * Whether a device+condition may notify a tweet from `authorKey`: the
+ * condition must have quota left AND this author must not have been
+ * notified yet (each of the 2 notifications comes from a different user).
+ */
+export function tweetCondCanNotify(deviceId, cond, authorKey) {
+  if (tweetCondQuotaLeft(deviceId, cond) <= 0) return false;
+  const key = String(authorKey || 'tweet').toLowerCase();
+  return !condAuthors(deviceId, cond).includes(key);
 }
 
 /** Counts one delivered notification against the condition's quota. */
-export function bumpTweetCondQuota(deviceId, cond) {
+export function recordTweetCondAuthor(deviceId, cond, authorKey) {
   if (!deviceId || !TWEET_CONDITIONS.includes(cond)) return;
-  const key = `${deviceId}:${cond}`;
-  tweetCondCounts.set(key, (Number(tweetCondCounts.get(key)) || 0) + 1);
+  const key = String(authorKey || 'tweet').toLowerCase();
+  const authors = condAuthors(deviceId, cond);
+  if (authors.includes(key)) return;
+  tweetCondCounts.set(`${deviceId}:${cond}`, { authors: [...authors, key].slice(-TWEET_COND_LIMIT) });
 }
 
 /** Clears the quota — called when the user toggles the condition. */
@@ -366,10 +391,12 @@ async function handleMentions(address, res, devices) {
     const id = i?.tweet_id != null ? String(i.tweet_id) : '';
     if (!id || notified.has(id)) continue;
     const type = classifyTweetAuthor(i?.user?.screen_name || null);
-    // A condition whose quota is exhausted keeps waiting too: after the user
-    // toggles it again the backlog resumes from where it stopped.
+    const authorKey = i?.user?.screen_name || null;
+    // A condition without quota — or that already notified this author —
+    // keeps waiting too: after the user toggles it again the backlog resumes
+    // from where it stopped (and blocked tweets never eat the tick quota).
     const wanted = devices.some(({ device, flags }) =>
-      cats.some((c) => flags?.[type]?.[c]) && tweetCondQuotaLeft(device.device_id, type) > 0);
+      cats.some((c) => flags?.[type]?.[c]) && tweetCondCanNotify(device.device_id, type, authorKey));
     if (wanted) pending.push(i);
   }
   if (!pending.length) return;
@@ -401,11 +428,11 @@ export async function deliverToMatching(entry, tweet, devices) {
   for (const { device, flags } of devices) {
     const matchedCat = cats.find((c) => flags?.[type]?.[c]);
     if (!matchedCat) continue;
-    if (tweetCondQuotaLeft(device.device_id, type) <= 0) continue;
+    if (!tweetCondCanNotify(device.device_id, type, author)) continue;
     const ok = await deliver(entry, tweet, device, { author, followers, text, url });
     if (ok) {
       anyOk = true;
-      bumpTweetCondQuota(device.device_id, type);
+      recordTweetCondAuthor(device.device_id, type, author);
     }
   }
   return anyOk;
