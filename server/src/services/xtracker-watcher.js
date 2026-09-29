@@ -1,22 +1,32 @@
 /**
- * Background Tracker watcher (formerly X-Tracker).
+ * Background Tracker watcher.
  *
  * Ingests every token that shows up in trenches or photon into a persistent
  * watchlist (it survives disappearing from the lists) and then, on a 10s tick:
  *
- *   Dexscreener phase (free, batch of 30 addresses per request)
+ *   1. Dexscreener phase (free, batch of 30 addresses per request)
  *     - mcap < 8_000            -> stop tracking (mcap_below_8k)
  *     - 3 checks w/o any pair   -> stop tracking (no_pairs)
  *     - older than 1h           -> stop tracking (max_age)
  *
- * The Tracker sends NO notifications and writes no history entries: followed
- * tokens are only visible in the app's "Rastreando" tab.
+ *   2. Tweet phase (GMGN mentions) — ONLY while at least one device has a
+ *      `tracker_tweets` flag enabled, and only for tracked tokens whose source
+ *      categories have at least one flag on (any device). Conditions per
+ *      category:
+ *        - watchlist: tweets by @AutorunAlert / @bitecong
+ *        - others:    every other tweet (no follower minimum)
+ *      The first poll is a silent baseline — tweets that already existed are
+ *      never announced. Each new tweet pushes "… — Tracker" and writes a
+ *      history entry under category `x_tracker` (the "Tracker" filter).
  *
  * State is mutated in memory and flushed to disk at most once per tick.
  */
 
-import { tokenWatchlist } from '../stores.js';
+import { tokenWatchlist, notificationConfig, notificationHistory } from '../stores.js';
 import { fetchTokensBatch } from './dexscreener.js';
+import { getMentions, getMentionsStatus } from './gmgn-mentions.js';
+import { sendPush } from './push.js';
+import { broadcast } from './ws-server.js';
 
 const TICK_MS = Number(process.env.XTRACKER_TICK_MS) || 10_000;
 const MAX_AGE_MS = 60 * 60 * 1000;   // 1h rastreando como máximo
@@ -24,12 +34,70 @@ const MAX_MCAP = 8_000;              // por debajo se deja de rastrear
 const NO_PAIRS_MAX = 3;              // chequeos consecutivos sin par
 const PRUNE_STOPPED_MS = 24 * 60 * 60 * 1000; // tokens detenidos se borran a las 24h
 
+// Tweet phase
+const ALLOWLIST_ACCOUNTS = new Set(['autorunalert', 'bitecong']); // lowercased
+const TWEET_CONDITIONS = ['watchlist', 'others'];
+const TWEET_CATEGORIES = ['new_creation', 'completed', 'photon_new', 'photon_graduated'];
+const X_DUE_MS = 10_000;             // cadencia mínima por token
+const MAX_X_ENQUEUE_PER_TICK = 100;  // peticiones GMGN nuevas por tick (10s)
+const MAX_X_QUEUE = 100;             // backpressure sobre la cola de GMGN
+const MAX_NOTIFY_PER_TICK = 5;       // tweets por token/tick (el resto se reintenta)
+const MAX_IDS = 300;                 // tweets recordados por token
+const HISTORY_MAX_X = 300;           // entradas de historial category=x_tracker
+
 const watchlist = tokenWatchlist.getAll(); // live reference, flushed by flush()
 let dirty = false;
 let timer = null;
 let lastTickAt = null;
 let lastDexAt = null;
 let lastFlushAt = null;
+const inFlight = new Set();
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+function tweetTime(t) {
+  let n = Number(t?.tw_timestamp);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  if (n < 1e11) n *= 1000; // seconds -> ms
+  return n;
+}
+
+function followersOf(item) {
+  return Number(item?.user?.followers) || 0;
+}
+
+function fmtUsd(n) {
+  if (n == null || isNaN(n)) return 'n/a';
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+  return `$${n.toFixed(2)}`;
+}
+
+function fmtFollowers(n) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+/** 'watchlist' for the followed accounts, 'others' for everything else. */
+export function classifyTweetAuthor(screenName) {
+  const s = String(screenName || '').replace(/^@/, '').toLowerCase();
+  return ALLOWLIST_ACCOUNTS.has(s) ? 'watchlist' : 'others';
+}
+
+/** Source categories of a watchlist entry (legacy 'photon' matches both). */
+export function entryTweetCategories(entry) {
+  const out = [];
+  for (const c of entry?.categories || []) {
+    if (c === 'photon') {
+      if (!out.includes('photon_new')) out.push('photon_new');
+      if (!out.includes('photon_graduated')) out.push('photon_graduated');
+      continue;
+    }
+    if (TWEET_CATEGORIES.includes(c) && !out.includes(c)) out.push(c);
+  }
+  return out;
+}
 
 // ─── watchlist ──────────────────────────────────────────────────────────────
 
@@ -51,6 +119,8 @@ function newEntry(address, token) {
     checks: 0,
     no_pairs: 0,
     last_dex_check: null,
+    last_x_check: null,
+    tweets: { seen_ids: [], notified_ids: [] },
   };
 }
 
@@ -122,6 +192,38 @@ function flush() {
   lastFlushAt = new Date().toISOString();
 }
 
+// ─── tweet conditions ───────────────────────────────────────────────────────
+
+function hasAnyTweetFlag(flags) {
+  if (!flags || typeof flags !== 'object') return false;
+  for (const cond of TWEET_CONDITIONS) {
+    const m = flags[cond];
+    if (!m || typeof m !== 'object') continue;
+    for (const cat of TWEET_CATEGORIES) if (m[cat]) return true;
+  }
+  return false;
+}
+
+/** Devices with at least one tracker_tweets flag enabled, with their flags. */
+function trackerTweetDevices() {
+  return Object.values(notificationConfig.getAll())
+    .filter((e) => e?.push_token && hasAnyTweetFlag(e?.tracker_tweets))
+    .map((e) => ({ device: e, flags: e.tracker_tweets }));
+}
+
+/** Global set of categories with at least one flag on (any device). */
+function enabledTweetCategories(devices) {
+  const set = new Set();
+  for (const { flags } of devices) {
+    for (const cond of TWEET_CONDITIONS) {
+      const m = flags?.[cond];
+      if (!m || typeof m !== 'object') continue;
+      for (const cat of TWEET_CATEGORIES) if (m[cat]) set.add(cat);
+    }
+  }
+  return set;
+}
+
 // ─── dexscreener phase ──────────────────────────────────────────────────────
 
 async function dexPhase() {
@@ -169,6 +271,185 @@ async function dexPhase() {
   }
 }
 
+// ─── tweet phase ────────────────────────────────────────────────────────────
+
+function xPhase(devices) {
+  const now = Date.now();
+  const enabledCats = enabledTweetCategories(devices);
+  if (!enabledCats.size) return;
+
+  const eligible = activeEntries().filter((e) =>
+    entryTweetCategories(e).some((c) => enabledCats.has(c)));
+  if (!eligible.length) return;
+
+  let status;
+  try {
+    status = getMentionsStatus();
+  } catch {
+    status = null;
+  }
+  if (status && status.queueLength >= MAX_X_QUEUE) return;
+  if (status && status.backoffRemainingMs > 0) return;
+
+  let enqueued = 0;
+  for (const e of eligible) {
+    if (enqueued >= MAX_X_ENQUEUE_PER_TICK) break;
+    if (inFlight.has(e.address)) continue;
+    if (e.last_x_check && now - new Date(e.last_x_check).getTime() < X_DUE_MS) continue;
+
+    e.last_x_check = new Date(now).toISOString();
+    dirty = true;
+    inFlight.add(e.address);
+    enqueued += 1;
+
+    // force: saltamos la caché de 60s para detectar un tweet nuevo dentro del
+    // tick de 10s.
+    getMentions(e.address, { limit: 20, force: true })
+      .then((res) => handleMentions(e.address, res, devices))
+      .catch(() => { /* retry next tick */ })
+      .finally(() => inFlight.delete(e.address));
+  }
+}
+
+async function handleMentions(address, res, devices) {
+  const e = watchlist[address];
+  if (!e || e.status !== 'active') return;
+  const items = Array.isArray(res?.items) ? res.items : [];
+  if (!items.length && res?.error) return; // upstream failed: no state change
+
+  const sorted = [...items].sort((a, b) => tweetTime(b) - tweetTime(a));
+  const state = e.tweets && typeof e.tweets === 'object' ? e.tweets : (e.tweets = {});
+  const seen = new Set(state.seen_ids || []);
+  const notified = new Set(state.notified_ids || []);
+
+  const fresh = sorted.filter((i) => {
+    const id = i?.tweet_id != null ? String(i.tweet_id) : '';
+    return id && !seen.has(id) && !notified.has(id);
+  });
+
+  if (seen.size === 0 && notified.size === 0) {
+    // First poll for this token: silent baseline — record what already
+    // exists so only tweets published from now on are announced.
+    for (const i of sorted) {
+      const id = i?.tweet_id != null ? String(i.tweet_id) : '';
+      if (id) seen.add(id);
+    }
+    state.seen_ids = [...seen].slice(-MAX_IDS);
+    dirty = true;
+    return;
+  }
+
+  const toNotify = fresh.slice(0, MAX_NOTIFY_PER_TICK);
+  if (!toNotify.length) return;
+  for (const t of toNotify) seen.add(String(t.tweet_id));
+  state.seen_ids = [...seen].slice(-MAX_IDS);
+  dirty = true;
+
+  // A tweet is only consumed when at least one device actually accepted it;
+  // otherwise the id stays unseen and the next tick retries (a user may have
+  // just enabled the matching condition).
+  const okIds = new Set();
+  for (const tweet of toNotify) {
+    const id = String(tweet.tweet_id);
+    const anyPush = await deliverToMatching(e, tweet, devices);
+    if (anyPush) okIds.add(id);
+    else seen.delete(id);
+  }
+  state.seen_ids = [...seen].slice(-MAX_IDS);
+  state.notified_ids = [...new Set([...notified, ...okIds])].slice(-MAX_IDS);
+  dirty = true;
+}
+
+/** Sends the tweet to every device whose matching condition is enabled. */
+async function deliverToMatching(entry, tweet, devices) {
+  const author = tweet?.user?.screen_name || null;
+  const type = classifyTweetAuthor(author);
+  const cats = entryTweetCategories(entry);
+  if (!cats.length) return false;
+
+  const followers = followersOf(tweet);
+  const text = String(tweet?.content?.text || '').replace(/\s+/g, ' ').trim();
+  const url = author && tweet?.tweet_id ? `https://x.com/${author}/status/${tweet.tweet_id}` : null;
+
+  let anyOk = false;
+  for (const { device, flags } of devices) {
+    const matchedCat = cats.find((c) => flags?.[type]?.[c]);
+    if (!matchedCat) continue;
+    const ok = await deliver(entry, tweet, device, { author, followers, text, url });
+    if (ok) anyOk = true;
+  }
+  return anyOk;
+}
+
+async function deliver(entry, tweet, device, info) {
+  const now = new Date().toISOString();
+  const title = `${entry.symbol || entry.name || 'Token'} — Tracker`;
+  const body = [
+    `${info.author ? `@${info.author}` : 'Tweet'} · ${fmtFollowers(info.followers)} seg`,
+    `MCap ${fmtUsd(entry.mcap)}`,
+    info.text ? `${info.text.slice(0, 120)}${info.text.length > 120 ? '…' : ''}` : null,
+  ].filter(Boolean).join('\n');
+
+  const historyEntry = {
+    device_id: device.device_id,
+    address: entry.address,
+    chain: entry.chain || 'sol',
+    symbol: entry.symbol || null,
+    name: entry.name || null,
+    category: 'x_tracker',
+    mcap: entry.mcap,
+    liq: entry.liquidity ?? null,
+    vol24h: null,
+    logo: entry.logo || null,
+    smart_degen_count: null,
+    renowned_count: null,
+    fresh_wallet_rate: null,
+    bot_degen_count: null,
+    bot_degen_rate: null,
+    rug_ratio: null,
+    bundler_rate: null,
+    bundler_trader_amount_rate: null,
+    entrapment_ratio: null,
+    tweet_id: tweet?.tweet_id ?? null,
+    tweet_author: info.author,
+    tweet_followers: info.followers,
+    tweet_text: info.text ? info.text.slice(0, 500) : null,
+    tweet_url: info.url,
+    tweet_count: entry.tweets?.count ?? null,
+    entered_at: entry.first_seen,
+    notified_at: now,
+    filter_matched_at: null,
+  };
+
+  try {
+    const { result } = await sendPush(device.push_token, {
+      title,
+      body,
+      data: { address: entry.address, chain: entry.chain || 'sol', symbol: entry.symbol, type: 'x_tracker' },
+    });
+    if (result?.data?.status === 'error') {
+      console.error(`[tracker] push failed: ${result.data.message}`);
+      return false;
+    }
+    // History is written only after a successful push, so a retry never
+    // duplicates the entry.
+    const saved = notificationHistory.add(historyEntry);
+    broadcast(`notifications:${device.device_id}`, { event: 'notification_new', data: saved });
+
+    const all = notificationHistory.getAll().filter((h) => h.category === 'x_tracker');
+    if (all.length > HISTORY_MAX_X) {
+      const ordered = [...all].sort((a, b) => (a.notified_at || '').localeCompare(b.notified_at || ''));
+      for (const old of ordered.slice(0, all.length - HISTORY_MAX_X)) {
+        notificationHistory.delete((h) => h.id === old.id);
+      }
+    }
+    return true;
+  } catch (err) {
+    console.error(`[tracker] deliver error: ${err.message}`);
+    return false;
+  }
+}
+
 // ─── loop ───────────────────────────────────────────────────────────────────
 
 async function tick() {
@@ -178,6 +459,13 @@ async function tick() {
     await dexPhase();
   } catch (err) {
     console.error('[tracker] dex phase error:', err.message);
+  }
+
+  try {
+    const devices = trackerTweetDevices();
+    if (devices.length) xPhase(devices);
+  } catch (err) {
+    console.error('[tracker] tweet phase error:', err.message);
   }
 
   try {
@@ -259,10 +547,11 @@ export function getXTrackerTokens(opts = {}) {
   const all = list.map(mapWatchToken);
   const active = all.filter((t) => t.status === 'active');
   const stopped = all.filter((t) => t.status === 'stopped');
+  const isPhoton = (c) => c === 'photon' || c === 'photon_new' || c === 'photon_graduated';
   const summary = {
     active: active.length,
     stopped: stopped.length,
-    photon: active.filter((t) => t.categories.includes('photon')).length,
+    photon: active.filter((t) => t.categories.some(isPhoton)).length,
     trenches: active.filter((t) =>
       t.categories.includes('new_creation') || t.categories.includes('completed'),
     ).length,
@@ -277,6 +566,9 @@ export function getXTrackerStatus() {
   const stopReasons = {};
   for (const e of entries) if (e.stop_reason) stopReasons[e.stop_reason] = (stopReasons[e.stop_reason] || 0) + 1;
 
+  let queue = null;
+  try { queue = getMentionsStatus(); } catch { queue = null; }
+
   return {
     running: timer != null,
     tickMs: TICK_MS,
@@ -285,6 +577,9 @@ export function getXTrackerStatus() {
     active: active.length,
     stopped: entries.length - active.length,
     stopReasons,
+    tweetDevices: trackerTweetDevices().length,
+    inFlight: inFlight.size,
+    gmgnQueue: queue,
     lastTickAt,
     lastDexAt,
     lastFlushAt,

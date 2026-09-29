@@ -29,6 +29,13 @@ const NOTIF_HINTS: Record<string, string> = {
 // Solo estas categorías admiten filtros numéricos (photon no tiene).
 const FILTERABLE_CATEGORIES = new Set(['new_creation', 'completed']);
 
+type TrackerTweets = NonNullable<NotificationConfig['tracker_tweets']>;
+type TrackerTweetCategory = keyof TrackerTweets['watchlist'];
+const EMPTY_TWEET_FLAGS: TrackerTweets = {
+  watchlist: { new_creation: false, completed: false, photon_new: false, photon_graduated: false },
+  others: { new_creation: false, completed: false, photon_new: false, photon_graduated: false },
+};
+
 const FILTER_FIELDS: { key: NotificationFilterFields; label: string; suffix?: string }[] = [
   { key: 'smart_degen_count', label: 'Smart Degen' },
   { key: 'renowned_count', label: 'KOL' },
@@ -55,6 +62,7 @@ export default function NotificationsScreen() {
     photon_graduated: false,
   });
   const [filters, setFilters] = useState<Record<string, NotificationCategoryFilters>>({});
+  const [trackerTweets, setTrackerTweets] = useState<TrackerTweets>(EMPTY_TWEET_FLAGS);
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
@@ -63,13 +71,18 @@ export default function NotificationsScreen() {
       if (notifCfg) {
         setNotifCategories(notifCfg.categories);
         setFilters(notifCfg.filters || {});
+        setTrackerTweets(notifCfg.tracker_tweets ?? EMPTY_TWEET_FLAGS);
       }
     } catch {}
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  const persistConfig = async (cats: NotificationConfig['categories'], f: Record<string, NotificationCategoryFilters>) => {
+  const persistConfig = async (
+    cats: NotificationConfig['categories'],
+    f: Record<string, NotificationCategoryFilters>,
+    tt: TrackerTweets,
+  ) => {
     let token = pushToken;
     if (!token) {
       if (!notificationsAvailable()) {
@@ -84,7 +97,7 @@ export default function NotificationsScreen() {
       setPushToken(token);
     }
     try {
-      await saveNotificationConfig(token, cats, f);
+      await saveNotificationConfig(token, cats, f, tt);
     } catch (err) {
       Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo guardar');
     }
@@ -93,7 +106,16 @@ export default function NotificationsScreen() {
   const toggleNotifCategory = async (cat: string) => {
     const next = { ...notifCategories, [cat]: !notifCategories[cat as keyof typeof notifCategories] };
     setNotifCategories(next);
-    await persistConfig(next, filters);
+    await persistConfig(next, filters, trackerTweets);
+  };
+
+  const toggleTweetFlag = async (cond: 'watchlist' | 'others', cat: TrackerTweetCategory) => {
+    const next: TrackerTweets = {
+      ...trackerTweets,
+      [cond]: { ...trackerTweets[cond], [cat]: !trackerTweets[cond][cat] },
+    };
+    setTrackerTweets(next);
+    await persistConfig(notifCategories, filters, next);
   };
 
   const updateFilter = async (cat: string, field: NotificationFilterFields, bound: 'min' | 'max', value: string) => {
@@ -109,17 +131,18 @@ export default function NotificationsScreen() {
     const next = { ...filters, [cat]: catFilters };
     if (Object.keys(catFilters).length === 0) delete next[cat];
     setFilters(next);
-    await persistConfig(notifCategories, next);
+    await persistConfig(notifCategories, next, trackerTweets);
   };
 
   const clearCategoryFilters = async (cat: string) => {
     const next = { ...filters };
     delete next[cat];
     setFilters(next);
-    await persistConfig(notifCategories, next);
+    await persistConfig(notifCategories, next, trackerTweets);
   };
 
-  const isAnyNotifOn = Object.values(notifCategories).some(Boolean);
+  const tweetFlagsOn = [...Object.values(trackerTweets.watchlist), ...Object.values(trackerTweets.others)].some(Boolean);
+  const isAnyNotifOn = Object.values(notifCategories).some(Boolean) || tweetFlagsOn;
 
   return (
     <ThemedView style={styles.container}>
@@ -173,6 +196,32 @@ export default function NotificationsScreen() {
                       <Switch
                         value={notifCategories[cat]}
                         onValueChange={() => toggleNotifCategory(cat)}
+                        trackColor={{ true: theme.accent }}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={[styles.tweetBox, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>Tweets de tokens en Tracker</ThemedText>
+                    <View style={styles.tweetRow}>
+                      <View style={{ flex: 1 }}>
+                        <ThemedText type="small">Cuentas vigiladas</ThemedText>
+                        <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>@AutorunAlert · @bitecong</ThemedText>
+                      </View>
+                      <Switch
+                        value={trackerTweets.watchlist[cat]}
+                        onValueChange={() => toggleTweetFlag('watchlist', cat)}
+                        trackColor={{ true: theme.accent }}
+                      />
+                    </View>
+                    <View style={styles.tweetRow}>
+                      <View style={{ flex: 1 }}>
+                        <ThemedText type="small">Otras cuentas</ThemedText>
+                        <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>Cada tweet que no sea de esas dos</ThemedText>
+                      </View>
+                      <Switch
+                        value={trackerTweets.others[cat]}
+                        onValueChange={() => toggleTweetFlag('others', cat)}
                         trackColor={{ true: theme.accent }}
                       />
                     </View>
@@ -249,4 +298,13 @@ const styles = StyleSheet.create({
   filterHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   filterRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   filterInput: { flex: 1, borderWidth: 1, borderRadius: 6, padding: 6, fontSize: 12, textAlign: 'center' },
+  tweetBox: {
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 6,
+    marginBottom: 8,
+    gap: 8,
+  },
+  tweetRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
 });

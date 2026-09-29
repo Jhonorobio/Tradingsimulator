@@ -214,6 +214,13 @@ export type NotificationFilterFields = 'smart_degen_count' | 'renowned_count' | 
 
 export type NotificationCategoryFilters = Partial<Record<NotificationFilterFields, NotificationFilterRange>>;
 
+export interface TrackerTweetFlags {
+  new_creation: boolean;
+  completed: boolean;
+  photon_new: boolean;
+  photon_graduated: boolean;
+}
+
 export interface NotificationConfig {
   push_token: string | null;
   categories: {
@@ -224,6 +231,13 @@ export interface NotificationConfig {
     photon_graduated: boolean;
   };
   filters?: Record<string, NotificationCategoryFilters>;
+  /** Per-category toggles for tracked-token tweet notifications. */
+  tracker_tweets?: {
+    /** Tweets from the followed accounts (@AutorunAlert, @bitecong). */
+    watchlist: TrackerTweetFlags;
+    /** Every other tweet about a tracked token. */
+    others: TrackerTweetFlags;
+  };
 }
 
 export interface GmgnStatus {

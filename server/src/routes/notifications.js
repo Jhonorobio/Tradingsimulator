@@ -6,6 +6,29 @@ import { getSnapshots, getAllTracks } from '../services/token-snapshots.js';
 const router = Router();
 
 const VALID_CATEGORIES = ['new_creation', 'completed', 'x_tracker', 'photon_new', 'photon_graduated'];
+// Tracker tweet conditions: which tracked-token tweets notify, per category.
+const TWEET_CONDITIONS = ['watchlist', 'others'];
+const TWEET_CATEGORIES = ['new_creation', 'completed', 'photon_new', 'photon_graduated'];
+
+function defaultTrackerTweets() {
+  const out = {};
+  for (const cond of TWEET_CONDITIONS) {
+    out[cond] = {};
+    for (const cat of TWEET_CATEGORIES) out[cond][cat] = false;
+  }
+  return out;
+}
+
+function sanitizeTrackerTweets(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = defaultTrackerTweets();
+  for (const cond of TWEET_CONDITIONS) {
+    const m = raw[cond];
+    if (!m || typeof m !== 'object') continue;
+    for (const cat of TWEET_CATEGORIES) out[cond][cat] = !!m[cat];
+  }
+  return out;
+}
 
 const FILTER_FIELDS = [
   'smart_degen_count', 'renowned_count', 'bot_degen_count', 'bot_degen_rate',
@@ -53,7 +76,7 @@ function fail(res, err, status = 500) {
 router.put('/config', (req, res) => {
   try {
     const id = deviceId(req);
-    const { push_token, categories, filters } = req.body || {};
+    const { push_token, categories, filters, tracker_tweets } = req.body || {};
 
     if (!isValidPushToken(push_token)) {
       throw Object.assign(new Error('Invalid Expo push token'), { status: 400 });
@@ -74,11 +97,21 @@ router.put('/config', (req, res) => {
       if (!cats[key]) delete mergedFilters[key];
     }
 
+    // Tracker tweet flags are independent of the main category toggles: only
+    // replace them when the client sends the object (old clients keep theirs).
+    let trackerTweets;
+    if (tracker_tweets !== undefined) {
+      trackerTweets = sanitizeTrackerTweets(tracker_tweets) || defaultTrackerTweets();
+    } else {
+      trackerTweets = sanitizeTrackerTweets(existing?.tracker_tweets) || defaultTrackerTweets();
+    }
+
     notificationConfig.set(id, {
       device_id: id,
       push_token,
       categories: cats,
       filters: mergedFilters,
+      tracker_tweets: trackerTweets,
       updated_at: new Date().toISOString(),
     });
 
@@ -102,6 +135,7 @@ router.get('/config', (req, res) => {
         push_token: null,
         categories: { new_creation: false, completed: false, x_tracker: false, photon_new: false, photon_graduated: false },
         filters: {},
+        tracker_tweets: defaultTrackerTweets(),
       });
     }
     const categories = {};
@@ -110,6 +144,7 @@ router.get('/config', (req, res) => {
       push_token: entry.push_token,
       categories,
       filters: entry.filters || {},
+      tracker_tweets: sanitizeTrackerTweets(entry.tracker_tweets) || defaultTrackerTweets(),
     });
   } catch (err) {
     fail(res, err);

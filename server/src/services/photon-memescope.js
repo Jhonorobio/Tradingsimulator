@@ -145,8 +145,9 @@ function ingestPhotonTokens(slice, colKey) {
   let seenDirty = false;
   const added = [];
   const now = new Date().toISOString();
-  // Every token in the slice joins the background Tracker watchlist (category
-  // `photon`), including repeats — each appearance refreshes last_seen/mcap.
+  // Every token in the slice joins the background Tracker watchlist with its
+  // source column (photon_new / photon_graduated) — the Tracker tweet
+  // conditions gate on those categories. Repeats refresh last_seen/mcap.
   const tracked = [];
   for (const it of items) {
     const a = it?.attributes;
@@ -162,7 +163,7 @@ function ingestPhotonTokens(slice, colKey) {
       liquidity: numOrNull(a.cur_liq?.usd),
     });
   }
-  try { ingestTrenches(tracked, 'photon'); } catch {}
+  try { ingestTrenches(tracked, notifCat); } catch {}
   for (const it of items) {
     const a = it?.attributes;
     // `tokenAddress` is the mint (CA); `address` is the pair/pool id — GMGN,

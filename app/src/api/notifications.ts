@@ -1,8 +1,13 @@
 import { api } from './client';
 import type { NotificationConfig, NotificationHistoryItem, NotificationCategoryFilters } from './types';
 
-export function saveNotificationConfig(push_token: string, categories: NotificationConfig['categories'], filters?: Record<string, NotificationCategoryFilters>) {
-  return api.put<{ ok: boolean }>('/api/notifications/config', { push_token, categories, filters });
+export function saveNotificationConfig(
+  push_token: string,
+  categories: NotificationConfig['categories'],
+  filters?: Record<string, NotificationCategoryFilters>,
+  tracker_tweets?: NotificationConfig['tracker_tweets'],
+) {
+  return api.put<{ ok: boolean }>('/api/notifications/config', { push_token, categories, filters, tracker_tweets });
 }
 
 export function getNotificationConfig() {
