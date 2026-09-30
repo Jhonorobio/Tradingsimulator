@@ -263,7 +263,6 @@ export default function TokenScreen() {
   }
   const d = detail;
   const symbol = d.symbol ?? 'TOKEN';
-  const mcapNow = liveMcap ?? d.marketCap;
 
   return (
     <ThemedView style={styles.container}>
@@ -290,26 +289,23 @@ export default function TokenScreen() {
         <Card style={styles.priceCard}>
           <View style={styles.priceRow}>
             <View>
-              <View style={styles.mcapLabelRow}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>Market Cap</ThemedText>
-                {liveMcap != null && (
-                  <View style={[styles.liveBadge, { backgroundColor: `${theme.positive}22` }]}>
-                    <ThemedText type="small" style={{ color: theme.positive, fontSize: 9, fontWeight: '700' }}>
-                      EN VIVO
-                    </ThemedText>
-                  </View>
-                )}
-              </View>
-              <ThemedText type="subtitle">{v(mcapNow, { compact: true })}</ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>Market Cap</ThemedText>
+              <ThemedText type="subtitle">{v(d.marketCap, { compact: true })}</ThemedText>
             </View>
-            {d.price != null && (
-              <View style={{ alignItems: 'flex-end' }}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>Precio</ThemedText>
-                <ThemedText type="smallBold">{d.price < 0.01 ? `$${d.price.toExponential(2)}` : fmtUsd(d.price)}</ThemedText>
+            <View style={{ alignItems: 'flex-end' }}>
+              <View style={styles.mcapLabelRow}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>MC en vivo</ThemedText>
+                <View style={[styles.liveBadge, { backgroundColor: liveMcap != null ? `${theme.positive}22` : `${theme.negative}22` }]}>
+                  <ThemedText type="small" style={{ color: liveMcap != null ? theme.positive : theme.negative, fontSize: 9, fontWeight: '700' }}>
+                    {liveMcap != null ? 'EN VIVO' : 'SIN DATOS'}
+                  </ThemedText>
+                </View>
               </View>
-            )}
+              <ThemedText type="subtitle">{v(liveMcap, { compact: true })}</ThemedText>
+            </View>
           </View>
           <View style={styles.metrics}>
+            <Metric label="Precio" value={d.price != null ? (d.price < 0.01 ? `$${d.price.toExponential(2)}` : fmtUsd(d.price)) : '—'} />
             <Metric label="Liquidez" value={v(d.liquidity, { compact: true })} />
             {d.dex ? <Metric label="DEX" value={d.dex} /> : null}
             {d.holders != null ? <Metric label="Holders" value={fmtNum(d.holders)} /> : null}
@@ -387,9 +383,9 @@ export default function TokenScreen() {
               keyboardType="decimal-pad"
               style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
             />
-            {mcapNow && Number(amount) > 0 && solPrice > 0 ? (
+            {liveMcap && Number(amount) > 0 && solPrice > 0 ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                ≈ {fmtNum((Number(amount) / mcapNow) * 100, { decimals: 6 })}% del MC · gas ~$0.10
+                ≈ {fmtNum((Number(amount) / liveMcap) * 100, { decimals: 6 })}% del MC · gas ~$0.10
               </ThemedText>
             ) : null}
             <Pressable onPress={doBuy} disabled={submitting} style={({ pressed }) => [styles.buyBtn, { backgroundColor: theme.positive }, pressed && { opacity: 0.8 }]}>
