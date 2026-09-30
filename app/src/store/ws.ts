@@ -7,6 +7,7 @@ interface WsState {
   serverFilters: unknown | null;
   trenches: Record<string, TrenchesItem[]>;
   tokenPrices: Record<string, any>;
+  tokenMcaps: Record<string, any>;
   solPrice: number | null;
   notifications: NotificationHistoryItem[];
   subscribeTrenches: (tab: string) => void;
@@ -14,6 +15,8 @@ interface WsState {
   setTrenchesFilters: (filters: unknown) => void;
   subscribeTokenPrice: (chain: string, address: string) => void;
   unsubscribeTokenPrice: (chain: string, address: string) => void;
+  subscribeTokenMcap: (address: string) => void;
+  unsubscribeTokenMcap: (address: string) => void;
   subscribeSolPrice: () => void;
   unsubscribeSolPrice: () => void;
   subscribeNotifications: (deviceId: string) => void;
@@ -31,6 +34,7 @@ export const useWs = create<WsState>((set, get) => ({
   serverFilters: null,
   trenches: { new_creation: [], completed: [] },
   tokenPrices: {},
+  tokenMcaps: {},
   solPrice: null,
   notifications: [],
 
@@ -80,6 +84,26 @@ export const useWs = create<WsState>((set, get) => ({
     const unsub = tokenCleanups.get(key);
     if (unsub) { unsub(); tokenCleanups.delete(key); }
     client.unsubscribe(`token:${key}`);
+  },
+
+  subscribeTokenMcap: (address: string) => {
+    const topic = `token_mcap:${address}`;
+    client.subscribe(topic);
+    const unsub = client.on(topic, (msg: any) => {
+      if (msg.address === address) {
+        set((state) => ({
+          tokenMcaps: { ...state.tokenMcaps, [address]: msg.data },
+        }));
+      }
+    });
+    tokenCleanups.set(`mcap:${address}`, unsub);
+  },
+
+  unsubscribeTokenMcap: (address: string) => {
+    const key = `mcap:${address}`;
+    const unsub = tokenCleanups.get(key);
+    if (unsub) { unsub(); tokenCleanups.delete(key); }
+    client.unsubscribe(`token_mcap:${address}`);
   },
 
   subscribeSolPrice: () => {

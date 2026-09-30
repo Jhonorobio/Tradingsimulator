@@ -5,6 +5,7 @@ import { trenchesFilters } from '../stores.js';
 import { buildParamsFromConfig, TRENCH_TABS } from './trenches-filters.js';
 import { fetchTrenches } from '../cli/args.js';
 import { ensureWorkers, connectionForTab } from './trenches-refresher.js';
+import { subscribeTokenRealtime } from './gmgn-ws.js';
 
 /**
  * WebSocket server for real-time data push to connected clients.
@@ -73,6 +74,11 @@ function handleMessage(client, msg) {
       const tab = msg.topic.replace('trenches:', '');
       const data = getCurrentData(tab);
       sendTo(client, { event: 'trenches_updated', tab, data });
+    }
+    // Auto-subscribe to GMGN WebSocket for token_mcap topics
+    if (msg.topic.startsWith('token_mcap:')) {
+      const address = msg.topic.replace('token_mcap:', '');
+      subscribeTokenRealtime(address);
     }
   } else if (msg.action === 'unsubscribe' && typeof msg.topic === 'string') {
     client.subscriptions.delete(msg.topic);

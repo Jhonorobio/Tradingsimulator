@@ -13,7 +13,7 @@ import { MentionsPanel } from '@/components/mentions-panel';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
-import { getLiveMcap, getTokenDetail } from '@/api/market';
+import { getTokenDetail } from '@/api/market';
 import { buy, discard, getPortfolio, sell } from '@/api/trading';
 import { ApiError } from '@/api/client';
 import type { Position, TokenDetail, TradeResult } from '@/api/types';
@@ -33,7 +33,7 @@ export default function TokenScreen() {
   const { chain, address } = useLocalSearchParams<{ chain: string; address: string }>();
   const theme = useTheme();
   const { proxyStatuses } = useSettings();
-  const { tokenPrices, subscribeTokenPrice, unsubscribeTokenPrice, solPrice: wsSolPrice, subscribeSolPrice, unsubscribeSolPrice } = useWs();
+  const { tokenPrices, tokenMcaps, subscribeTokenPrice, unsubscribeTokenPrice, subscribeTokenMcap, unsubscribeTokenMcap, solPrice: wsSolPrice, subscribeSolPrice, unsubscribeSolPrice } = useWs();
 
   const [detail, setDetail] = useState<TokenDetail | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
@@ -48,13 +48,19 @@ export default function TokenScreen() {
   const [result, setResult] = useState<TradeResult | null>(null);
 
   useEffect(() => {
-    if (address) subscribeTokenPrice(chain || 'sol', address);
+    if (address) {
+      subscribeTokenPrice(chain || 'sol', address);
+      subscribeTokenMcap(address);
+    }
     subscribeSolPrice();
     return () => {
-      if (address) unsubscribeTokenPrice(chain || 'sol', address);
+      if (address) {
+        unsubscribeTokenPrice(chain || 'sol', address);
+        unsubscribeTokenMcap(address);
+      }
       unsubscribeSolPrice();
     };
-  }, [address, chain, subscribeTokenPrice, unsubscribeTokenPrice, subscribeSolPrice, unsubscribeSolPrice]);
+  }, [address, chain, subscribeTokenPrice, unsubscribeTokenPrice, subscribeTokenMcap, unsubscribeTokenMcap, subscribeSolPrice, unsubscribeSolPrice]);
 
   useEffect(() => {
     if (wsSolPrice != null) setSolPrice(wsSolPrice);
@@ -137,25 +143,17 @@ export default function TokenScreen() {
     return () => { active = false; };
   }, [address]);
 
-  // Live market cap from GMGN candles (server caches 400ms; poll every 500ms).
+  // Live market cap from GMGN WebSocket (real-time price × total supply).
   useEffect(() => {
-    if (!address) return;
-    let active = true;
-    const tick = async () => {
-      try {
-        const r = await getLiveMcap(chain || 'sol', address);
-        if (active) setLiveMcap(r.marketCap);
-      } catch {
-        /* keep last value */
+    if (!address || !detail) return;
+    const mcapData = tokenMcaps[address];
+    if (mcapData) {
+      const price = mcapData.kline?.close || mcapData.price;
+      if (price && detail.supply) {
+        setLiveMcap(price * detail.supply);
       }
-    };
-    const id = setInterval(tick, 500);
-    tick();
-    return () => {
-      active = false;
-      clearInterval(id);
-    };
-  }, [address, chain]);
+    }
+  }, [address, tokenMcaps, detail]);
 
   const openGmgn = useCallback(async () => {
     if (!address) return;

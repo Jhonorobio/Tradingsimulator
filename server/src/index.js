@@ -12,6 +12,7 @@ import { initWebSocket } from './services/ws-server.js';
 import { startPricePoller } from './services/ws-price-poller.js';
 import { startSnapshotWorker } from './services/token-snapshots.js';
 import { startXTrackerWatcher } from './services/xtracker-watcher.js';
+import { startGmgnWs } from './services/gmgn-ws.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -57,6 +58,9 @@ startSnapshotWorker();
 startXTrackerWatcher({
   onError: (err) => console.error('[xtracker]', err?.message),
 });
+
+// GMGN WebSocket real-time token data
+startGmgnWs();
 
 // Auto-calibrate GMGN clock from Date header, then start refresher
 ensureCalibrated().then(() => {
