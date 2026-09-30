@@ -150,7 +150,14 @@ export function ingestTrenches(tokens, category) {
       e = watchlist[t.address] = newEntry(t.address, t);
       added += 1;
     }
-    if (e.status !== 'active') continue;
+    if (e.status !== 'active') {
+      e.status = 'active';
+      e.stop_reason = null;
+      e.stopped_at = null;
+      e.first_seen = now;
+      e.checks = 0;
+      e.no_pairs = 0;
+    }
     if (t.symbol != null) e.symbol = t.symbol;
     if (t.name != null) e.name = t.name;
     if (t.logo != null) e.logo = t.logo;
