@@ -129,6 +129,12 @@ function connect() {
       ws = null;
       scheduleReconnect();
     });
+
+    ws.connect().catch((err) => {
+      console.error('[gmgn-ws] connect failed:', err.message);
+      ws = null;
+      scheduleReconnect();
+    });
   } catch (err) {
     console.error('[gmgn-ws] connect error:', err.message);
     scheduleReconnect();
