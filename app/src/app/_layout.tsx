@@ -83,8 +83,8 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="token/[chain]/[address]" options={{ headerShown: true, title: '' }} />
-        <Stack.Screen name="proxy-tester" options={{ headerShown: true, title: 'Proxy Tester' }} />
+        <Stack.Screen name="token/[chain]/[address]" options={{ headerShown: false }} />
+        <Stack.Screen name="proxy-tester" options={{ headerShown: false }} />
       </Stack>
     </ThemeProvider>
   );

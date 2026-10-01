@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -31,6 +32,7 @@ function v(n: number | null | undefined, opts?: { pct?: boolean; decimals?: numb
 
 export default function TokenScreen() {
   const { chain, address } = useLocalSearchParams<{ chain: string; address: string }>();
+  const router = useRouter();
   const theme = useTheme();
   const { proxyStatuses } = useSettings();
   const { tokenPrices, tokenMcaps, tokenFomos, subscribeTokenPrice, unsubscribeTokenPrice, subscribeTokenMcap, unsubscribeTokenMcap, subscribeTokenFomo, unsubscribeTokenFomo, solPrice: wsSolPrice, subscribeSolPrice, unsubscribeSolPrice } = useWs();
@@ -236,12 +238,19 @@ export default function TokenScreen() {
 
   if (error && !detail) {
     return (
-      <ThemedView style={styles.center}>
-        <ThemedText type="subtitle">Sin datos</ThemedText>
-        <ThemedText style={styles.centerText}>{error}</ThemedText>
-        <Pressable onPress={loadDetail}>
-          <ThemedText type="linkPrimary">Reintentar</ThemedText>
-        </Pressable>
+      <ThemedView style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.safeFill}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={22} color={theme.text} />
+          </Pressable>
+          <View style={styles.center}>
+            <ThemedText type="subtitle">Sin datos</ThemedText>
+            <ThemedText style={styles.centerText}>{error}</ThemedText>
+            <Pressable onPress={loadDetail}>
+              <ThemedText type="linkPrimary">Reintentar</ThemedText>
+            </Pressable>
+          </View>
+        </SafeAreaView>
       </ThemedView>
     );
   }
@@ -249,18 +258,23 @@ export default function TokenScreen() {
   if (!detail) {
     return (
       <ThemedView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scroll}>
-          <View style={styles.header}>
-            <View style={[styles.loadingAvatar, { backgroundColor: theme.backgroundSelected }]} />
-            <View style={{ flex: 1, gap: 6 }}>
-              <View style={[styles.loadingLine, { width: 80, backgroundColor: theme.backgroundSelected }]} />
-              <View style={[styles.loadingLine, { width: 140, backgroundColor: theme.backgroundSelected }]} />
+        <SafeAreaView edges={['top']} style={styles.safeFill}>
+          <ScrollView contentContainerStyle={styles.scroll}>
+            <Pressable onPress={() => router.back()} style={styles.backBtn}>
+              <Ionicons name="arrow-back" size={22} color={theme.text} />
+            </Pressable>
+            <View style={styles.header}>
+              <View style={[styles.loadingAvatar, { backgroundColor: theme.backgroundSelected }]} />
+              <View style={{ flex: 1, gap: 6 }}>
+                <View style={[styles.loadingLine, { width: 80, backgroundColor: theme.backgroundSelected }]} />
+                <View style={[styles.loadingLine, { width: 140, backgroundColor: theme.backgroundSelected }]} />
+              </View>
             </View>
-          </View>
-          <Card style={styles.priceCard}>
-            <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>Cargando…</ThemedText>
-          </Card>
-        </ScrollView>
+            <Card style={styles.priceCard}>
+              <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>Cargando…</ThemedText>
+            </Card>
+          </ScrollView>
+        </SafeAreaView>
       </ThemedView>
     );
   }
@@ -273,9 +287,13 @@ export default function TokenScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        {/* ─── Header ─── */}
-        <View style={styles.header}>
+      <SafeAreaView edges={['top']} style={styles.safeFill}>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={22} color={theme.text} />
+          </Pressable>
+          {/* ─── Header ─── */}
+          <View style={styles.header}>
           <TokenAvatar logo={d.logo} symbol={symbol} size={56} />
           <View style={{ flex: 1 }}>
             <ThemedText type="subtitle">{symbol}</ThemedText>
@@ -452,7 +470,8 @@ export default function TokenScreen() {
             </Pressable>
           </Card>
         )}
-      </ScrollView>
+        </ScrollView>
+      </SafeAreaView>
     </ThemedView>
   );
 }
@@ -482,6 +501,8 @@ function TabButton({ label, active, onPress, disabled }: { label: string; active
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  safeFill: { flex: 1 },
+  backBtn: { padding: 4, alignSelf: 'flex-start' },
   scroll: { padding: 16, gap: 14, paddingBottom: 40 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   centerText: { textAlign: 'center' },

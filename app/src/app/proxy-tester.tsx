@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -23,6 +24,7 @@ type TestResult = BatchTestResult | TcpTestResult | LatencyTestResult;
 
 export default function ProxyTesterScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const [proxyList, setProxyList] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [testing, setTesting] = useState(false);
@@ -102,6 +104,9 @@ export default function ProxyTesterScreen() {
           contentContainerStyle={styles.scroll}
           ListHeaderComponent={
             <>
+              <Pressable onPress={() => router.back()} style={styles.backBtn}>
+                <Ionicons name="arrow-back" size={22} color={theme.text} />
+              </Pressable>
               <ThemedText type="subtitle">Proxy Tester</ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: 12 }}>
                 TCP = rápido, solo verifica conexión. Latencia = mide tiempo a gmgn.ai (sin key). GMGN = test completo con API key.
@@ -247,6 +252,7 @@ export default function ProxyTesterScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safe: { flex: 1 },
+  backBtn: { padding: 4, alignSelf: 'flex-start' },
   scroll: { padding: 16, gap: 12, paddingBottom: 40 },
   input: {
     borderWidth: 1,
