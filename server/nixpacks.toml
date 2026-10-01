@@ -1,5 +1,5 @@
 [phases.setup]
-aptPackages = ["libidn2-0", "libstdc++6"]
+aptPackages = ["libidn2-0", "libstdc++6", "patchelf"]
 
 [env]
 LD_PRELOAD = "libidn2.so.0"

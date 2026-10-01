@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "postinstall": "node scripts/patch-gmgn-signer.js"
+    "postinstall": "node scripts/patch-gmgn-signer.js && node scripts/patch-cffi-idn2.js"
   },
   "engines": {
     "node": ">=22.13.0"

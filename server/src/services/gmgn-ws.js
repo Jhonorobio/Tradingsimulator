@@ -20,12 +20,24 @@ async function loadGmgnBinding() {
       console.error('[gmgn-ws] scoped package load error:', e.message);
     }
     try {
-      const pkg = require.resolve('curl-cffi-node/package.json');
-      const localBin = path.join(path.dirname(pkg), 'curl-cffi-node.linux-x64-gnu.node');
+      const main = require.resolve('curl-cffi-node');
+      const localBin = path.join(path.dirname(path.dirname(main)), 'curl-cffi-node.linux-x64-gnu.node');
       require(localBin);
       console.error('[gmgn-ws] local binary loaded OK (unexpected)');
     } catch (e) {
       console.error('[gmgn-ws] local binary load error:', e.message);
+    }
+    try {
+      const { execSync } = await import('node:child_process');
+      const main = require.resolve('curl-cffi-node');
+      const localBin = path.join(path.dirname(path.dirname(main)), 'curl-cffi-node.linux-x64-gnu.node');
+      console.error('[gmgn-ws] env diag LD_PRELOAD=', process.env.LD_PRELOAD);
+      console.error('[gmgn-ws] env diag ldconfig idn2:', execSync('ldconfig -p 2>/dev/null | grep idn2 || echo MISSING').toString().trim());
+      if (require('node:fs').existsSync(localBin)) {
+        console.error('[gmgn-ws] env diag patchelf needed:', execSync(`patchelf --print-needed ${JSON.stringify(localBin)} 2>&1`).toString().trim());
+      }
+    } catch (e) {
+      console.error('[gmgn-ws] env diag error:', e.message);
     }
     throw err;
   }
