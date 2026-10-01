@@ -1,2 +1,5 @@
 [phases.setup]
-aptPackages = ["libcurl4", "libssl3", "libstdc++6"]
+aptPackages = ["libidn2-0", "libstdc++6"]
+
+[env]
+LD_PRELOAD = "libidn2.so.0"
