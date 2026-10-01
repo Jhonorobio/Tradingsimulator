@@ -33,7 +33,7 @@ export default function TokenScreen() {
   const { chain, address } = useLocalSearchParams<{ chain: string; address: string }>();
   const theme = useTheme();
   const { proxyStatuses } = useSettings();
-  const { tokenPrices, tokenMcaps, subscribeTokenPrice, unsubscribeTokenPrice, subscribeTokenMcap, unsubscribeTokenMcap, solPrice: wsSolPrice, subscribeSolPrice, unsubscribeSolPrice } = useWs();
+  const { tokenPrices, tokenMcaps, tokenFomos, subscribeTokenPrice, unsubscribeTokenPrice, subscribeTokenMcap, unsubscribeTokenMcap, subscribeTokenFomo, unsubscribeTokenFomo, solPrice: wsSolPrice, subscribeSolPrice, unsubscribeSolPrice } = useWs();
 
   const [detail, setDetail] = useState<TokenDetail | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
@@ -51,16 +51,18 @@ export default function TokenScreen() {
     if (address) {
       subscribeTokenPrice(chain || 'sol', address);
       subscribeTokenMcap(address);
+      subscribeTokenFomo(address);
     }
     subscribeSolPrice();
     return () => {
       if (address) {
         unsubscribeTokenPrice(chain || 'sol', address);
         unsubscribeTokenMcap(address);
+        unsubscribeTokenFomo(address);
       }
       unsubscribeSolPrice();
     };
-  }, [address, chain, subscribeTokenPrice, unsubscribeTokenPrice, subscribeTokenMcap, unsubscribeTokenMcap, subscribeSolPrice, unsubscribeSolPrice]);
+  }, [address, chain, subscribeTokenPrice, unsubscribeTokenPrice, subscribeTokenMcap, unsubscribeTokenMcap, subscribeTokenFomo, unsubscribeTokenFomo, subscribeSolPrice, unsubscribeSolPrice]);
 
   useEffect(() => {
     if (wsSolPrice != null) setSolPrice(wsSolPrice);
@@ -264,6 +266,10 @@ export default function TokenScreen() {
   }
   const d = detail;
   const symbol = d.symbol ?? 'TOKEN';
+  // Second live market cap from fomo.family WS (same supply, own price feed).
+  const fomo = address ? tokenFomos[address] : null;
+  const liveMcapFomo: number | null =
+    fomo?.mcap ?? (fomo?.price && d.supply ? fomo.price * d.supply : null);
 
   return (
     <ThemedView style={styles.container}>
@@ -303,6 +309,27 @@ export default function TokenScreen() {
                 </View>
               </View>
               <ThemedText type="subtitle">{v(liveMcap, { compact: true })}</ThemedText>
+            </View>
+          </View>
+          <View style={styles.priceRow}>
+            <View>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>Diferencia vs GMGN</ThemedText>
+              <ThemedText type="subtitle" style={{ color: theme.textSecondary }}>
+                {liveMcap && liveMcapFomo
+                  ? `${(((liveMcapFomo - liveMcap) / liveMcap) * 100) >= 0 ? '+' : ''}${(((liveMcapFomo - liveMcap) / liveMcap) * 100).toFixed(2)}%`
+                  : '—'}
+              </ThemedText>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <View style={styles.mcapLabelRow}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>MC en vivo (fomo)</ThemedText>
+                <View style={[styles.liveBadge, { backgroundColor: liveMcapFomo != null ? `${theme.positive}22` : `${theme.negative}22` }]}>
+                  <ThemedText type="small" style={{ color: liveMcapFomo != null ? theme.positive : theme.negative, fontSize: 9, fontWeight: '700' }}>
+                    {liveMcapFomo != null ? 'EN VIVO' : 'SIN DATOS'}
+                  </ThemedText>
+                </View>
+              </View>
+              <ThemedText type="subtitle">{v(liveMcapFomo, { compact: true })}</ThemedText>
             </View>
           </View>
           <View style={styles.metrics}>

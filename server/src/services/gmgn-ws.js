@@ -46,8 +46,18 @@ let reconnectTimer = null;
 const subscribedTokens = new Set();
 const tokenData = new Map();
 const supplyCache = new Map(); // address -> supply (resolved once per token)
+const supplyInFlight = new Map(); // address -> in-flight promise (dedupe gmgn+fomo calls)
 
-async function resolveSupply(address) {
+export function resolveSupply(address) {
+  if (supplyCache.has(address)) return Promise.resolve(supplyCache.get(address));
+  const inflight = supplyInFlight.get(address);
+  if (inflight) return inflight;
+  const p = doResolveSupply(address).finally(() => supplyInFlight.delete(address));
+  supplyInFlight.set(address, p);
+  return p;
+}
+
+async function doResolveSupply(address) {
   if (supplyCache.has(address)) return supplyCache.get(address);
   try {
     const dex = await getDexTokenInfo(address);

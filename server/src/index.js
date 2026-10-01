@@ -13,6 +13,7 @@ import { startPricePoller } from './services/ws-price-poller.js';
 import { startSnapshotWorker } from './services/token-snapshots.js';
 import { startXTrackerWatcher } from './services/xtracker-watcher.js';
 import { startGmgnWs } from './services/gmgn-ws.js';
+import { startFomoWs } from './services/fomo-ws.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -61,6 +62,9 @@ startXTrackerWatcher({
 
 // GMGN WebSocket real-time token data
 startGmgnWs();
+
+// fomo.family WebSocket second live market-cap source (auto-refreshes Privy JWT)
+startFomoWs();
 
 // Auto-calibrate GMGN clock from Date header, then start refresher
 ensureCalibrated().then(() => {
