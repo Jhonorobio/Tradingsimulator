@@ -1,6 +1,8 @@
 import WebSocket from 'ws';
 import fs from 'node:fs';
 import path from 'node:path';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 import { broadcast } from './ws-server.js';
 import { resolveSupply } from './gmgn-ws.js';
 
@@ -27,10 +29,24 @@ const HEADERS = {
 
 let ws = null;
 let reconnectTimer = null;
+let reconnectAttempts = 0;
 let authenticated = false;
 let refreshInFlight = null;
+let diagDone = false;
 const subscribedTokens = new Set();
 const fomoData = new Map();
+
+// Optional egress proxy: FOMO_WS_PROXY=socks5://host:port or http://host:port
+// (datacenter IPs may be blocked by fomo's WAF — HTTP 432 on handshake).
+function envProxy() {
+  return process.env.FOMO_WS_PROXY ? ' via proxy' : '';
+}
+
+function proxyAgent() {
+  const url = process.env.FOMO_WS_PROXY;
+  if (!url) return undefined;
+  return /^socks5/i.test(url) ? new SocksProxyAgent(url) : new HttpsProxyAgent(url);
+}
 
 function readAuth() {
   try {
@@ -208,12 +224,29 @@ function handleMessage(socket, raw) {
   }
 }
 
-function scheduleReconnect(delay = 5000) {
+function scheduleReconnect(delay) {
   if (reconnectTimer) return;
+  const d = delay ?? Math.min(5000 * 2 ** reconnectAttempts, 60_000) + Math.floor(Math.random() * 1000);
+  reconnectAttempts++;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     connect();
-  }, delay);
+  }, d);
+}
+
+// One-shot: plain GET to prod-api tells us whether the whole host rejects
+// Railway's IP or only the WS upgrade path (helps choose proxy vs headers).
+async function diagnoseHost() {
+  if (diagDone) return;
+  diagDone = true;
+  try {
+    const res = await fetch('https://prod-api.fomo.family/', {
+      headers: { Origin: FOMO_ORIGIN, 'User-Agent': HEADERS['User-Agent'] },
+    });
+    console.error(`[fomo-ws] diag GET prod-api -> HTTP ${res.status}`);
+  } catch (err) {
+    console.error(`[fomo-ws] diag GET prod-api failed: ${err.message}`);
+  }
 }
 
 async function connect() {
@@ -227,15 +260,52 @@ async function connect() {
     return;
   }
 
-  const socket = new WebSocket(FOMO_WS_URL, { origin: FOMO_ORIGIN, headers: HEADERS });
+  const agent = proxyAgent();
+  const socket = new WebSocket(FOMO_WS_URL, {
+    origin: FOMO_ORIGIN,
+    headers: HEADERS,
+    ...(agent ? { agent } : {}),
+  });
   ws = socket;
   authenticated = false;
-  console.log('[fomo-ws] connecting');
+  console.log(`[fomo-ws] connecting (attempt ${reconnectAttempts + 1}${envProxy()})`);
 
+  socket.on('open', () => {
+    reconnectAttempts = 0;
+  });
   socket.on('message', (raw) => handleMessage(socket, raw));
   socket.on('error', (err) => {
     if (ws !== socket) return;
     console.error('[fomo-ws] socket error:', err.message);
+  });
+  // Non-101 handshake (e.g. 432 from fomo's WAF): log status/body/headers so
+  // the reason is visible in Railway logs, then back off exponentially.
+  socket.on('unexpected-response', (req, res) => {
+    if (ws !== socket) {
+      res.resume();
+      return;
+    }
+    let body = '';
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      console.error(
+        `[fomo-ws] handshake rejected: HTTP ${res.statusCode} body=${JSON.stringify(body.slice(0, 300))} ` +
+          `cf-ray=${res.headers['cf-ray'] || '-'} retry-after=${res.headers['retry-after'] || '-'}`
+      );
+      ws = null;
+      authenticated = false;
+      diagnoseHost();
+      scheduleReconnect();
+      try { socket.terminate(); } catch {}
+    };
+    res.on('data', (c) => {
+      if (body.length < 600) body += c;
+    });
+    res.on('end', finish);
+    res.on('error', finish);
+    setTimeout(finish, 3000);
   });
   socket.on('close', (code, reason) => {
     if (ws !== socket) return;
