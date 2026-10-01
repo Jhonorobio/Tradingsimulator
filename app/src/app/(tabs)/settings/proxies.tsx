@@ -8,8 +8,8 @@ import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
-import { getProxies, saveProxy, testProxy, getFomoStatus, saveFomoProxy, testFomoProxy } from '@/api/market';
-import type { FomoStatus, FomoTestResult } from '@/api/market';
+import { getProxies, saveProxy, testProxy, getCieloStatus } from '@/api/market';
+import type { CieloStatus } from '@/api/market';
 import { ApiError } from '@/api/client';
 import type { ProxyConfig, ProxyTestResult } from '@/api/types';
 
@@ -33,11 +33,7 @@ export default function ProxiesScreen() {
   const [proxyTesting, setProxyTesting] = useState<Record<string, boolean>>({});
   const [proxyTestResults, setProxyTestResults] = useState<Record<string, ProxyTestResult | null>>({});
 
-  const [fomoProxy, setFomoProxy] = useState('');
-  const [fomoStatus, setFomoStatus] = useState<FomoStatus | null>(null);
-  const [fomoSaving, setFomoSaving] = useState(false);
-  const [fomoTesting, setFomoTesting] = useState(false);
-  const [fomoTestResult, setFomoTestResult] = useState<FomoTestResult | null>(null);
+  const [cieloStatus, setCieloStatus] = useState<CieloStatus | null>(null);
 
   const loadAll = useCallback(async () => {
     try {
@@ -45,9 +41,8 @@ export default function ProxiesScreen() {
       if (proxies) setProxyConfigs(proxies);
     } catch {}
     try {
-      const fs = await getFomoStatus();
-      setFomoStatus(fs);
-      setFomoProxy(fs.savedProxy);
+      const cs = await getCieloStatus();
+      setCieloStatus(cs);
     } catch {}
     loadProxyStatuses();
   }, [loadProxyStatuses]);
@@ -115,42 +110,6 @@ export default function ProxiesScreen() {
       loadProxyStatuses();
     } catch (err) {
       Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo guardar');
-    }
-  };
-
-  const doTestFomo = async () => {
-    const url = fomoProxy.trim();
-    if (!url) {
-      Alert.alert('Error', 'Escribe una URL de proxy para probar');
-      return;
-    }
-    setFomoTesting(true);
-    setFomoTestResult(null);
-    try {
-      const r = await testFomoProxy(url);
-      setFomoTestResult(r);
-    } catch (err) {
-      setFomoTestResult({ ok: false, error: err instanceof ApiError ? err.message : 'Test failed' });
-    } finally {
-      setFomoTesting(false);
-    }
-  };
-
-  const doSaveFomo = async () => {
-    setFomoSaving(true);
-    try {
-      const st = await saveFomoProxy(fomoProxy.trim());
-      setFomoStatus(st);
-      setFomoProxy(st.savedProxy);
-      Alert.alert('Guardado', 'Proxy fomo actualizado — reconectando…');
-      setTimeout(async () => {
-        const s = await getFomoStatus().catch(() => null);
-        if (s) setFomoStatus(s);
-      }, 3500);
-    } catch (err) {
-      Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo guardar');
-    } finally {
-      setFomoSaving(false);
     }
   };
 
@@ -256,58 +215,23 @@ export default function ProxiesScreen() {
 
           <Card>
             <View style={styles.proxyHeader}>
-              <View style={[styles.proxyDot, { backgroundColor: fomoStatus?.connected ? theme.positive : theme.negative }]} />
-              <ThemedText type="smallBold" style={{ flex: 1 }}>fomo.family — MC en vivo #2</ThemedText>
-              <ThemedText type="small" style={{ color: fomoStatus?.connected ? theme.positive : theme.textSecondary }}>
-                {fomoStatus?.connected ? 'Conectado' : fomoStatus?.connecting ? 'Conectando…' : 'Sin conexión'}
+              <View style={[styles.proxyDot, { backgroundColor: cieloStatus?.connected ? theme.positive : theme.negative }]} />
+              <ThemedText type="smallBold" style={{ flex: 1 }}>Cielo — MC en vivo #2</ThemedText>
+              <ThemedText type="small" style={{ color: cieloStatus?.connected ? theme.positive : theme.textSecondary }}>
+                {cieloStatus?.connected ? 'Conectado' : cieloStatus?.connecting ? 'Conectando…' : 'Sin conexión'}
               </ThemedText>
             </View>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Proxy de salida para el WS de fomo (la IP de Railway recibe 432). Vacío = automático
-              (usa los proxies de GMGN como respaldo).
+              Segunda fuente de market cap en vivo (WS directo, sin proxy). Se muestra en la ficha de cada token.
             </ThemedText>
-            <TextInput
-              value={fomoProxy}
-              onChangeText={setFomoProxy}
-              placeholder="http://host:port o socks5://host:port"
-              placeholderTextColor={theme.textSecondary}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
-            />
-            <View style={styles.proxyBtnRow}>
-              <Pressable
-                onPress={doTestFomo}
-                disabled={fomoTesting}
-                style={[styles.proxyBtn, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
-                <ThemedText type="small" style={{ color: theme.text }}>
-                  {fomoTesting ? 'Probando…' : 'Probar'}
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={doSaveFomo}
-                disabled={fomoSaving}
-                style={[styles.proxyBtn, { backgroundColor: theme.accent }]}>
-                <ThemedText type="smallBold" style={{ color: '#fff' }}>
-                  {fomoSaving ? 'Guardando…' : 'Guardar'}
-                </ThemedText>
-              </Pressable>
-            </View>
-            {fomoTestResult && (
-              <ThemedText type="small" style={{ color: fomoTestResult.ok ? theme.positive : theme.negative }}>
-                {fomoTestResult.ok
-                  ? `Handshake OK · ${fomoTestResult.latencyMs ?? 0}ms`
-                  : `Error: ${fomoTestResult.error}`}
-              </ThemedText>
-            )}
-            {fomoStatus?.proxy && (
+            {cieloStatus && (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                En uso: {fomoStatus.proxy} · cola: {fomoStatus.proxyCount}
+                Tokens: {cieloStatus.tokens} · updates: {cieloStatus.received}
               </ThemedText>
             )}
-            {fomoStatus?.lastError && (
+            {cieloStatus?.lastError && (
               <ThemedText type="small" style={{ color: theme.negative }}>
-                Último error: {fomoStatus.lastError}
+                Último error: {cieloStatus.lastError}
               </ThemedText>
             )}
           </Card>

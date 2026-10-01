@@ -46,9 +46,9 @@ let reconnectTimer = null;
 const subscribedTokens = new Set();
 const tokenData = new Map();
 const supplyCache = new Map(); // address -> supply (resolved once per token)
-const supplyInFlight = new Map(); // address -> in-flight promise (dedupe gmgn+fomo calls)
+const supplyInFlight = new Map(); // address -> in-flight promise (dedupe)
 
-export function resolveSupply(address) {
+function resolveSupply(address) {
   if (supplyCache.has(address)) return Promise.resolve(supplyCache.get(address));
   const inflight = supplyInFlight.get(address);
   if (inflight) return inflight;

@@ -8,7 +8,7 @@ interface WsState {
   trenches: Record<string, TrenchesItem[]>;
   tokenPrices: Record<string, any>;
   tokenMcaps: Record<string, any>;
-  tokenFomos: Record<string, any>;
+  tokenCielos: Record<string, any>;
   solPrice: number | null;
   notifications: NotificationHistoryItem[];
   subscribeTrenches: (tab: string) => void;
@@ -18,8 +18,8 @@ interface WsState {
   unsubscribeTokenPrice: (chain: string, address: string) => void;
   subscribeTokenMcap: (address: string) => void;
   unsubscribeTokenMcap: (address: string) => void;
-  subscribeTokenFomo: (address: string) => void;
-  unsubscribeTokenFomo: (address: string) => void;
+  subscribeTokenCielo: (address: string) => void;
+  unsubscribeTokenCielo: (address: string) => void;
   subscribeSolPrice: () => void;
   unsubscribeSolPrice: () => void;
   subscribeNotifications: (deviceId: string) => void;
@@ -38,7 +38,7 @@ export const useWs = create<WsState>((set, get) => ({
   trenches: { new_creation: [], completed: [] },
   tokenPrices: {},
   tokenMcaps: {},
-  tokenFomos: {},
+  tokenCielos: {},
   solPrice: null,
   notifications: [],
 
@@ -110,24 +110,24 @@ export const useWs = create<WsState>((set, get) => ({
     client.unsubscribe(`token_mcap:${address}`);
   },
 
-  subscribeTokenFomo: (address: string) => {
-    const topic = `token_fomo:${address}`;
+  subscribeTokenCielo: (address: string) => {
+    const topic = `token_cielo:${address}`;
     client.subscribe(topic);
     const unsub = client.on(topic, (msg: any) => {
       if (msg.address === address) {
         set((state) => ({
-          tokenFomos: { ...state.tokenFomos, [address]: msg.data },
+          tokenCielos: { ...state.tokenCielos, [address]: msg.data },
         }));
       }
     });
-    tokenCleanups.set(`fomo:${address}`, unsub);
+    tokenCleanups.set(`cielo:${address}`, unsub);
   },
 
-  unsubscribeTokenFomo: (address: string) => {
-    const key = `fomo:${address}`;
+  unsubscribeTokenCielo: (address: string) => {
+    const key = `cielo:${address}`;
     const unsub = tokenCleanups.get(key);
     if (unsub) { unsub(); tokenCleanups.delete(key); }
-    client.unsubscribe(`token_fomo:${address}`);
+    client.unsubscribe(`token_cielo:${address}`);
   },
 
   subscribeSolPrice: () => {

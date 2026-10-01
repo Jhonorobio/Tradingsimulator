@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { runMarket, runConfigCheck } from '../cli/gmgn.js';
 import { fetchTrenches, getPairCooldowns } from '../cli/args.js';
-import { trenchesFilters, proxyConfigs, fomoConfig, notificationHistory } from '../stores.js';
+import { trenchesFilters, proxyConfigs, notificationHistory } from '../stores.js';
 import { getTokenInfo as getDexTokenInfo, searchTokens as dexSearch } from '../services/dexscreener.js';
 import { findToken } from '../services/trenches-store.js';
 import { getProxyMarketCap } from '../services/gmgn-proxy.js';
@@ -16,7 +16,7 @@ import { getMentions, getMentionsStatus, rawMentions } from '../services/gmgn-me
 import { getLiveMcap, getLiveMcapStatus } from '../services/gmgn-mcap.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters, findPhotonToken } from '../services/photon-memescope.js';
 import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
-import { applyFomoProxy, getFomoStatus, testFomoHandshake } from '../services/fomo-ws.js';
+import { getCieloStatus } from '../services/cielo-ws.js';
 
 const router = Router();
 
@@ -78,41 +78,10 @@ router.put('/proxies', (req, res) => {
 });
 
 /**
- * GET /api/market/fomo/status — fomo.family WS connection status.
+ * GET /api/market/cielo/status — Cielo WS connection status.
  */
-router.get('/fomo/status', (_req, res) => {
-  res.json(getFomoStatus());
-});
-
-/**
- * PUT /api/market/fomo/proxy — save the egress proxy for the fomo WS and
- * reconnect through it immediately. Body: { proxy } (empty string = auto).
- */
-router.put('/fomo/proxy', (req, res) => {
-  const url = String(req.body?.proxy ?? '').trim();
-  if (url && !/^(https?|socks5h?):\/\/.+/i.test(url)) {
-    return fail(res, new Error('Formato: http://host:port, socks5://host:port o vacío para automático'), 400);
-  }
-  fomoConfig.set('proxy', { url, updated_at: new Date().toISOString() });
-  applyFomoProxy();
-  res.json({ ok: true, ...getFomoStatus() });
-});
-
-/**
- * POST /api/market/fomo/test — WS handshake through a proxy without saving.
- * Body: { proxy }
- */
-router.post('/fomo/test', async (req, res) => {
-  const url = String(req.body?.proxy ?? '').trim();
-  if (!url || !/^(https?|socks5h?):\/\/.+/i.test(url)) {
-    return fail(res, new Error('proxy URL is required'), 400);
-  }
-  try {
-    const result = await testFomoHandshake(url);
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    res.json({ ok: false, latencyMs: 0, error: err.message });
-  }
+router.get('/cielo/status', (_req, res) => {
+  res.json(getCieloStatus());
 });
 
 /**
