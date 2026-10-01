@@ -1,5 +1,6 @@
 import { broadcast } from './ws-server.js';
 import { getTokenInfo as getDexTokenInfo } from './dexscreener.js';
+import fs from 'node:fs';
 
 let CurlWebSocket = null;
 async function loadGmgnBinding() {
@@ -58,11 +59,15 @@ async function loadGmgnBinding() {
 
   try {
     const { execSync } = await import('node:child_process');
+    const path = await import('node:path');
+    const nmDir = path.join(path.dirname(req.resolve('curl-cffi-node')), '..', '@curl-cffi-node');
+    const gnuBin = path.join(nmDir, 'linux-x64-gnu', 'curl-cffi-node.linux-x64-gnu.node');
     const diag = [
       `LD_PRELOAD=${process.env.LD_PRELOAD ?? 'unset'}`,
       `ls idn2: ${execSync('ls -la /lib/x86_64-linux-gnu/libidn2* /usr/lib/x86_64-linux-gnu/libidn2* 2>&1 || true').toString().trim()}`,
       `ldconfig idn2: ${execSync('ldconfig -p 2>/dev/null | grep idn2 || echo MISSING').toString().trim()}`,
-      `loader: ${execSync('ls -la /lib64/ld-linux-x86-64.so.2 /lib/ld-musl-x86_64.so.1 2>&1 || true').toString().trim()}`,
+      `installed bindings: ${execSync(`ls ${JSON.stringify(nmDir)} 2>&1 || echo NONE`).toString().trim().replace(/\n/g, ' ')}`,
+      `ldd: ${fs.existsSync(gnuBin) ? execSync(`ldd ${JSON.stringify(gnuBin)} 2>&1 | grep -i "not found" || echo RESOLVED`).toString().trim() : 'gnu bin not found'}`,
     ];
     console.error('[gmgn-ws] load diagnostics:\n' + diag.map((d) => '  ' + d).join('\n') +
       '\n  attempts:\n' + errors.map((e) => '    - ' + e).join('\n'));
