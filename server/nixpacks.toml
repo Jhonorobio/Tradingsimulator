@@ -1,5 +1,5 @@
 [phases.setup]
-aptPackages = ["libidn2-0", "libstdc++6", "patchelf", "musl"]
+aptPackages = ["libstdc++6"]
 
 [env]
-LD_PRELOAD = "libidn2.so.0"
+IMPER_CACHE_DIR = "/data/impers-cache"
