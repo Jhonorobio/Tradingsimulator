@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
@@ -12,7 +11,6 @@ import { TokenAvatar } from '@/components/token-avatar';
 import { PriceChange } from '@/components/price-change';
 import { MentionsPanel } from '@/components/mentions-panel';
 import { useTheme } from '@/hooks/use-theme';
-import { useSettings } from '@/store/settings';
 import { useWs } from '@/store/ws';
 import { getTokenDetail } from '@/api/market';
 import { buy, discard, getPortfolio, sell } from '@/api/trading';
@@ -34,15 +32,13 @@ export default function TokenScreen() {
   const { chain, address } = useLocalSearchParams<{ chain: string; address: string }>();
   const router = useRouter();
   const theme = useTheme();
-  const { proxyStatuses } = useSettings();
-  const { tokenPrices, tokenMcaps, tokenCielos, subscribeTokenPrice, unsubscribeTokenPrice, subscribeTokenMcap, unsubscribeTokenMcap, subscribeTokenCielo, unsubscribeTokenCielo, solPrice: wsSolPrice, subscribeSolPrice, unsubscribeSolPrice } = useWs();
+  const { tokenCielos, subscribeTokenCielo, unsubscribeTokenCielo, solPrice: wsSolPrice, subscribeSolPrice, unsubscribeSolPrice } = useWs();
 
   const [detail, setDetail] = useState<TokenDetail | null>(null);
   const [position, setPosition] = useState<Position | null>(null);
   const [solPrice, setSolPrice] = useState<number>(0);
   const [usdBalance, setUsdBalance] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
-  const [liveMcap, setLiveMcap] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>('buy');
   const [amount, setAmount] = useState('');
   const [pct, setPct] = useState(100);
@@ -50,33 +46,17 @@ export default function TokenScreen() {
   const [result, setResult] = useState<TradeResult | null>(null);
 
   useEffect(() => {
-    if (address) {
-      subscribeTokenPrice(chain || 'sol', address);
-      subscribeTokenMcap(address);
-      subscribeTokenCielo(address);
-    }
+    if (address) subscribeTokenCielo(address);
     subscribeSolPrice();
     return () => {
-      if (address) {
-        unsubscribeTokenPrice(chain || 'sol', address);
-        unsubscribeTokenMcap(address);
-        unsubscribeTokenCielo(address);
-      }
+      if (address) unsubscribeTokenCielo(address);
       unsubscribeSolPrice();
     };
-  }, [address, chain, subscribeTokenPrice, unsubscribeTokenPrice, subscribeTokenMcap, unsubscribeTokenMcap, subscribeTokenCielo, unsubscribeTokenCielo, subscribeSolPrice, unsubscribeSolPrice]);
+  }, [address, subscribeTokenCielo, unsubscribeTokenCielo, subscribeSolPrice, unsubscribeSolPrice]);
 
   useEffect(() => {
     if (wsSolPrice != null) setSolPrice(wsSolPrice);
   }, [wsSolPrice]);
-
-  useEffect(() => {
-    const key = `${chain || 'sol'}:${address}`;
-    const wsData = tokenPrices[key];
-    if (wsData && detail) {
-      setDetail((prev) => prev ? { ...prev, ...wsData } : prev);
-    }
-  }, [tokenPrices, chain, address]);
 
   const loadDetail = useCallback(async () => {
     if (!address) return;
@@ -100,6 +80,8 @@ export default function TokenScreen() {
     } catch {}
   }, [address]);
 
+  // Slow poll: the name/symbol/image are static and the live number comes
+  // from the Cielo WS — this only refreshes the mcap fallback.
   useEffect(() => {
     if (!address) return;
     let active = true;
@@ -114,7 +96,7 @@ export default function TokenScreen() {
         } catch (e) {
           if (active && !detail) setError(e instanceof ApiError ? e.message : 'No se pudo cargar el token');
         }
-        const wait = Math.max(1000 - (Date.now() - start), 0);
+        const wait = Math.max(5000 - (Date.now() - start), 0);
         await new Promise((r) => setTimeout(r, wait));
       }
     };
@@ -146,31 +128,6 @@ export default function TokenScreen() {
     pollPosition();
     return () => { active = false; };
   }, [address]);
-
-  // Live market cap from GMGN WebSocket (real-time price × total supply).
-  useEffect(() => {
-    if (!address || !detail) return;
-    const mcapData = tokenMcaps[address];
-    if (mcapData) {
-      const price = mcapData.kline?.close || mcapData.price;
-      const mcap = mcapData.mcap ?? (price && detail.supply ? price * detail.supply : null);
-      if (mcap) {
-        setLiveMcap(mcap);
-      }
-    }
-  }, [address, tokenMcaps, detail]);
-
-  const openGmgn = useCallback(async () => {
-    if (!address) return;
-    const chainSlug = chain === 'solana' ? 'sol' : chain || 'sol';
-    const url = `https://gmgn.ai/${chainSlug}/token/${address}`;
-    const supported = await Linking.canOpenURL(url);
-    if (supported) {
-      await Linking.openURL(url);
-    } else {
-      await WebBrowser.openBrowserAsync(url).catch(() => {});
-    }
-  }, [address, chain]);
 
   const doBuy = async () => {
     if (!address) return;
@@ -280,10 +237,17 @@ export default function TokenScreen() {
   }
   const d = detail;
   const symbol = d.symbol ?? 'TOKEN';
-  // Second live market cap from Cielo WS (its own price + supply feed).
+  // Single market cap for the screen: Cielo WS live feed, shotgun/detail as
+  // fallback. Everything else (price, liquidity, dex, holders…) is gone.
   const cielo = address ? tokenCielos[address] : null;
   const liveMcapCielo: number | null =
     cielo?.mcap ?? (cielo?.price && d.supply ? cielo.price * d.supply : null);
+  const displayMcap = liveMcapCielo ?? d.marketCap ?? null;
+  // Position valuation rides the same single market cap, so P&L matches it.
+  const posMcap = position ? (liveMcapCielo ?? position.market_cap ?? position.entry_market_cap) : null;
+  const posValue = position && posMcap != null ? position.quantity * posMcap : null;
+  const posPnl = position && posValue != null ? posValue - position.cost_usdc : null;
+  const posPnlPct = position && posPnl != null && position.cost_usdc > 0 ? (posPnl / position.cost_usdc) * 100 : null;
 
   return (
     <ThemedView style={styles.container}>
@@ -301,78 +265,25 @@ export default function TokenScreen() {
               {d.name ?? '—'} · {shortAddress(d.address)}
             </ThemedText>
           </View>
-          <Pressable
-            onPress={openGmgn}
-            hitSlop={6}
-            style={({ pressed }) => [styles.gmgnBtn, { borderColor: theme.accent }, pressed && { opacity: 0.7 }]}>
-            <Ionicons name="open-outline" size={14} color={theme.accent} />
-            <ThemedText type="smallBold" style={{ color: theme.accent, fontSize: 12 }}>GMGN</ThemedText>
-          </Pressable>
         </View>
 
-        {/* ─── Price Card ─── */}
+        {/* ─── Market Cap (single source: Cielo → shotgun/detail) ─── */}
         <Card style={styles.priceCard}>
           <View style={styles.priceRow}>
             <View>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>Market Cap</ThemedText>
-              <ThemedText type="subtitle">{v(d.marketCap, { compact: true })}</ThemedText>
+              <ThemedText type="subtitle">{v(displayMcap, { compact: true })}</ThemedText>
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <View style={styles.mcapLabelRow}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>MC en vivo</ThemedText>
-                <View style={[styles.liveBadge, { backgroundColor: liveMcap != null ? `${theme.positive}22` : `${theme.negative}22` }]}>
-                  <ThemedText type="small" style={{ color: liveMcap != null ? theme.positive : theme.negative, fontSize: 9, fontWeight: '700' }}>
-                    {liveMcap != null ? 'EN VIVO' : 'SIN DATOS'}
-                  </ThemedText>
-                </View>
-              </View>
-              <ThemedText type="subtitle">{v(liveMcap, { compact: true })}</ThemedText>
-            </View>
-          </View>
-          <View style={styles.priceRow}>
-            <View>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>Diferencia vs GMGN</ThemedText>
-              <ThemedText type="subtitle" style={{ color: theme.textSecondary }}>
-                {liveMcap && liveMcapCielo
-                  ? `${(((liveMcapCielo - liveMcap) / liveMcap) * 100) >= 0 ? '+' : ''}${(((liveMcapCielo - liveMcap) / liveMcap) * 100).toFixed(2)}%`
-                  : '—'}
+            <View style={[styles.liveBadge, { backgroundColor: liveMcapCielo != null ? `${theme.positive}22` : theme.backgroundSelected }]}>
+              <ThemedText type="small" style={{ color: liveMcapCielo != null ? theme.positive : theme.textSecondary, fontSize: 9, fontWeight: '700' }}>
+                {liveMcapCielo != null ? 'EN VIVO' : 'FALLBACK'}
               </ThemedText>
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <View style={styles.mcapLabelRow}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>MC en vivo (cielo)</ThemedText>
-                <View style={[styles.liveBadge, { backgroundColor: liveMcapCielo != null ? `${theme.positive}22` : `${theme.negative}22` }]}>
-                  <ThemedText type="small" style={{ color: liveMcapCielo != null ? theme.positive : theme.negative, fontSize: 9, fontWeight: '700' }}>
-                    {liveMcapCielo != null ? 'EN VIVO' : 'SIN DATOS'}
-                  </ThemedText>
-                </View>
-              </View>
-              <ThemedText type="subtitle">{v(liveMcapCielo, { compact: true })}</ThemedText>
-            </View>
-          </View>
-          <View style={styles.metrics}>
-            <Metric label="Precio" value={d.price != null ? (d.price < 0.01 ? `$${d.price.toExponential(2)}` : fmtUsd(d.price)) : '—'} />
-            <Metric label="Liquidez" value={v(d.liquidity, { compact: true })} />
-            {d.dex ? <Metric label="DEX" value={d.dex} /> : null}
-            {d.holders != null ? <Metric label="Holders" value={fmtNum(d.holders)} /> : null}
           </View>
         </Card>
 
         {/* ─── Tweets (GMGN mentions) ─── */}
         <MentionsPanel mint={d.address} />
-
-        {/* ─── Trenches Warning ─── */}
-        {d.sources?.trenches && (() => {
-          const trenchStatus = proxyStatuses.find((s) => s.tab === 'new_creation' || s.tab === 'completed');
-          if (trenchStatus?.working) return null;
-          return (
-            <Card style={{ borderColor: theme.warn, backgroundColor: `${theme.warn}15` }}>
-              <ThemedText type="small" style={{ color: theme.warn }}>
-                Datos de Trenches — proxy no verificado. Los datos pueden estar desactualizados.
-              </ThemedText>
-            </Card>
-          );
-        })()}
 
         {/* ─── Position ─── */}
         {position && (
@@ -381,16 +292,16 @@ export default function TokenScreen() {
               <View>
                 <ThemedText type="smallBold">Tu posición</ThemedText>
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  {fmtUsd(position.entry_market_cap, { compact: true })} al entrar · MC actual {fmtUsd(position.market_cap ?? 0, { compact: true })}
+                  {fmtUsd(position.entry_market_cap, { compact: true })} al entrar · MC actual {fmtUsd(posMcap ?? 0, { compact: true })}
                 </ThemedText>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <ThemedText type="smallBold">{fmtUsd(position.value)}</ThemedText>
-                <PriceChange value={position.pnl_percent} />
+                <ThemedText type="smallBold">{fmtUsd(posValue ?? 0)}</ThemedText>
+                {posPnlPct != null ? <PriceChange value={posPnlPct} /> : null}
               </View>
             </View>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Costo: {fmtUsd(position.cost_usdc)} · P&L: {fmtUsd(position.pnl)} ({position.pnl_percent.toFixed(2)}%)
+              Costo: {fmtUsd(position.cost_usdc)} · P&L: {fmtUsd(posPnl ?? 0)} ({(posPnlPct ?? 0).toFixed(2)}%)
             </ThemedText>
           </Card>
         )}
@@ -429,9 +340,9 @@ export default function TokenScreen() {
               keyboardType="decimal-pad"
               style={[styles.input, { backgroundColor: theme.backgroundSelected, color: theme.text, borderColor: theme.border }]}
             />
-            {liveMcap && Number(amount) > 0 && solPrice > 0 ? (
+            {displayMcap && Number(amount) > 0 && solPrice > 0 ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                ≈ {fmtNum((Number(amount) / liveMcap) * 100, { decimals: 6 })}% del MC · gas ~$0.10
+                ≈ {fmtNum((Number(amount) / displayMcap) * 100, { decimals: 6 })}% del MC · gas ~$0.10
               </ThemedText>
             ) : null}
             <Pressable onPress={doBuy} disabled={submitting} style={({ pressed }) => [styles.buyBtn, { backgroundColor: theme.positive }, pressed && { opacity: 0.8 }]}>
@@ -453,9 +364,9 @@ export default function TokenScreen() {
                 </Pressable>
               ))}
             </View>
-            {position && d.marketCap ? (
+            {position && posValue != null ? (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Venderás {pct}% por ≈ {fmtUsd((position.value * pct) / 100)}
+                Venderás {pct}% por ≈ {fmtUsd((posValue * pct) / 100)}
               </ThemedText>
             ) : null}
             <Pressable onPress={doSell} disabled={submitting} style={({ pressed }) => [styles.buyBtn, { backgroundColor: theme.negative }, pressed && { opacity: 0.8 }]}>
@@ -473,17 +384,6 @@ export default function TokenScreen() {
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
-  );
-}
-
-function Metric({ label, value, warn, good }: { label: string; value: string; warn?: boolean; good?: boolean }) {
-  const theme = useTheme();
-  const color = warn ? theme.negative : good ? theme.positive : value === '—' ? theme.textSecondary : theme.text;
-  return (
-    <View style={styles.metric}>
-      <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11, lineHeight: 14 }}>{label}</ThemedText>
-      <ThemedText type="smallBold" style={{ color }}>{value}</ThemedText>
-    </View>
   );
 }
 
@@ -507,16 +407,10 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   centerText: { textAlign: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  gmgnBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
   priceCard: { gap: 12 },
   priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  mcapLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  liveBadge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  metric: { minWidth: 80, gap: 2 },
+  liveBadge: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, alignSelf: 'flex-start' },
   posCard: { gap: 6 },
-  socialRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  socialBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   tabs: { flexDirection: 'row', gap: 10 },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 16, marginTop: 8 },

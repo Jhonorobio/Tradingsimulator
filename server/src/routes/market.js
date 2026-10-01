@@ -517,12 +517,13 @@ router.get('/prices', async (req, res) => {
 
 /**
  * GET /api/market/token/:chain/:address — token detail.
- * Prefers GMGN trenches data when the token is in trenches (fast, cached 3s);
- * otherwise GMGN proxy (dedicated 2nd key) with Dexscreener fallback.
+ * Local fast paths (trenches / snapshots / photon / history) answer instantly;
+ * shotgun.fun owns name, symbol and image (plus the market-cap/supply
+ * fallback) and enriches those payloads once its cached lookup is warm.
  *
-  * External lookups (shotgun.fun → Dexscreener) are the only slow step — they
+ * External lookups (shotgun.fun → Dexscreener) are the only slow step — they
  * can take seconds (batch window + upstream latency). The detail screen polls
- * every 1s, so results are memoized here (inflight dedupe + 5s TTL) and any
+ * frequently, so results are memoized here (inflight dedupe + 5s TTL) and any
  * local history entry is served instantly while the external fetch warms in
  * the background (the next poll upgrades to the richer payload).
  */
@@ -663,13 +664,33 @@ function historyDetailJson(chain, address, hist) {
   };
 }
 
+// shotgun.fun owns name / symbol / image (and the market-cap & supply
+// fallback) on the detail screen. Local fast paths answer instantly and get
+// upgraded with the shotgun metadata once the cached lookup is warm; when it
+// isn't, warm it in the background so the next poll upgrades.
+function applyShotgunMeta(json, chainSlug, address, info) {
+  if (info) {
+    json.name = info.name ?? json.name;
+    json.symbol = info.symbol ?? json.symbol;
+    json.logo = info.logo ?? json.logo;
+    json.marketCap = info.marketCap ?? json.marketCap;
+    json.supply = info.supply ?? json.supply;
+  } else {
+    getDetailExternal(chainSlug, address).catch(() => {});
+  }
+  return json;
+}
+
 router.get('/token/:chain/:address', async (req, res) => {
   try {
     const { chain, address } = req.params;
+    // GMGN expects the `sol` slug — the app may send `solana`.
+    const slug = chain === 'solana' ? 'sol' : chain || 'sol';
+    const cachedInfo = peekDetailExternal(address).info;
 
     const trench = findInTrenches(chain, address);
     if (trench) {
-      return res.json({
+      return res.json(applyShotgunMeta({
         chain,
         address,
         name: trench.name ?? null,
@@ -712,13 +733,13 @@ router.get('/token/:chain/:address', async (req, res) => {
         createdTimestamp: trench.created_timestamp ?? null,
         openTimestamp: trench.open_timestamp ?? null,
         sources: { dex: false, gmgn: false, trenches: true },
-      });
+      }, slug, address, cachedInfo));
     }
 
     // Fast fallback: use snapshot data if available (no external HTTP call)
     const snap = getLatestSnapshotData(address);
     if (snap) {
-      return res.json({
+      return res.json(applyShotgunMeta({
         chain,
         address,
         name: null,
@@ -761,7 +782,7 @@ router.get('/token/:chain/:address', async (req, res) => {
         createdTimestamp: null,
         openTimestamp: null,
         sources: { dex: false, gmgn: false, trenches: false, snapshots: true },
-      });
+      }, slug, address, cachedInfo));
     }
 
     // Photon memescope fallback: bonding-curve tokens are unknown to both
@@ -771,7 +792,7 @@ router.get('/token/:chain/:address', async (req, res) => {
       const top10 = toN(ph.audit?.top_holders_perc);
       const buys = toN(ph.buys_count) ?? 0;
       const sells = toN(ph.sells_count) ?? 0;
-      return res.json({
+      return res.json(applyShotgunMeta({
         chain,
         address,
         name: ph.name ?? null,
@@ -814,24 +835,19 @@ router.get('/token/:chain/:address', async (req, res) => {
         createdTimestamp: toN(ph.created_timestamp),
         openTimestamp: null,
         sources: { dex: false, gmgn: false, trenches: false, photon: true },
-      });
+      }, slug, address, cachedInfo));
     }
-
-    // GMGN expects the `sol` slug — the app may send `solana`.
-    const slug = chain === 'solana' ? 'sol' : chain || 'sol';
-    const cached = peekDetailExternal(address);
-    if (cached.has && cached.info) return res.json(externalDetailJson(chain, address, cached.info));
 
     // Local history entry: answer instantly and warm the external lookup in
     // the background — the next poll (≈1s) upgrades to the richer payload.
     const hist = findHistoryEntry(address);
     const ext = getDetailExternal(slug, address);
-    if (hist) return res.json(historyDetailJson(chain, address, hist));
+    if (hist) return res.json(applyShotgunMeta(historyDetailJson(chain, address, hist), slug, address, cachedInfo));
 
-    const info = await ext;
-    if (info) return res.json(externalDetailJson(chain, address, info));
+    const resolved = await ext;
+    if (resolved) return res.json(externalDetailJson(chain, address, resolved));
     const hist2 = findHistoryEntry(address);
-    if (hist2) return res.json(historyDetailJson(chain, address, hist2));
+    if (hist2) return res.json(applyShotgunMeta(historyDetailJson(chain, address, hist2), slug, address, cachedInfo));
 
     throw Object.assign(new Error('Token not found'), { status: 404 });
   } catch (err) {

@@ -2,7 +2,8 @@ import { Router } from 'express';
 import * as trading from '../services/trading.js';
 import { getTokenInfo as getDataTokenInfo, getPrices, SOL_MINT } from '../services/token-data.js';
 import { getTokenInfo } from '../services/dexscreener.js';
-import { getLiveMcap, getLiveMcapMany } from '../services/gmgn-mcap.js';
+import { getLiveMcapMany } from '../services/gmgn-mcap.js';
+import { getCieloData } from '../services/cielo-ws.js';
 
 const router = Router();
 
@@ -32,23 +33,25 @@ function fail(res, err, status = 500) {
   res.status(err?.status || status).json({ error: message });
 }
 
+// Cielo pushes a market cap only on swaps, so a quiet token keeps its last
+// value around. Beyond this window we stop trusting it and fall back to
+// shotgun.fun (fresh REST) instead of pricing a trade with stale data.
+const CIELO_MAX_AGE_MS = 15_000;
+
 async function resolveToken(address, chain = 'sol') {
-  const slug = chain === 'solana' ? 'sol' : chain || 'sol';
-  // Live market cap (GMGN candles) prices the simulated trade; metadata and
-  // the proxy/Dexscreener mcap remain as fallback when candles are empty.
-  const [live, data, dex] = await Promise.all([
-    slug === 'sol'
-      ? getLiveMcap(address).catch(() => ({ marketCap: null, error: 'live-mcap failed' }))
-      : Promise.resolve({ marketCap: null }),
-    Promise.allSettled([
-      getDataTokenInfo(chain, address),
-      getTokenInfo(address),
-    ]),
+  // The single live market cap (Cielo WS) prices the simulated trade;
+  // shotgun.fun answers as fallback and Dexscreener as last resort. Metadata
+  // (name/symbol/logo) prefers shotgun too.
+  const cieloRaw = getCieloData(address);
+  const cielo = cieloRaw && Date.now() - cieloRaw.updatedAt < CIELO_MAX_AGE_MS ? cieloRaw : null;
+  const data = await Promise.allSettled([
+    getDataTokenInfo(chain, address),
+    getTokenInfo(address),
   ]);
   const dataInfo = data[0].status === 'fulfilled' ? data[0].value : null;
   const dexInfo = data[1].status === 'fulfilled' ? data[1].value : null;
 
-  const marketCap = live?.marketCap ?? dataInfo?.marketCap ?? dexInfo?.marketCap ?? null;
+  const marketCap = cielo?.mcap ?? dataInfo?.marketCap ?? dexInfo?.marketCap ?? null;
   if (!marketCap || marketCap <= 0) {
     throw Object.assign(new Error('Could not resolve a market cap for this token'), { status: 422 });
   }
@@ -57,13 +60,12 @@ async function resolveToken(address, chain = 'sol') {
     token: {
       address,
       chain,
-      symbol: dexInfo?.symbol ?? dataInfo?.symbol ?? null,
-      name: dexInfo?.name ?? dataInfo?.name ?? null,
-      logo: dexInfo?.logo ?? dataInfo?.logo ?? null,
+      symbol: dataInfo?.symbol ?? dexInfo?.symbol ?? null,
+      name: dataInfo?.name ?? dexInfo?.name ?? null,
+      logo: dataInfo?.logo ?? dexInfo?.logo ?? null,
     },
     marketCap,
-    source: live?.marketCap != null
-      ? 'gmgn-candles'
+    source: cielo ? 'cielo'
       : dataInfo?.marketCap != null ? dataInfo.source : 'dexscreener',
   };
 }
