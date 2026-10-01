@@ -15,6 +15,7 @@
   },
   "optionalDependencies": {
     "@curl-cffi-node/linux-x64-gnu": "0.1.8",
+    "@curl-cffi-node/linux-x64-musl": "0.1.0",
     "@curl-cffi-node/linux-arm64-gnu": "0.1.8",
     "@curl-cffi-node/darwin-x64": "0.1.8",
     "@curl-cffi-node/darwin-arm64": "0.1.8",

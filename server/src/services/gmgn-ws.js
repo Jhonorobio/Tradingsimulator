@@ -4,43 +4,74 @@ import { getTokenInfo as getDexTokenInfo } from './dexscreener.js';
 let CurlWebSocket = null;
 async function loadGmgnBinding() {
   if (CurlWebSocket) return CurlWebSocket;
+  const errors = [];
+  const { createRequire } = await import('node:module');
+  const req = createRequire(import.meta.url);
+
+  const tryModule = async (name) => {
+    let mod = null;
+    try {
+      mod = req(name);
+    } catch (reqErr) {
+      try {
+        mod = await import(name);
+      } catch {
+        errors.push(`${name}: ${reqErr.message.split('\n')[0]}`);
+        return false;
+      }
+    }
+    const cls = mod.CurlWebSocket || (mod.default && mod.default.CurlWebSocket);
+    if (cls) {
+      CurlWebSocket = cls;
+      console.log(`[gmgn-ws] binding loaded from ${name}`);
+      return true;
+    }
+    errors.push(`${name}: loaded but no CurlWebSocket export`);
+    return false;
+  };
+
+  for (const name of [
+    'curl-cffi-node',
+    '@curl-cffi-node/linux-x64-gnu',
+    '@curl-cffi-node/linux-x64-musl',
+  ]) {
+    if (await tryModule(name)) return CurlWebSocket;
+  }
+
   try {
-    const mod = await import('curl-cffi-node');
-    CurlWebSocket = mod.CurlWebSocket;
-    return CurlWebSocket;
-  } catch (err) {
-    console.error('[gmgn-ws] curl-cffi-node load failed:', err.message);
     const { createRequire } = await import('node:module');
     const path = await import('node:path');
     const require = createRequire(import.meta.url);
-    try {
-      require('@curl-cffi-node/linux-x64-gnu');
-      console.error('[gmgn-ws] scoped package loaded OK (unexpected)');
-    } catch (e) {
-      console.error('[gmgn-ws] scoped package load error:', e.message);
-    }
-    try {
-      const main = require.resolve('curl-cffi-node');
-      const localBin = path.join(path.dirname(path.dirname(main)), 'curl-cffi-node.linux-x64-gnu.node');
-      require(localBin);
-      console.error('[gmgn-ws] local binary loaded OK (unexpected)');
-    } catch (e) {
-      console.error('[gmgn-ws] local binary load error:', e.message);
-    }
-    try {
-      const { execSync } = await import('node:child_process');
-      const main = require.resolve('curl-cffi-node');
-      const localBin = path.join(path.dirname(path.dirname(main)), 'curl-cffi-node.linux-x64-gnu.node');
-      console.error('[gmgn-ws] env diag LD_PRELOAD=', process.env.LD_PRELOAD);
-      console.error('[gmgn-ws] env diag ldconfig idn2:', execSync('ldconfig -p 2>/dev/null | grep idn2 || echo MISSING').toString().trim());
-      if (require('node:fs').existsSync(localBin)) {
-        console.error('[gmgn-ws] env diag patchelf needed:', execSync(`patchelf --print-needed ${JSON.stringify(localBin)} 2>&1`).toString().trim());
+    const main = require.resolve('curl-cffi-node');
+    const root = path.dirname(path.dirname(main));
+    for (const bin of ['curl-cffi-node.linux-x64-gnu.node', 'curl-cffi-node.linux-x64-musl.node']) {
+      try {
+        require(path.join(root, bin));
+        errors.push(`${bin}: loaded but no CurlWebSocket export`);
+      } catch (e) {
+        errors.push(`${bin}: ${e.message.split('\n')[0]}`);
       }
-    } catch (e) {
-      console.error('[gmgn-ws] env diag error:', e.message);
     }
-    throw err;
+  } catch (e) {
+    errors.push(`local resolve: ${e.message.split('\n')[0]}`);
   }
+
+  try {
+    const { execSync } = await import('node:child_process');
+    const diag = [
+      `LD_PRELOAD=${process.env.LD_PRELOAD ?? 'unset'}`,
+      `ls idn2: ${execSync('ls -la /lib/x86_64-linux-gnu/libidn2* /usr/lib/x86_64-linux-gnu/libidn2* 2>&1 || true').toString().trim()}`,
+      `ldconfig idn2: ${execSync('ldconfig -p 2>/dev/null | grep idn2 || echo MISSING').toString().trim()}`,
+      `loader: ${execSync('ls -la /lib64/ld-linux-x86-64.so.2 /lib/ld-musl-x86_64.so.1 2>&1 || true').toString().trim()}`,
+    ];
+    console.error('[gmgn-ws] load diagnostics:\n' + diag.map((d) => '  ' + d).join('\n') +
+      '\n  attempts:\n' + errors.map((e) => '    - ' + e).join('\n'));
+  } catch (e) {
+    console.error('[gmgn-ws] diag error:', e.message);
+    console.error('[gmgn-ws] attempts:', errors);
+  }
+
+  throw new Error('Failed to load curl-cffi binding:\n' + errors.map((e) => '  - ' + e).join('\n'));
 }
 
 const GMGN_WS_URL = process.env.GMGN_WS_URL || 'wss://ws.gmgn.ai/v2/ws?device_id=45d79a65-5b4e-4d82-a0cf-dfb040754aa2&tab_id=muomurumgr4q&fp_did=be0259deabc5c063263d586f837a88ff&client_id=gmgn_web_20260930-5055-09b0c81&from_app=gmgn&app_ver=20260930-5055-09b0c81&tz_name=America_Bogota&tz_offset=-18000&app_lang=es&os=web&worker=0&uuid=07cdba9e65ac5b95&reconnect=0';
