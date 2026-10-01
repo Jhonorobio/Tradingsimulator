@@ -18,6 +18,9 @@ const MIN_INTERVAL_MS = rawPacing != null && rawPacing !== ''
 const BACKOFF_MS = 60_000;
 // Mentions change slowly — 60s cache is plenty for the UI panel.
 const CACHE_TTL_MS = 60_000;
+// CycleTLS can wedge on a request; without this the pump blocks forever and
+// every /mentions call (app Tweets panel + xtracker) hangs until client abort.
+const FETCH_TIMEOUT_MS = 15_000;
 
 const cache = new Map(); // mint -> { data, savedAt }
 let queue = [];
@@ -28,6 +31,16 @@ let cycleTLS = null;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
 }
 
 function mentionsUrl(mint, limit) {
@@ -93,7 +106,7 @@ export async function rawMentions(mint, opts = {}) {
   const limit = Math.min(Math.max(Number(opts.limit) || 10, 1), 50);
   const start = Date.now();
   try {
-    const { httpCode, items } = await fetchMentions(mint, limit);
+    const { httpCode, items } = await withTimeout(fetchMentions(mint, limit), FETCH_TIMEOUT_MS);
     return { ok: true, httpCode, items: items.length, elapsedMs: Date.now() - start, bodyHead: null };
   } catch (err) {
     return {
@@ -123,7 +136,7 @@ async function pump() {
       const task = queue.shift();
       nextSlot = Date.now() + MIN_INTERVAL_MS;
       try {
-        const result = await fetchMentions(task.mint, task.limit);
+        const result = await withTimeout(fetchMentions(task.mint, task.limit), FETCH_TIMEOUT_MS);
         task.resolve(result);
       } catch (err) {
         task.reject(err);
