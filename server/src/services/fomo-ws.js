@@ -36,15 +36,40 @@ let diagDone = false;
 const subscribedTokens = new Set();
 const fomoData = new Map();
 
-// Optional egress proxy: FOMO_WS_PROXY=socks5://host:port or http://host:port
-// (datacenter IPs may be blocked by fomo's WAF — HTTP 432 on handshake).
+// Egress proxy: fomo's WAF returns HTTP 432 for some datacenter IPs (e.g.
+// Railway) but accepts others. Sources, in order: FOMO_WS_PROXY (comma-
+// separated), proxies pinned for GMGN trenches, GMGN_PROXY_URL. Direct
+// connection is the last resort.
+function proxyList() {
+  const list = [];
+  if (process.env.FOMO_WS_PROXY) {
+    list.push(...process.env.FOMO_WS_PROXY.split(',').map((s) => s.trim()).filter(Boolean));
+  }
+  try {
+    const pins = JSON.parse(process.env.TRENCHES_PINS || '{}');
+    for (const v of Object.values(pins)) {
+      if (v && typeof v === 'object' && v.proxy) list.push(v.proxy);
+    }
+  } catch {}
+  if (process.env.GMGN_PROXY_URL) list.push(process.env.GMGN_PROXY_URL);
+  return [...new Set(list)];
+}
+
+let proxyIdx = 0;
+
 function envProxy() {
-  return process.env.FOMO_WS_PROXY ? ' via proxy' : '';
+  return proxyList().length ? ` via proxy #${proxyIdx % (proxyList().length || 1)}` : '';
+}
+
+function rotateProxy() {
+  const list = proxyList();
+  if (list.length) proxyIdx = (proxyIdx + 1) % list.length;
 }
 
 function proxyAgent() {
-  const url = process.env.FOMO_WS_PROXY;
-  if (!url) return undefined;
+  const list = proxyList();
+  if (!list.length) return undefined;
+  const url = list[proxyIdx % list.length];
   return /^socks5/i.test(url) ? new SocksProxyAgent(url) : new HttpsProxyAgent(url);
 }
 
@@ -296,6 +321,7 @@ async function connect() {
       );
       ws = null;
       authenticated = false;
+      rotateProxy();
       diagnoseHost();
       scheduleReconnect();
       try { socket.terminate(); } catch {}
@@ -309,9 +335,11 @@ async function connect() {
   });
   socket.on('close', (code, reason) => {
     if (ws !== socket) return;
+    const wasAuthed = authenticated;
     ws = null;
     authenticated = false;
     console.log(`[fomo-ws] closed (${code}${reason ? ' ' + reason.toString() : ''})`);
+    if (!wasAuthed) rotateProxy(); // try another egress on pre-auth failures
     if (code === 1008) {
       invalidateToken();
       scheduleReconnect(15_000);
