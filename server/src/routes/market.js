@@ -4,7 +4,6 @@ import { fetchTrenches, getPairCooldowns } from '../cli/args.js';
 import { trenchesFilters, proxyConfigs, notificationHistory } from '../stores.js';
 import { getTokenInfo as getDexTokenInfo, searchTokens as dexSearch } from '../services/dexscreener.js';
 import { findToken } from '../services/trenches-store.js';
-import { getProxyMarketCap } from '../services/gmgn-proxy.js';
 import { getTokenInfo, getLiveTokenInfo, getPrices, SOL_MINT } from '../services/token-data.js';
 import { cacheKey, withCache } from '../services/cache.js';
 import { buildParamsFromConfig, TRENCH_TABS } from '../services/trenches-filters.js';
@@ -17,6 +16,7 @@ import { getLiveMcap, getLiveMcapStatus } from '../services/gmgn-mcap.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters, findPhotonToken } from '../services/photon-memescope.js';
 import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
 import { getCieloStatus } from '../services/cielo-ws.js';
+import { getShotgunStatus } from '../services/shotgun-token.js';
 
 const router = Router();
 
@@ -82,6 +82,13 @@ router.put('/proxies', (req, res) => {
  */
 router.get('/cielo/status', (_req, res) => {
   res.json(getCieloStatus());
+});
+
+/**
+ * GET /api/market/shotgun/status — shotgun.fun session/credentials status.
+ */
+router.get('/shotgun/status', (_req, res) => {
+  res.json(getShotgunStatus());
 });
 
 /**
@@ -513,7 +520,7 @@ router.get('/prices', async (req, res) => {
  * Prefers GMGN trenches data when the token is in trenches (fast, cached 3s);
  * otherwise GMGN proxy (dedicated 2nd key) with Dexscreener fallback.
  *
- * External lookups (GMGN proxy → Dexscreener) are the only slow step — they
+  * External lookups (shotgun.fun → Dexscreener) are the only slow step — they
  * can take seconds (batch window + upstream latency). The detail screen polls
  * every 1s, so results are memoized here (inflight dedupe + 5s TTL) and any
  * local history entry is served instantly while the external fetch warms in
@@ -577,30 +584,35 @@ function externalDetailJson(chain, address, info) {
     netBuy24h: 0,
     priceChange: info.priceChange ?? null,
     holders: info.holders ?? null,
-    top10HolderRate: null,
+    top10HolderRate: info.top10HolderRate ?? null,
     smartDegenCount: null,
     renownedCount: null,
-    sniperCount: null,
-    rugRatio: null,
+    sniperCount: info.sniperCount ?? null,
+    rugRatio: info.rugRatio ?? null,
     isWashTrading: null,
     isHoneypot: null,
-    bundlerRate: null,
+    bundlerRate: info.bundlerRate ?? null,
     buyTax: null,
-    devTeamHoldRate: null,
+    devTeamHoldRate: info.devTeamHoldRate ?? null,
     creatorBalanceRate: null,
     creatorTokenStatus: null,
-    renouncedMint: null,
+    renouncedMint: info.renouncedMint ?? null,
     renouncedFreeze: null,
     dex: info.dex ?? null,
     dexPairs: 0,
-    twitter: null,
-    telegram: null,
-    website: null,
+    twitter: info.twitter ?? null,
+    telegram: info.telegram ?? null,
+    website: info.website ?? null,
     xFollowers: null,
     ctoFlag: null,
-    createdTimestamp: null,
+    createdTimestamp: info.createdTimestamp ?? null,
     openTimestamp: null,
-    sources: { dex: info.source === 'dexscreener', gmgn: info.source === 'gmgn', trenches: false },
+    sources: {
+      dex: info.source === 'dexscreener',
+      gmgn: info.source === 'gmgn',
+      trenches: false,
+      shotgun: info.source === 'shotgun',
+    },
   };
 }
 
@@ -828,7 +840,7 @@ router.get('/token/:chain/:address', async (req, res) => {
 });
 
 /**
- * GET /api/market/token/:chain/:address/live — fresh GMGN-proxy price +
+ * GET /api/market/token/:chain/:address/live — fresh shotgun.fun price +
  * marketcap (no 15s cache), falling back to Dexscreener. Polled every 2s.
  */
 router.get('/token/:chain/:address/live', async (req, res) => {
@@ -849,16 +861,16 @@ router.get('/token/:chain/:address/live', async (req, res) => {
 });
 
 /**
- * GET /api/market/token/:chain/:address/mcap — market cap via the GMGN proxy
- * (dedicated 2nd API key), falling back to Dexscreener on any proxy failure.
- * Polled every 1s by the app.
+ * GET /api/market/token/:chain/:address/mcap — market cap from the shared
+ * detail cache (shotgun.fun → Dexscreener), polled every 1s by the app.
  */
 router.get('/token/:chain/:address/mcap', async (req, res) => {
   try {
     const { chain, address } = req.params;
-    const proxyMc = await getProxyMarketCap(chain, address);
-    if (proxyMc != null) {
-      return res.json({ marketCap: proxyMc, source: 'gmgn' });
+    const slug = chain === 'solana' ? 'sol' : chain || 'sol';
+    const info = await getDetailExternal(slug, address);
+    if (info?.marketCap != null) {
+      return res.json({ marketCap: info.marketCap, source: info.source ?? null });
     }
     const dex = await getDexTokenInfo(address);
     res.json({ marketCap: dex?.marketCap ?? null, source: 'dexscreener' });

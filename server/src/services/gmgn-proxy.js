@@ -195,8 +195,8 @@ async function rawTokenInfo(chain, address) {
  * callers can fall back to Dexscreener.
  *
  * Deduped: concurrent calls for the same token share a single in-flight
- * request, and results are reused for RESULT_TTL_MS (800ms), so the detail
- * screen's mcap (1s) + live (2s) polls for one token cost ~1 slot/s total.
+ * request, and results are reused for RESULT_TTL_MS (800ms), so repeated
+ * batch price lookups for one token cost ~1 slot/s total.
  * @param {string} chain
  * @param {string} address
  */
@@ -216,16 +216,4 @@ export async function getProxyTokenInfo(chain, address) {
   } finally {
     inflight.delete(key);
   }
-}
-
-/**
- * Fetches just the market cap for a token from the GMGN proxy.
- * Returns `null` on any failure so callers can fall back to Dexscreener.
- * @param {string} chain
- * @param {string} address
- * @returns {Promise<number|null>}
- */
-export async function getProxyMarketCap(chain, address) {
-  const info = await getProxyTokenInfo(chain, address);
-  return info?.marketCap ?? null;
 }

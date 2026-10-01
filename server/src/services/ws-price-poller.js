@@ -1,10 +1,12 @@
-import { getProxyTokenInfo } from './gmgn-proxy.js';
+import { fetchShotgunInfo } from './shotgun-token.js';
+import { getTokenInfo as getDexTokenInfo } from './dexscreener.js';
 import { broadcast, getSubscriptions } from './ws-server.js';
 
 /**
  * Background price poller for WebSocket-subscribed tokens.
  * When clients subscribe to `token:{chain}:{address}`, this module polls
- * GMGN for that token's price every 2s and broadcasts updates.
+ * shotgun.fun for that token's price every 2s and broadcasts updates
+ * (Dexscreener as fallback when the shotgun session is unavailable).
  * Stops polling when no more subscribers exist for a token.
  */
 
@@ -33,8 +35,9 @@ async function pollSubscribedTokens() {
 
 async function fetchAndBroadcast(chain, address, topic) {
   try {
-    // GMGN expects the `sol` slug — clients may subscribe as `token:solana:…`.
-    const info = await getProxyTokenInfo(chain === 'solana' ? 'sol' : chain, address);
+    // shotgun.fun is Solana-only; other chains go straight to Dexscreener.
+    let info = chain === 'solana' || chain === 'sol' ? await fetchShotgunInfo(address) : null;
+    if (info?.price == null) info = await getDexTokenInfo(address);
     if (!info) return;
     broadcast(topic, {
       event: 'token_price',

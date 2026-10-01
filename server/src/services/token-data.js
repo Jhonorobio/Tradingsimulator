@@ -1,5 +1,6 @@
 import { cacheKey, withCache } from './cache.js';
 import { getProxyTokenInfo } from './gmgn-proxy.js';
+import { fetchShotgunInfo } from './shotgun-token.js';
 import { getTokenInfo as getDexTokenInfo, getTokensInfo as getDexTokensInfo } from './dexscreener.js';
 
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -29,27 +30,27 @@ function normalizeDex(info) {
 }
 
 /**
- * Full token info: GMGN direct first, Dexscreener fallback.
- * No disk cache — the client controls poll frequency (3s).
+ * Full token info: shotgun.fun first (Solana detail feed), Dexscreener fallback.
+ * No disk cache — the client controls poll frequency (the route memoizes at 5s).
  * @param {string} chain
  * @param {string} address
  */
 export async function getTokenInfo(chain, address) {
-  const proxy = await getProxyTokenInfo(chain, address);
-  if (proxy?.price != null) return proxy;
+  const shotgun = await fetchShotgunInfo(address);
+  if (shotgun?.price != null) return shotgun;
   const dex = await getDexTokenInfo(address);
   return normalizeDex(dex);
 }
 
 /**
  * Live token info for fast polls (no disk cache; supply handled internally).
- * GMGN proxy first, Dexscreener fallback.
+ * shotgun.fun first, Dexscreener fallback.
  * @param {string} chain
  * @param {string} address
  */
 export async function getLiveTokenInfo(chain, address) {
-  const proxy = await getProxyTokenInfo(chain, address);
-  if (proxy?.price != null) return proxy;
+  const shotgun = await fetchShotgunInfo(address);
+  if (shotgun?.price != null) return shotgun;
   const dex = await getDexTokenInfo(address);
   return normalizeDex(dex);
 }

@@ -184,7 +184,7 @@ export interface TokenDetail {
   ctoFlag: number | null;
   createdTimestamp: number | null;
   openTimestamp: number | null;
-  sources: { dex: boolean; gmgn: boolean; trenches: boolean };
+  sources: { dex: boolean; gmgn: boolean; trenches: boolean; shotgun?: boolean };
 }
 
 export interface TradeResult {
