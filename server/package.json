@@ -13,6 +13,13 @@
   "engines": {
     "node": ">=22.13.0"
   },
+  "optionalDependencies": {
+    "@curl-cffi-node/linux-x64-gnu": "0.1.8",
+    "@curl-cffi-node/linux-arm64-gnu": "0.1.8",
+    "@curl-cffi-node/darwin-x64": "0.1.8",
+    "@curl-cffi-node/darwin-arm64": "0.1.8",
+    "@curl-cffi-node/win32-x64-msvc": "0.1.8"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "curl-cffi-node": "^0.1.8",

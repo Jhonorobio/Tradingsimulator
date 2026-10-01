@@ -1,5 +1,32 @@
-import { CurlWebSocket } from 'curl-cffi-node';
 import { broadcast } from './ws-server.js';
+
+let CurlWebSocket = null;
+async function loadGmgnBinding() {
+  if (CurlWebSocket) return CurlWebSocket;
+  try {
+    const mod = await import('curl-cffi-node');
+    CurlWebSocket = mod.CurlWebSocket;
+    return CurlWebSocket;
+  } catch (err) {
+    console.error('[gmgn-ws] curl-cffi-node load failed:', err.message);
+    const { createRequire } = await import('node:module');
+    const require = createRequire(import.meta.url);
+    const attempts = [
+      '@curl-cffi-node/linux-x64-gnu',
+      '@curl-cffi-node/linux-arm64-gnu',
+      './curl-cffi-node.linux-x64-gnu.node',
+    ];
+    for (const a of attempts) {
+      try {
+        require.resolve(a);
+        console.error('[gmgn-ws] resolved:', a);
+      } catch (e) {
+        console.error('[gmgn-ws] cannot resolve:', a, '-', e.code || e.message);
+      }
+    }
+    throw err;
+  }
+}
 
 const GMGN_WS_URL = process.env.GMGN_WS_URL || 'wss://ws.gmgn.ai/v2/ws?device_id=45d79a65-5b4e-4d82-a0cf-dfb040754aa2&tab_id=muomurumgr4q&fp_did=be0259deabc5c063263d586f837a88ff&client_id=gmgn_web_20260930-5055-09b0c81&from_app=gmgn&app_ver=20260930-5055-09b0c81&tz_name=America_Bogota&tz_offset=-18000&app_lang=es&os=web&worker=0&uuid=07cdba9e65ac5b95&reconnect=0';
 
@@ -8,11 +35,12 @@ let reconnectTimer = null;
 const subscribedTokens = new Set();
 const tokenData = new Map();
 
-function connect() {
+async function connect() {
   if (ws) return;
 
   try {
-    ws = new CurlWebSocket(GMGN_WS_URL, {
+    const WS = await loadGmgnBinding();
+    ws = new WS(GMGN_WS_URL, {
       impersonate: 'chrome131',
       verify: false,
       headers: { 'Origin': 'https://gmgn.ai' },
