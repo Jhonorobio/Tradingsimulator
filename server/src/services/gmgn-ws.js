@@ -11,19 +11,21 @@ async function loadGmgnBinding() {
   } catch (err) {
     console.error('[gmgn-ws] curl-cffi-node load failed:', err.message);
     const { createRequire } = await import('node:module');
+    const path = await import('node:path');
     const require = createRequire(import.meta.url);
-    const attempts = [
-      '@curl-cffi-node/linux-x64-gnu',
-      '@curl-cffi-node/linux-arm64-gnu',
-      './curl-cffi-node.linux-x64-gnu.node',
-    ];
-    for (const a of attempts) {
-      try {
-        require.resolve(a);
-        console.error('[gmgn-ws] resolved:', a);
-      } catch (e) {
-        console.error('[gmgn-ws] cannot resolve:', a, '-', e.code || e.message);
-      }
+    try {
+      require('@curl-cffi-node/linux-x64-gnu');
+      console.error('[gmgn-ws] scoped package loaded OK (unexpected)');
+    } catch (e) {
+      console.error('[gmgn-ws] scoped package load error:', e.message);
+    }
+    try {
+      const pkg = require.resolve('curl-cffi-node/package.json');
+      const localBin = path.join(path.dirname(pkg), 'curl-cffi-node.linux-x64-gnu.node');
+      require(localBin);
+      console.error('[gmgn-ws] local binary loaded OK (unexpected)');
+    } catch (e) {
+      console.error('[gmgn-ws] local binary load error:', e.message);
     }
     throw err;
   }
