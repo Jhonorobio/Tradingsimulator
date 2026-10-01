@@ -1,4 +1,5 @@
 import { broadcast } from './ws-server.js';
+import { getTokenInfo as getDexTokenInfo } from './dexscreener.js';
 
 let CurlWebSocket = null;
 async function loadGmgnBinding() {
@@ -34,6 +35,37 @@ let ws = null;
 let reconnectTimer = null;
 const subscribedTokens = new Set();
 const tokenData = new Map();
+const supplyCache = new Map(); // address -> supply (resolved once per token)
+
+async function resolveSupply(address) {
+  if (supplyCache.has(address)) return supplyCache.get(address);
+  try {
+    const dex = await getDexTokenInfo(address);
+    const price = Number(dex?.price);
+    const mc = Number(dex?.fdv ?? dex?.marketCap);
+    const supply = price > 0 && mc > 0 ? mc / price : null;
+    console.log(`[gmgn-ws] resolveSupply ${address} -> ${supply ?? 'null'} (dexscreener)`);
+    if (supply) {
+      supplyCache.set(address, supply);
+      const d = tokenData.get(address) || {};
+      const updated = { ...d, supply, updatedAt: Date.now() };
+      if (updated.price) updated.mcap = updated.price * supply;
+      tokenData.set(address, updated);
+      if (updated.mcap) {
+        broadcast(`token_mcap:${address}`, {
+          event: `token_mcap:${address}`,
+          type: 'supply',
+          address,
+          data: updated,
+        });
+      }
+    }
+    return supply;
+  } catch (err) {
+    console.error(`[gmgn-ws] resolveSupply failed ${address}:`, err.message);
+    return null;
+  }
+}
 
 async function connect() {
   if (ws) return;
@@ -62,37 +94,59 @@ async function connect() {
           if (msg.channel === 'token_stat' && item.a) {
             const address = item.a;
             const existing = tokenData.get(address) || {};
-            tokenData.set(address, {
+            let data = {
               ...existing,
               price: item.p ? Number(item.p) : existing.price,
               volume1h: item.v1h ? Number(item.v1h) : existing.volume1h,
               buys1h: item.b1h,
               sells1h: item.s1h,
               updatedAt: Date.now(),
-            });
+            };
+            if (!data.supply) {
+              const s = supplyCache.get(address);
+              if (s) data = { ...data, supply: s };
+            }
+            if (data.price && data.supply) {
+              data = { ...data, mcap: data.price * data.supply };
+            }
+            tokenData.set(address, data);
             broadcast(`token_mcap:${address}`, {
               event: `token_mcap:${address}`,
               type: 'token_stat',
               address,
-              data: tokenData.get(address),
+              data,
             });
           }
 
           if (msg.channel === 'kline' && item.a) {
             const address = item.a;
             const existing = tokenData.get(address) || {};
-            tokenData.set(address, {
-              ...existing,
-              kline: {
-                open: item.o,
-                high: item.h,
-                low: item.l,
-                close: item.c,
-                volume: item.v,
-                timestamp: item.t,
-              },
-              updatedAt: Date.now(),
-            });
+            const kline = {
+              open: item.o,
+              high: item.h,
+              low: item.l,
+              close: item.c,
+              volume: item.v,
+              timestamp: item.t,
+            };
+            let data = { ...existing, kline, updatedAt: Date.now() };
+            if (!data.supply) {
+              const s = supplyCache.get(address);
+              if (s) data = { ...data, supply: s };
+            }
+            const price = Number(kline.close);
+            if (price && data.supply) {
+              data = { ...data, price: data.price ?? price, mcap: price * data.supply };
+            }
+            tokenData.set(address, data);
+            if (data.mcap) {
+              broadcast(`token_mcap:${address}`, {
+                event: `token_mcap:${address}`,
+                type: 'kline',
+                address,
+                data,
+              });
+            }
           }
 
           if (msg.channel === 'token_page' && item.ta) {
@@ -178,8 +232,10 @@ function scheduleReconnect() {
 }
 
 function subscribeToken(address) {
-  if (!ws || subscribedTokens.has(address)) return;
+  const first = !subscribedTokens.has(address);
   subscribedTokens.add(address);
+  if (first) resolveSupply(address);
+  if (!ws) return;
 
   const channels = [
     { channel: 'token_stat', data: [{ chain: 'sol', addresses: address }] },
@@ -188,10 +244,14 @@ function subscribeToken(address) {
     { channel: 'token_general_stat_num', data: [{ chain: 'sol', addresses: address }] },
   ];
 
-  for (const { channel, data } of channels) {
-    ws.send(JSON.stringify({ action: 'subscribe', channel, f: 'w', id: `gmgn_${channel}_${address}`, data }));
+  try {
+    for (const { channel, data } of channels) {
+      ws.send(JSON.stringify({ action: 'subscribe', channel, f: 'w', id: `gmgn_${channel}_${address}`, data }));
+    }
+    console.log(`[gmgn-ws] subscribed ${address}`);
+  } catch (err) {
+    console.error(`[gmgn-ws] subscribe send failed:`, err.message);
   }
-  console.log(`[gmgn-ws] subscribed ${address}`);
 }
 
 export function startGmgnWs() {

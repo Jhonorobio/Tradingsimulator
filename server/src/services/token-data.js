@@ -6,6 +6,10 @@ export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
 function normalizeDex(info) {
   if (!info) return null;
+  const price = info.price != null ? Number(info.price) : null;
+  const mcRef = info.fdv ?? info.marketCap;
+  const supplyRaw = price && price > 0 && mcRef != null ? Number(mcRef) / price : NaN;
+  const supply = Number.isFinite(supplyRaw) && supplyRaw > 0 ? supplyRaw : null;
   return {
     address: info.address,
     chain: info.chain ?? 'sol',
@@ -14,8 +18,8 @@ function normalizeDex(info) {
     symbol: info.symbol ?? null,
     logo: info.logo ?? null,
     price: info.price ?? null,
-    marketCap: info.marketCap ?? null,
-    supply: null,
+    marketCap: info.marketCap ?? info.fdv ?? null,
+    supply,
     liquidity: info.liquidity ?? 0,
     volume24h: info.volume24h ?? 0,
     holders: info.holders ?? null,

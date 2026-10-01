@@ -149,8 +149,9 @@ export default function TokenScreen() {
     const mcapData = tokenMcaps[address];
     if (mcapData) {
       const price = mcapData.kline?.close || mcapData.price;
-      if (price && detail.supply) {
-        setLiveMcap(price * detail.supply);
+      const mcap = mcapData.mcap ?? (price && detail.supply ? price * detail.supply : null);
+      if (mcap) {
+        setLiveMcap(mcap);
       }
     }
   }, [address, tokenMcaps, detail]);
