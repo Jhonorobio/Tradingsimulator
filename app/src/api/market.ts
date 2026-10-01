@@ -228,6 +228,35 @@ export function saveProxy(tab: string, url: string, apiKey: string, enabled?: bo
   return api.put<{ ok: boolean }>('/api/market/proxies', { tab, url, apiKey, enabled });
 }
 
+// ── fomo.family WS (second live market cap): egress proxy + status ──
+export interface FomoStatus {
+  connected: boolean;
+  connecting: boolean;
+  proxy: string | null;
+  proxyCount: number;
+  savedProxy: string;
+  lastError: string | null;
+  attempts: number;
+}
+
+export interface FomoTestResult {
+  ok: boolean;
+  latencyMs?: number;
+  error?: string;
+}
+
+export function getFomoStatus() {
+  return api.get<FomoStatus>('/api/market/fomo/status');
+}
+
+export function saveFomoProxy(proxy: string) {
+  return api.put<{ ok: boolean } & FomoStatus>('/api/market/fomo/proxy', { proxy });
+}
+
+export function testFomoProxy(proxy: string) {
+  return api.post<FomoTestResult>('/api/market/fomo/test', { proxy });
+}
+
 export function testProxy(url: string, apiKey: string) {
   return api.post<ProxyTestResult>('/api/market/proxies/test', { url, apiKey });
 }

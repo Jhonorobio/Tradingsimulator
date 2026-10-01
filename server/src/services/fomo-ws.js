@@ -5,6 +5,7 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { broadcast } from './ws-server.js';
 import { resolveSupply } from './gmgn-ws.js';
+import { fomoConfig } from '../stores.js';
 
 // fomo.family live WS — second market-cap source (compared against GMGN).
 // Auth: Privy challenge/JWT (1h) auto-refreshed via refresh_token.
@@ -33,15 +34,30 @@ let reconnectAttempts = 0;
 let authenticated = false;
 let refreshInFlight = null;
 let diagDone = false;
+let connectSeq = 0;
+let lastError = null;
 const subscribedTokens = new Set();
 const fomoData = new Map();
 
+// Proxy saved from the app (Proxies screen) — highest priority.
+function storedProxy() {
+  try {
+    const cfg = fomoConfig.get('proxy');
+    const url = typeof cfg === 'string' ? cfg : cfg?.url;
+    return url ? String(url).trim() : '';
+  } catch {
+    return '';
+  }
+}
+
 // Egress proxy: fomo's WAF returns HTTP 432 for some datacenter IPs (e.g.
-// Railway) but accepts others. Sources, in order: FOMO_WS_PROXY (comma-
-// separated), proxies pinned for GMGN trenches, GMGN_PROXY_URL. Direct
-// connection is the last resort.
+// Railway) but accepts others. Sources, in order: app-configured proxy,
+// FOMO_WS_PROXY (comma-separated), proxies pinned for GMGN trenches,
+// GMGN_PROXY_URL. Direct connection is the last resort.
 function proxyList() {
   const list = [];
+  const saved = storedProxy();
+  if (saved) list.push(saved);
   if (process.env.FOMO_WS_PROXY) {
     list.push(...process.env.FOMO_WS_PROXY.split(',').map((s) => s.trim()).filter(Boolean));
   }
@@ -232,6 +248,7 @@ function handleMessage(socket, raw) {
       break;
     case 'challengeAccepted':
       authenticated = true;
+      lastError = null;
       console.log('[fomo-ws] authenticated');
       for (const address of subscribedTokens) sendSubscriptions(address);
       break;
@@ -276,14 +293,17 @@ async function diagnoseHost() {
 
 async function connect() {
   if (ws) return;
+  const seq = ++connectSeq;
 
   try {
     await ensureAccessToken();
   } catch (err) {
     console.error('[fomo-ws] auth failed:', err.message);
+    lastError = `auth: ${err.message}`;
     scheduleReconnect(60_000);
     return;
   }
+  if (seq !== connectSeq) return; // superseded (e.g. proxy reconfigured)
 
   const agent = proxyAgent();
   const socket = new WebSocket(FOMO_WS_URL, {
@@ -302,6 +322,7 @@ async function connect() {
   socket.on('error', (err) => {
     if (ws !== socket) return;
     console.error('[fomo-ws] socket error:', err.message);
+    lastError = err.message;
   });
   // Non-101 handshake (e.g. 432 from fomo's WAF): log status/body/headers so
   // the reason is visible in Railway logs, then back off exponentially.
@@ -319,6 +340,7 @@ async function connect() {
         `[fomo-ws] handshake rejected: HTTP ${res.statusCode} body=${JSON.stringify(body.slice(0, 300))} ` +
           `cf-ray=${res.headers['cf-ray'] || '-'} retry-after=${res.headers['retry-after'] || '-'}`
       );
+      lastError = `HTTP ${res.statusCode} ${body.slice(0, 120)}`;
       ws = null;
       authenticated = false;
       rotateProxy();
@@ -351,6 +373,76 @@ async function connect() {
 
 export function startFomoWs() {
   connect();
+}
+
+/**
+ * Apply a proxy configured from the app: reset rotation and reconnect now.
+ */
+export function applyFomoProxy() {
+  proxyIdx = 0;
+  reconnectAttempts = 0;
+  const prev = ws;
+  ws = null;
+  authenticated = false;
+  connectSeq++; // invalidate any in-flight connect
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (prev) {
+    try { prev.close(); } catch {}
+  }
+  connect();
+}
+
+/**
+ * Connection status for the app's Proxies screen.
+ */
+export function getFomoStatus() {
+  const list = proxyList();
+  const current = list.length ? list[proxyIdx % list.length] : null;
+  return {
+    connected: !!(ws && authenticated),
+    connecting: !!ws && !authenticated,
+    proxy: current ? current.replace(/\/\/[^@/]*@/, '//***@') : null,
+    proxyCount: list.length,
+    savedProxy: storedProxy(),
+    lastError,
+    attempts: reconnectAttempts,
+  };
+}
+
+/**
+ * Test a proxy against the fomo WS handshake (101 = egress accepted).
+ * Resolves { latencyMs } or rejects with the reason.
+ */
+export function testFomoHandshake(proxyUrl) {
+  return new Promise((resolve, reject) => {
+    const agent = /^socks5/i.test(proxyUrl) ? new SocksProxyAgent(proxyUrl) : new HttpsProxyAgent(proxyUrl);
+    const socket = new WebSocket(FOMO_WS_URL, { origin: FOMO_ORIGIN, headers: HEADERS, agent });
+    let settled = false;
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { socket.terminate(); } catch {}
+      if (err) reject(err);
+      else resolve({ latencyMs: Date.now() - started });
+    };
+    const started = Date.now();
+    const timer = setTimeout(() => finish(new Error('timeout (10s)')), 10_000);
+    socket.on('open', () => finish(null));
+    socket.on('unexpected-response', (req, res) => {
+      let body = '';
+      res.on('data', (c) => {
+        if (body.length < 200) body += c;
+      });
+      res.on('end', () => finish(new Error(`HTTP ${res.statusCode} ${body.slice(0, 150)}`)));
+      res.on('error', () => finish(new Error(`HTTP ${res.statusCode}`)));
+      setTimeout(() => finish(new Error(`HTTP ${res.statusCode}`)), 2000);
+    });
+    socket.on('error', (err) => finish(err));
+  });
 }
 
 export function subscribeFomoToken(address) {

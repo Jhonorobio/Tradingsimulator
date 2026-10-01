@@ -13,6 +13,9 @@ export const photonFilters = new JsonStore('photon_filters');
 // (one history entry per token, like trenches/x_tracker).
 export const photonSeen = new JsonStore('photon_seen');
 export const proxyConfigs = new JsonStore('proxy_configs');
+// fomo.family WS config: { proxy: { url, updated_at } } — egress proxy for the
+// second live market-cap source (editable from the app's Proxies screen).
+export const fomoConfig = new JsonStore('fomo_config');
 export const notificationConfig = new JsonStore('notification_config');
 // Tweet notifications delivered per Tracker condition (watchlist / others):
 // each condition is capped at TWEET_COND_LIMIT and the counter is deleted
