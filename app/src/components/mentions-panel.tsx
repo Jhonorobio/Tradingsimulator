@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -6,8 +6,11 @@ import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
 import { getMentions, type MentionItem } from '@/api/market';
 import { ApiError } from '@/api/client';
+import { useWs } from '@/store/ws';
 
 const REFRESH_MS = 30_000;
+const EMPTY_ITEMS: MentionItem[] = [];
+const EMPTY_REMOVALS: string[] = [];
 
 function fmtCount(n?: number): string {
   if (n == null || isNaN(n)) return '0';
@@ -79,6 +82,38 @@ export function MentionsPanel({ mint, limit = 10 }: { mint: string; limit?: numb
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const liveItems = useWs((s) => s.tokenTweets[mint] ?? EMPTY_ITEMS);
+  const removals = useWs((s) => s.tokenTweetRemovals[mint] ?? EMPTY_REMOVALS);
+  const subscribeTokenTweets = useWs((s) => s.subscribeTokenTweets);
+  const unsubscribeTokenTweets = useWs((s) => s.unsubscribeTokenTweets);
+
+  // Live firehose: server pushes tagged tweets as they happen (history comes
+  // from the HTTP backfill below; the two are merged deduping by tweet_id).
+  useEffect(() => {
+    if (!mint) return;
+    subscribeTokenTweets(mint);
+    return () => unsubscribeTokenTweets(mint);
+  }, [mint, subscribeTokenTweets, unsubscribeTokenTweets]);
+
+  const displayItems = useMemo(() => {
+    const removed = new Set(removals);
+    const byId = new Map<string, MentionItem>();
+    const noId: MentionItem[] = [];
+    const add = (t: MentionItem) => {
+      if (t.tweet_id != null) {
+        const id = String(t.tweet_id);
+        if (removed.has(id) || byId.has(id)) return;
+        byId.set(id, t);
+      } else {
+        noId.push(t);
+      }
+    };
+    items.forEach(add); // HTTP wins on duplicates (it carries `verified`)
+    liveItems.forEach(add);
+    const merged = [...byId.values(), ...noId];
+    merged.sort((a, b) => (Number(b.tw_timestamp) || 0) - (Number(a.tw_timestamp) || 0));
+    return merged;
+  }, [items, liveItems, removals]);
 
   const load = useCallback(async () => {
     if (!mint) return;
@@ -114,7 +149,7 @@ export function MentionsPanel({ mint, limit = 10 }: { mint: string; limit?: numb
           <ThemedText type="smallBold" style={{ fontSize: 11 }}>X</ThemedText>
         </View>
         <ThemedText type="smallBold" style={{ flex: 1 }}>
-          Tweets{items.length ? ` · ${items.length} menc.` : ''}
+          Tweets{displayItems.length ? ` · ${displayItems.length} menc.` : ''}
         </ThemedText>
         {updatedAt ? (
           <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>
@@ -132,13 +167,13 @@ export function MentionsPanel({ mint, limit = 10 }: { mint: string; limit?: numb
         <ThemedText type="small" style={{ color: theme.warn }}>
           GMGN limitó las peticiones. Se reintentará en ~60s.
         </ThemedText>
-      ) : error && !items.length ? (
+      ) : error && !displayItems.length ? (
         <ThemedText type="small" style={{ color: theme.negative }}>Error: {error}</ThemedText>
-      ) : !items.length ? (
+      ) : !displayItems.length ? (
         <ThemedText type="small" style={{ color: theme.textSecondary }}>Sin menciones todavía.</ThemedText>
       ) : (
         <View style={{ gap: 12 }}>
-          {items.map((item, i) => (
+          {displayItems.map((item, i) => (
             <MentionRow
               key={item.tweet_id || i}
               item={item}

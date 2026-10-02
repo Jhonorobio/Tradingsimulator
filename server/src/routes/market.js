@@ -12,6 +12,7 @@ import { connectionForTab, getRefresherStatus } from '../services/trenches-refre
 import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-health.js';
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
 import { getMentions, getMentionsStatus, rawMentions } from '../services/gmgn-mentions.js';
+import { getLiveTweets, mergeTweetItems } from '../services/gmgn-ws.js';
 import { getLiveMcap, getLiveMcapStatus } from '../services/gmgn-mcap.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters, findPhotonToken } from '../services/photon-memescope.js';
 import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
@@ -398,15 +399,16 @@ router.get('/debug-tab/:tab', async (req, res) => {
 
 /**
  * GET /api/market/mentions/:mint — X/Twitter mentions for a token (internal
- * GMGN endpoint, CycleTLS Chrome fingerprint). Cached 60s server-side, so the
- * app can poll freely; 403/429 triggers a shared 60s backoff.
+ * GMGN endpoint, CycleTLS Chrome fingerprint, cached 60s, shared 60s backoff
+ * on 403/429) merged with the live GMGN firehose buffer (tagged tweets).
  */
 router.get('/mentions/:mint', async (req, res) => {
   const mint = String(req.params.mint || '').trim();
   if (!mint) return fail(res, new Error('mint is required'), 400);
   const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
   const result = await getMentions(mint, { limit });
-  res.json(result);
+  // HTTP backfill (history) + live firehose buffer (recent tagged tweets).
+  res.json({ ...result, items: mergeTweetItems(result.items || [], getLiveTweets(mint)) });
 });
 
 /**

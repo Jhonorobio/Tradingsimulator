@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { getWsClient, onWsConnectionChange } from '@/api/ws-client';
 import type { NotificationHistoryItem, TrenchesItem } from '@/api/types';
+import type { MentionItem } from '@/api/market';
 
 interface WsState {
   connected: boolean;
@@ -9,6 +10,8 @@ interface WsState {
   tokenPrices: Record<string, any>;
   tokenMcaps: Record<string, any>;
   tokenCielos: Record<string, any>;
+  tokenTweets: Record<string, MentionItem[]>;
+  tokenTweetRemovals: Record<string, string[]>;
   solPrice: number | null;
   notifications: NotificationHistoryItem[];
   subscribeTrenches: (tab: string) => void;
@@ -20,6 +23,8 @@ interface WsState {
   unsubscribeTokenMcap: (address: string) => void;
   subscribeTokenCielo: (address: string) => void;
   unsubscribeTokenCielo: (address: string) => void;
+  subscribeTokenTweets: (address: string) => void;
+  unsubscribeTokenTweets: (address: string) => void;
   subscribeSolPrice: () => void;
   unsubscribeSolPrice: () => void;
   subscribeNotifications: (deviceId: string) => void;
@@ -39,6 +44,8 @@ export const useWs = create<WsState>((set, get) => ({
   tokenPrices: {},
   tokenMcaps: {},
   tokenCielos: {},
+  tokenTweets: {},
+  tokenTweetRemovals: {},
   solPrice: null,
   notifications: [],
 
@@ -128,6 +135,59 @@ export const useWs = create<WsState>((set, get) => ({
     const unsub = tokenCleanups.get(key);
     if (unsub) { unsub(); tokenCleanups.delete(key); }
     client.unsubscribe(`token_cielo:${address}`);
+  },
+
+  subscribeTokenTweets: (address: string) => {
+    const topic = `token_tweets:${address}`;
+    const key = `tweets:${address}`;
+    const prev = tokenCleanups.get(key);
+    if (prev) { prev(); tokenCleanups.delete(key); }
+    client.subscribe(topic);
+    const unsub = client.on(topic, (msg: any) => {
+      if (msg.address !== address) return;
+      set((state) => {
+        const cur = state.tokenTweets[address] || [];
+        const removals = state.tokenTweetRemovals[address] || [];
+        if (msg.type === 'snapshot') {
+          const items: MentionItem[] = Array.isArray(msg.data) ? msg.data : [];
+          return { tokenTweets: { ...state.tokenTweets, [address]: items } };
+        }
+        if (msg.type === 'tweet_delete') {
+          const id = String(msg.data?.tweet_id ?? '');
+          if (!id) return {};
+          return {
+            tokenTweets: {
+              ...state.tokenTweets,
+              [address]: cur.filter((t) => String(t.tweet_id ?? '') !== id),
+            },
+            tokenTweetRemovals: {
+              ...state.tokenTweetRemovals,
+              [address]: [...removals, id].slice(-50),
+            },
+          };
+        }
+        if (msg.type === 'tweet' && msg.data?.tweet_id) {
+          const id = String(msg.data.tweet_id);
+          if (removals.includes(id)) return {};
+          if (cur.some((t) => String(t.tweet_id ?? '') === id)) return {};
+          return {
+            tokenTweets: {
+              ...state.tokenTweets,
+              [address]: [msg.data as MentionItem, ...cur].slice(0, 40),
+            },
+          };
+        }
+        return {};
+      });
+    });
+    tokenCleanups.set(key, unsub);
+  },
+
+  unsubscribeTokenTweets: (address: string) => {
+    const key = `tweets:${address}`;
+    const unsub = tokenCleanups.get(key);
+    if (unsub) { unsub(); tokenCleanups.delete(key); }
+    client.unsubscribe(`token_tweets:${address}`);
   },
 
   subscribeSolPrice: () => {

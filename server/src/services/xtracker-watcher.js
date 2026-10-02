@@ -35,6 +35,7 @@
 import { tokenWatchlist, notificationConfig, notificationHistory, tweetCondCounts, pushSubscriptions } from '../stores.js';
 import { fetchTokensBatch } from './dexscreener.js';
 import { getMentions, getMentionsStatus } from './gmgn-mentions.js';
+import { getLiveTweets } from './gmgn-ws.js';
 import { sendPush } from './push.js';
 import { broadcast } from './ws-server.js';
 
@@ -374,6 +375,18 @@ function xPhase(devices) {
     entryTweetCategories(e).some((c) => enabledCats.has(c)));
   if (!eligible.length) return;
 
+  // Live phase: buffered GMGN firehose tweets (no HTTP involved — runs even
+  // during the mentions backoff). handleMentions dedupes via notified_ids.
+  for (const e of eligible) {
+    if (inFlight.has(e.address)) continue;
+    const live = getLiveTweets(e.address);
+    if (!live.length) continue;
+    inFlight.add(e.address);
+    handleMentions(e.address, { items: live }, devices)
+      .catch(() => { /* retried next tick */ })
+      .finally(() => inFlight.delete(e.address));
+  }
+
   let status;
   try {
     status = getMentionsStatus();
@@ -394,9 +407,11 @@ function xPhase(devices) {
     inFlight.add(e.address);
     enqueued += 1;
 
-    // force: saltamos la caché de 60s para detectar un tweet nuevo dentro del
-    // tick de 10s.
-    getMentions(e.address, { limit: 20, force: true })
+    // Sin force: los tweets taggeados ya llegan por el firehose (fase live de
+    // arriba, latencia ≤1 tick); el HTTP solo hace de backfill (histórico +
+    // tweets sin tag) con la caché de 60s, evitando el rate que rompe en
+    // 403/429 (el backoff detenía todas las notificaciones).
+    getMentions(e.address, { limit: 20 })
       .then((res) => handleMentions(e.address, res, devices))
       .catch(() => { /* retry next tick */ })
       .finally(() => inFlight.delete(e.address));

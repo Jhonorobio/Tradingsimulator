@@ -48,6 +48,16 @@ const tokenData = new Map();
 const supplyCache = new Map(); // address -> supply (resolved once per token)
 const supplyInFlight = new Map(); // address -> in-flight promise (dedupe)
 
+// ─── twitter_monitor_token (GMGN firehose of token-tagged tweets) ───────────
+// Validated empirically: the `addresses` field is IGNORED by GMGN (a bogus
+// address still receives every tagged tweet), so we subscribe ONCE with a
+// dummy address and filter server-side by `t.a`. The channel never replays
+// history (no backlog on subscribe) — HTTP mentions stay the backfill.
+const TWEETS_PER_MINT_MAX = 30;
+const TWEETS_MINTS_MAX = 500;
+const tweetsByMint = new Map(); // mint -> MentionItem[] (newest first)
+const tweetsAt = new Map(); // mint -> last insert timestamp (for pruning)
+
 function resolveSupply(address) {
   if (supplyCache.has(address)) return Promise.resolve(supplyCache.get(address));
   const inflight = supplyInFlight.get(address);
@@ -87,12 +97,79 @@ async function doResolveSupply(address) {
   }
 }
 
+function mapTweetItem(item) {
+  if (!item || item.ti == null || !item.t || !item.t.a) return null;
+  const content = item.c || {};
+  const media = Array.isArray(content.m)
+    ? content.m.filter((m) => m && m.u).map((m) => ({ type: m.t || 'image', url: m.u }))
+    : [];
+  return {
+    tweet_id: String(item.ti),
+    tw_type: typeof item.tw === 'string' ? item.tw : 'tweet',
+    tw_timestamp: item.ts ? Number(item.ts) : null,
+    user: {
+      screen_name: item.u?.s ?? null,
+      name: item.u?.n ?? null,
+      avatar: item.u?.a ?? null,
+      followers: Number(item.u?.f) || 0,
+    },
+    content: { text: content.t || '', media },
+    live: true,
+  };
+}
+
+function pruneTweetMints() {
+  if (tweetsByMint.size <= TWEETS_MINTS_MAX) return;
+  const sorted = [...tweetsAt.entries()].sort((a, b) => a[1] - b[1]);
+  const drop = tweetsByMint.size - TWEETS_MINTS_MAX;
+  for (let i = 0; i < drop; i++) {
+    tweetsByMint.delete(sorted[i][0]);
+    tweetsAt.delete(sorted[i][0]);
+  }
+}
+
+function handleTwitterMessage(item) {
+  if (!item || !item.t || !item.t.a) return;
+  const mint = String(item.t.a);
+  const topic = `token_tweets:${mint}`;
+
+  if (item.tw === 'delete_post') {
+    const id = item.ti != null ? String(item.ti) : null;
+    const buf = tweetsByMint.get(mint);
+    if (!buf || !id) return;
+    const next = buf.filter((t) => t.tweet_id !== id);
+    if (next.length === buf.length) return;
+    tweetsByMint.set(mint, next);
+    broadcast(topic, { event: topic, type: 'tweet_delete', address: mint, data: { tweet_id: id } });
+    return;
+  }
+
+  const mapped = mapTweetItem(item);
+  if (!mapped) return;
+  let buf = tweetsByMint.get(mint);
+  if (!buf) {
+    buf = [];
+    tweetsByMint.set(mint, buf);
+  }
+  if (buf.some((t) => t.tweet_id === mapped.tweet_id)) return;
+  buf.unshift(mapped);
+  if (buf.length > TWEETS_PER_MINT_MAX) buf.length = TWEETS_PER_MINT_MAX;
+  tweetsAt.set(mint, Date.now());
+  pruneTweetMints();
+  broadcast(topic, { event: topic, type: 'tweet', address: mint, data: mapped });
+}
+
 function handleMessage(raw) {
   try {
     const msg = JSON.parse(raw.toString());
     if (msg.channel === 'ack' || !msg.data) return;
 
     for (const item of msg.data) {
+      if (msg.channel === 'twitter_monitor_token') {
+        handleTwitterMessage(item);
+        continue;
+      }
+
       if (msg.channel === 'token_stat' && item.a) {
         const address = item.a;
         const existing = tokenData.get(address) || {};
@@ -237,6 +314,7 @@ async function connect() {
     for (const address of subscribedTokens) {
       subscribeToken(address);
     }
+    subscribeTwitterMonitor(socket);
     pump(socket);
   } catch (err) {
     console.error('[gmgn-ws] connect failed:', err.message);
@@ -281,10 +359,52 @@ export function startGmgnWs() {
   connect();
 }
 
+function subscribeTwitterMonitor(socket) {
+  // One global subscription: GMGN ignores `addresses` for this channel and
+  // pushes every token-tagged tweet (verified with bogus + real addresses).
+  socket
+    .sendStr(
+      JSON.stringify({
+        action: 'subscribe',
+        channel: 'twitter_monitor_token',
+        f: 'w',
+        id: 'gmgn_twitter_monitor_token_all',
+        data: [{ chain: 'sol', addresses: '1111111111111111111111111111111111111111111' }],
+      }),
+    )
+    .then(() => console.log('[gmgn-ws] subscribed twitter_monitor_token'))
+    .catch((err) => console.error('[gmgn-ws] twitter subscribe failed:', err.message));
+}
+
 export function subscribeTokenRealtime(address) {
   subscribeToken(address);
 }
 
 export function getTokenRealtimeData(address) {
   return tokenData.get(address) || null;
+}
+
+/** Live buffered tweets for a mint (newest first, capped at 30). */
+export function getLiveTweets(address) {
+  return tweetsByMint.get(String(address)) || [];
+}
+
+/**
+ * Merge HTTP mention backfill with the live buffer, deduping by tweet_id
+ * (the HTTP item wins — it carries extra fields like `verified`) and sorting
+ * newest first.
+ */
+export function mergeTweetItems(baseItems, liveItems) {
+  const byId = new Map();
+  const noId = [];
+  for (const t of baseItems || []) {
+    if (t && t.tweet_id != null) byId.set(String(t.tweet_id), t);
+    else if (t) noId.push(t);
+  }
+  for (const t of liveItems || []) {
+    if (t && t.tweet_id != null && !byId.has(String(t.tweet_id))) byId.set(String(t.tweet_id), t);
+  }
+  const merged = [...byId.values(), ...noId];
+  merged.sort((a, b) => (Number(b.tw_timestamp) || 0) - (Number(a.tw_timestamp) || 0));
+  return merged;
 }

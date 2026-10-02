@@ -5,7 +5,7 @@ import { trenchesFilters } from '../stores.js';
 import { buildParamsFromConfig, TRENCH_TABS } from './trenches-filters.js';
 import { fetchTrenches } from '../cli/args.js';
 import { ensureWorkers, connectionForTab } from './trenches-refresher.js';
-import { subscribeTokenRealtime } from './gmgn-ws.js';
+import { subscribeTokenRealtime, getLiveTweets } from './gmgn-ws.js';
 import { subscribeCieloToken, unsubscribeCieloToken } from './cielo-ws.js';
 
 /**
@@ -30,6 +30,7 @@ import { subscribeCieloToken, unsubscribeCieloToken } from './cielo-ws.js';
  *   token:{chain}:{address}
  *   token_mcap:{address}
  *   token_cielo:{address}
+ *   token_tweets:{address}
  *   portfolio:{deviceId}
  *   sol_price
  */
@@ -89,6 +90,11 @@ function handleMessage(client, msg) {
     if (msg.topic.startsWith('token_cielo:')) {
       const address = msg.topic.replace('token_cielo:', '');
       subscribeCieloToken(address);
+    }
+    // Push the live tweet buffer immediately for token_tweets topics
+    if (msg.topic.startsWith('token_tweets:')) {
+      const address = msg.topic.replace('token_tweets:', '');
+      sendTo(client, { event: msg.topic, type: 'snapshot', address, data: getLiveTweets(address) });
     }
   } else if (msg.action === 'unsubscribe' && typeof msg.topic === 'string') {
     client.subscriptions.delete(msg.topic);
