@@ -87,29 +87,14 @@ const TrackingCard = React.memo(function TrackingCard({ item, theme }: {
                 {fmtUsd(item.mcap, { compact: true })}
               </ThemedText>
             )}
-            {item.checks > 0 && (
-              <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>
-                {item.checks} chequeos
-              </ThemedText>
-            )}
           </View>
         </View>
 
-        <View style={styles.statsRow}>
-          {item.liquidity != null && item.liquidity > 0
-            ? stat('water', `Liq ${fmtUsd(item.liquidity, { compact: true })}`, theme.textSecondary)
-            : null}
-          {!active && item.stopped_at ? stat('pause', fmtTime(item.stopped_at), theme.negative) : null}
-        </View>
-
-        <View style={styles.cardFooter}>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {shortAddress(item.address)}
-          </ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>
-            {active && item.last_dex_check ? `DEX ${fmtTime(item.last_dex_check)}` : ''}
-          </ThemedText>
-        </View>
+        {!active && item.stopped_at ? (
+          <View style={styles.statsRow}>
+            {stat('pause', fmtTime(item.stopped_at), theme.negative)}
+          </View>
+        ) : null}
       </Card>
     </Pressable>
   );
@@ -263,6 +248,5 @@ const styles = StyleSheet.create({
   cardRight: { alignItems: 'flex-end', gap: 2 },
   statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   empty: { textAlign: 'center', marginTop: 40, opacity: 0.5 },
 });
