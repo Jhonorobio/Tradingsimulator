@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Image, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -137,7 +137,6 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onT
   const base = item.base;
   const snap = base.snapshots?.[0] ?? null;
   const mcap = snap?.usd_market_cap ?? snap?.market_cap ?? base.mcap;
-  const vol = snap?.volume_24h ?? base.vol24h ?? 0;
   const snapCount = item.snapshots.length;
 
   // Gain across the merged timeline: first mcap vs highest mcap.
@@ -148,17 +147,19 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onT
     <Pressable>
       <Card style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.cardHeader}>
-          {item.logo ? (
-            <View style={[styles.logo, { backgroundColor: theme.backgroundSelected }]}>
+          <View style={[styles.logo, { backgroundColor: theme.backgroundSelected }]}>
+            {item.logo ? (
+              <Image source={{ uri: item.logo }} style={styles.logoImg} />
+            ) : (
               <ThemedText type="small">{item.symbol?.charAt(0) || '?'}</ThemedText>
-            </View>
-          ) : null}
+            )}
+          </View>
           <View style={styles.cardInfo}>
             <ThemedText type="smallBold" style={{ color: theme.text }}>
               {item.symbol || item.name || shortAddress(item.address)}
             </ThemedText>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {item.chain.toUpperCase()}
+            <ThemedText type="small" style={{ color: theme.textSecondary }} numberOfLines={1}>
+              {item.name || item.chain.toUpperCase()}
             </ThemedText>
           </View>
           <View style={styles.cardRight}>
@@ -171,9 +172,6 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onT
                   </ThemedText>
                 )}
               </View>
-            )}
-            {vol != null && vol > 0 && (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>Vol {fmtUsd(vol, { compact: true })}</ThemedText>
             )}
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {fmtClock(firstNotifiedAt(item))}
@@ -529,7 +527,8 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 16, paddingBottom: 40 },
   card: { marginBottom: 8, padding: 12 },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
-  logo: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  logo: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 10, overflow: 'hidden' },
+  logoImg: { width: 32, height: 32, borderRadius: 16 },
   cardInfo: { flex: 1 },
   cardRight: { alignItems: 'flex-end' },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
