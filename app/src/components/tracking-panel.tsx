@@ -13,7 +13,7 @@ const REFRESH_MS = 10_000;
 const STOP_LABELS: Record<string, string> = {
   mcap_below_8k: 'MCap < 8K',
   mcap_below_10k: 'MCap < 10K',
-  no_pairs: 'Sin par',
+  no_pairs: 'Sin datos',
   max_age: '1h cumplida',
 };
 

@@ -4,10 +4,12 @@
  * Ingests every token that shows up in trenches or photon into a persistent
  * watchlist (it survives disappearing from the lists) and then, on a 10s tick:
  *
- *   1. Dexscreener phase (free, batch of 30 addresses per request)
- *     - mcap < 8_000            -> stop tracking (mcap_below_8k)
- *     - 3 checks w/o any pair   -> stop tracking (no_pairs)
- *     - older than 1h           -> stop tracking (max_age)
+ *   1. Market phase (Azura WSS push — no polling):
+ *      - mcap < 8_000            -> stop tracking (mcap_below_8k)
+ *      - no message in first 5m  -> stop tracking (no_pairs)
+ *      - older than 1h           -> stop tracking (max_age)
+ *      mcap/liquidity are refreshed live by azura-ws callbacks while the
+ *      token is active (subscribe on ingest, unsubscribe on stop).
  *
  *   2. Tweet phase (GMGN mentions) — ONLY while at least one device has a
  *      `tracker_tweets` flag enabled, and only for tracked tokens whose source
@@ -33,7 +35,7 @@
  */
 
 import { tokenWatchlist, notificationConfig, notificationHistory, tweetCondCounts, pushSubscriptions } from '../stores.js';
-import { fetchTokensBatch } from './dexscreener.js';
+import { startAzura, stopAzura, azuraSubscribe, azuraUnsubscribe, getAzuraStatus } from './azura-ws.js';
 import { getMentions, getMentionsStatus } from './gmgn-mentions.js';
 import { getLiveTweets } from './gmgn-ws.js';
 import { sendPush } from './push.js';
@@ -42,7 +44,7 @@ import { broadcast } from './ws-server.js';
 const TICK_MS = Number(process.env.XTRACKER_TICK_MS) || 10_000;
 const MAX_AGE_MS = 60 * 60 * 1000;   // 1h rastreando como máximo
 const MAX_MCAP = 8_000;              // por debajo se deja de rastrear
-const NO_PAIRS_MAX = 3;              // chequeos consecutivos sin par
+const SILENCE_MS = 5 * 60 * 1000;    // sin datos Azura en 5 min desde el alta → no_pairs
 const PRUNE_STOPPED_MS = 24 * 60 * 60 * 1000; // tokens detenidos se borran a las 24h
 
 // Tweet phase
@@ -128,7 +130,7 @@ function newEntry(address, token) {
     mcap: null,
     liquidity: null,
     checks: 0,
-    no_pairs: 0,
+    last_market_msg: null,
     last_dex_check: null,
     last_x_check: null,
     tweets: { notified_ids: [] },
@@ -157,7 +159,7 @@ export function ingestTrenches(tokens, category) {
       e.stopped_at = null;
       e.first_seen = now;
       e.checks = 0;
-      e.no_pairs = 0;
+      e.last_market_msg = null;
     }
     if (t.symbol != null) e.symbol = t.symbol;
     if (t.name != null) e.name = t.name;
@@ -168,6 +170,7 @@ export function ingestTrenches(tokens, category) {
     if (mcap != null) e.mcap = mcap;
     const liq = t.liquidity ?? null;
     if (liq != null) e.liquidity = liq;
+    azuraSubscribe(t.address);
     dirty = true;
   }
   return added;
@@ -178,6 +181,7 @@ function stopEntry(e, reason) {
   e.status = 'stopped';
   e.stop_reason = reason;
   e.stopped_at = new Date().toISOString();
+  azuraUnsubscribe(e.address);
   dirty = true;
   console.log(`[tracker] stop ${e.symbol || e.address} (${reason})`);
 }
@@ -317,51 +321,45 @@ function enabledTweetCategories(devices) {
   return set;
 }
 
-// ─── dexscreener phase ──────────────────────────────────────────────────────
+// ─── market phase (Azura WSS push) ─────────────────────────────────────────
 
-async function dexPhase() {
-  const active = activeEntries();
-  if (!active.length) return;
-
+/**
+ * Applies the stop rules that don't need a live quote: max age and the
+ * silence window (a token that never got an Azura message within
+ * SILENCE_MS of its first sighting is treated as having no tradeable pair).
+ * mcap_below_8k fires directly in handleMarketUpdate for lower latency.
+ */
+function marketPhase() {
   const now = Date.now();
-
-  // mcap max age applies even if the batch request fails
-  for (const e of active) {
-    if (now - new Date(e.first_seen).getTime() >= MAX_AGE_MS) stopEntry(e, 'max_age');
-  }
-  const live = active.filter((e) => e.status === 'active');
-  if (!live.length) return;
-
-  const { results, failed } = await fetchTokensBatch(live.map((e) => e.address));
-  lastDexAt = new Date().toISOString();
-
-  for (let i = 0; i < live.length; i++) {
-    const e = live[i];
-    if (e.status !== 'active') continue;
-    if (now - new Date(e.first_seen).getTime() >= MAX_AGE_MS) { stopEntry(e, 'max_age'); continue; }
-
-    const info = results[i];
-    if (failed.has(e.address)) continue; // HTTP error: unknown, don't count
-
-    e.checks += 1;
-    e.last_dex_check = new Date(now).toISOString();
-
-    if (!info) {
-      e.no_pairs += 1;
-      if (e.no_pairs >= NO_PAIRS_MAX) stopEntry(e, 'no_pairs');
-      dirty = true;
+  for (const e of activeEntries()) {
+    const age = now - new Date(e.first_seen).getTime();
+    if (age >= MAX_AGE_MS) {
+      stopEntry(e, 'max_age');
       continue;
     }
-
-    e.no_pairs = 0;
-    // marketCap is missing on some pairs; fdv is always >= mcap so it is a
-    // safe fallback that keeps the "stop below 8k" rule from never firing.
-    e.mcap = info.marketCap ?? info.fdv ?? null;
-    e.liquidity = info.liquidity ?? e.liquidity;
-    dirty = true;
-
-    if (e.mcap != null && e.mcap < MAX_MCAP) stopEntry(e, 'mcap_below_8k');
+    if (!e.last_market_msg && age >= SILENCE_MS) {
+      stopEntry(e, 'no_pairs');
+    }
   }
+}
+
+/** Azura push callback: refreshes the entry and applies the mcap floor. */
+function handleMarketUpdate(data) {
+  const e = watchlist[data.address];
+  if (!e) return;
+  if (e.status !== 'active') {
+    azuraUnsubscribe(data.address);
+    return;
+  }
+  e.checks += 1;
+  const nowIso = new Date().toISOString();
+  e.last_market_msg = nowIso;
+  e.last_dex_check = nowIso;
+  lastDexAt = nowIso;
+  if (data.mcap != null) e.mcap = data.mcap;
+  if (data.liquidity != null) e.liquidity = data.liquidity;
+  dirty = true;
+  if (e.mcap != null && e.mcap < MAX_MCAP) stopEntry(e, 'mcap_below_8k');
 }
 
 // ─── tweet phase ────────────────────────────────────────────────────────────
@@ -587,9 +585,9 @@ async function tick() {
   lastTickAt = new Date().toISOString();
   try {
     pruneStopped();
-    await dexPhase();
+    marketPhase();
   } catch (err) {
-    console.error('[tracker] dex phase error:', err.message);
+    console.error('[tracker] market phase error:', err.message);
   }
 
   try {
@@ -608,6 +606,8 @@ async function tick() {
 
 export function startXTrackerWatcher({ onError = () => {} } = {}) {
   if (timer) return getXTrackerStatus();
+  startAzura(handleMarketUpdate);
+  for (const e of activeEntries()) azuraSubscribe(e.address);
   timer = setInterval(() => {
     tick().catch((err) => {
       console.error('[tracker] tick error:', err.message);
@@ -615,13 +615,14 @@ export function startXTrackerWatcher({ onError = () => {} } = {}) {
     });
   }, TICK_MS);
   tick().catch(() => {});
-  console.log(`[tracker] watcher started (tick ${TICK_MS}ms, max age ${MAX_AGE_MS / 60000}m, mcap floor ${MAX_MCAP})`);
+  console.log(`[tracker] watcher started (tick ${TICK_MS}ms, max age ${MAX_AGE_MS / 60000}m, mcap floor ${MAX_MCAP}, silence ${SILENCE_MS / 60000}m)`);
   return getXTrackerStatus();
 }
 
 export function stopXTrackerWatcher() {
   if (timer) clearInterval(timer);
   timer = null;
+  stopAzura();
 }
 
 function mapWatchToken(e) {
@@ -641,7 +642,6 @@ function mapWatchToken(e) {
     mcap: e.mcap ?? null,
     liquidity: e.liquidity ?? null,
     checks: e.checks || 0,
-    no_pairs: e.no_pairs || 0,
     last_dex_check: e.last_dex_check ?? null,
     age_seconds: Number.isFinite(firstSeen) ? Math.max(0, Math.round((Date.now() - firstSeen) / 1000)) : null,
   };
@@ -703,7 +703,8 @@ export function getXTrackerStatus() {
   return {
     running: timer != null,
     tickMs: TICK_MS,
-    rules: { maxAgeMs: MAX_AGE_MS, maxMcap: MAX_MCAP, noPairsMax: NO_PAIRS_MAX },
+    rules: { maxAgeMs: MAX_AGE_MS, maxMcap: MAX_MCAP, silenceMs: SILENCE_MS },
+    azura: getAzuraStatus(),
     total: entries.length,
     active: active.length,
     stopped: entries.length - active.length,
