@@ -1,21 +1,7 @@
 import { Router } from 'express';
 import * as trading from '../services/trading.js';
-import { getTokenInfo as dexGetTokenInfo } from '../services/dexscreener.js';
 
 const router = Router();
-
-const SOL_MINT = 'So11111111111111111111111111111111111111112';
-const SOL_PRICE_FALLBACK = 150;
-
-async function solPriceUsd() {
-  try {
-    const info = await dexGetTokenInfo(SOL_MINT);
-    if (info?.price) return Number(info.price);
-  } catch {
-    // fall through to fallback
-  }
-  return SOL_PRICE_FALLBACK;
-}
 
 function deviceId(req) {
   const id = req.headers['x-device-id'] || req.params.deviceId;
@@ -38,9 +24,8 @@ function fail(res, err, status = 500) {
 router.get('/wallet', async (req, res) => {
   try {
     const id = deviceId(req);
-    const solPrice = await solPriceUsd();
-    const wallet = trading.getWallet(id, { solPrice });
-    res.json({ wallet, sol_price: solPrice });
+    const wallet = trading.getWallet(id);
+    res.json({ wallet });
   } catch (err) {
     fail(res, err);
   }

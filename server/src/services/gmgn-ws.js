@@ -1,5 +1,4 @@
 import { broadcast } from './ws-server.js';
-import { getTokenInfo as getDexTokenInfo } from './dexscreener.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -45,8 +44,6 @@ let ws = null;
 let reconnectTimer = null;
 const subscribedTokens = new Set();
 const tokenData = new Map();
-const supplyCache = new Map(); // address -> supply (resolved once per token)
-const supplyInFlight = new Map(); // address -> in-flight promise (dedupe)
 
 // ─── twitter_monitor_token (GMGN firehose of token-tagged tweets) ───────────
 // Validated empirically: the `addresses` field is IGNORED by GMGN (a bogus
@@ -57,45 +54,6 @@ const TWEETS_PER_MINT_MAX = 30;
 const TWEETS_MINTS_MAX = 500;
 const tweetsByMint = new Map(); // mint -> MentionItem[] (newest first)
 const tweetsAt = new Map(); // mint -> last insert timestamp (for pruning)
-
-function resolveSupply(address) {
-  if (supplyCache.has(address)) return Promise.resolve(supplyCache.get(address));
-  const inflight = supplyInFlight.get(address);
-  if (inflight) return inflight;
-  const p = doResolveSupply(address).finally(() => supplyInFlight.delete(address));
-  supplyInFlight.set(address, p);
-  return p;
-}
-
-async function doResolveSupply(address) {
-  if (supplyCache.has(address)) return supplyCache.get(address);
-  try {
-    const dex = await getDexTokenInfo(address);
-    const price = Number(dex?.price);
-    const mc = Number(dex?.fdv ?? dex?.marketCap);
-    const supply = price > 0 && mc > 0 ? mc / price : null;
-    console.log(`[gmgn-ws] resolveSupply ${address} -> ${supply ?? 'null'} (dexscreener)`);
-    if (supply) {
-      supplyCache.set(address, supply);
-      const d = tokenData.get(address) || {};
-      const updated = { ...d, supply, updatedAt: Date.now() };
-      if (updated.price) updated.mcap = updated.price * supply;
-      tokenData.set(address, updated);
-      if (updated.mcap) {
-        broadcast(`token_mcap:${address}`, {
-          event: `token_mcap:${address}`,
-          type: 'supply',
-          address,
-          data: updated,
-        });
-      }
-    }
-    return supply;
-  } catch (err) {
-    console.error(`[gmgn-ws] resolveSupply failed ${address}:`, err.message);
-    return null;
-  }
-}
 
 function mapTweetItem(item) {
   if (!item || item.ti == null || !item.t || !item.t.a) return null;
@@ -181,13 +139,6 @@ function handleMessage(raw) {
           sells1h: item.s1h,
           updatedAt: Date.now(),
         };
-        if (!data.supply) {
-          const s = supplyCache.get(address);
-          if (s) data = { ...data, supply: s };
-        }
-        if (data.price && data.supply) {
-          data = { ...data, mcap: data.price * data.supply };
-        }
         tokenData.set(address, data);
         broadcast(`token_mcap:${address}`, {
           event: `token_mcap:${address}`,
@@ -209,23 +160,15 @@ function handleMessage(raw) {
           timestamp: item.t,
         };
         let data = { ...existing, kline, updatedAt: Date.now() };
-        if (!data.supply) {
-          const s = supplyCache.get(address);
-          if (s) data = { ...data, supply: s };
-        }
         const price = Number(kline.close);
-        if (price && data.supply) {
-          data = { ...data, price: data.price ?? price, mcap: price * data.supply };
-        }
+        if (price) data = { ...data, price: data.price ?? price };
         tokenData.set(address, data);
-        if (data.mcap) {
-          broadcast(`token_mcap:${address}`, {
-            event: `token_mcap:${address}`,
-            type: 'kline',
-            address,
-            data,
-          });
-        }
+        broadcast(`token_mcap:${address}`, {
+          event: `token_mcap:${address}`,
+          type: 'kline',
+          address,
+          data,
+        });
       }
 
       if (msg.channel === 'token_page' && item.ta) {
@@ -332,9 +275,7 @@ function scheduleReconnect() {
 }
 
 function subscribeToken(address) {
-  const first = !subscribedTokens.has(address);
   subscribedTokens.add(address);
-  if (first) resolveSupply(address);
   if (!ws) return;
 
   const channels = [
