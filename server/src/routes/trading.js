@@ -46,42 +46,4 @@ router.get('/wallet', async (req, res) => {
   }
 });
 
-/**
- * POST /api/wallet/reset
- * Body: { budget?, gas_sol? } — budget is USD, converted to the SOL budget at SOL price.
- */
-router.post('/wallet/reset', async (req, res) => {
-  try {
-    const id = deviceId(req);
-    const solPrice = await solPriceUsd();
-    const wallet = trading.resetWallet(id, {
-      budget: Number(req.body.budget) || 10000,
-      gasSol: req.body.gas_sol != null ? Number(req.body.gas_sol) : undefined,
-      solPrice,
-    });
-    res.json({ wallet, sol_price: solPrice });
-  } catch (err) {
-    fail(res, err);
-  }
-});
-
-/**
- * POST /api/wallet/convert
- * Body: { direction: 'usd_to_sol' | 'sol_to_usd', amount }
- */
-router.post('/wallet/convert', async (req, res) => {
-  try {
-    const id = deviceId(req);
-    const solPrice = await solPriceUsd();
-    const wallet = trading.convert(id, {
-      direction: req.body.direction,
-      amount: Number(req.body.amount),
-      solPrice,
-    });
-    res.json({ wallet, sol_price: solPrice });
-  } catch (err) {
-    fail(res, err);
-  }
-});
-
 export default router;
