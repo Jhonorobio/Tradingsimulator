@@ -138,31 +138,11 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onT
   const snap = base.snapshots?.[0] ?? null;
   const mcap = snap?.usd_market_cap ?? snap?.market_cap ?? base.mcap;
   const vol = snap?.volume_24h ?? base.vol24h ?? 0;
-  const sm = snap?.smart_degen_count ?? base.smart_degen_count;
-  const kol = snap?.renowned_count ?? base.renowned_count;
-  const fresh = snap?.fresh_wallet_rate ?? base.fresh_wallet_rate;
-  const botCount = snap?.bot_degen_count ?? base.bot_degen_count;
-  const botRate = snap?.bot_degen_rate ?? base.bot_degen_rate;
-  const rug = snap?.rug_ratio ?? base.rug_ratio;
-  const bundler = snap?.bundler_rate ?? snap?.bundler_trader_amount_rate ?? base.bundler_rate ?? base.bundler_trader_amount_rate;
-  const entrap = snap?.entrapment_ratio ?? base.entrapment_ratio;
-  const bundleCnt = base.bundle_holders_count ?? null;
-  const buys = base.buys_count ?? null;
-  const tpHolders = base.tp_holders_count ?? null;
-  const topHolders = base.top_holders_rate ?? null;
-  const holdersTotal = base.holders_count ?? null;
   const snapCount = item.snapshots.length;
 
   // Gain across the merged timeline: first mcap vs highest mcap.
   const gainVal = calcGain(item);
   const gainPct = gainVal !== 0 ? gainVal : null;
-
-  const stat = (icon: string, value: string, color: string) => (
-    <View style={styles.statItem}>
-      <Ionicons name={icon as any} size={12} color={color} />
-      <ThemedText type="small" style={{ color }}>{value}</ThemedText>
-    </View>
-  );
 
   return (
     <Pressable>
@@ -219,22 +199,6 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onT
             ))}
           </View>
         )}
-
-        <View style={styles.statsRow}>
-          {sm != null && sm > 0 && stat('wallet', `${sm}`, theme.accent)}
-          {kol != null && kol > 0 && stat('people', `${kol}`, theme.accent)}
-          {fresh != null && fresh > 0 && stat('leaf', `${(fresh * 100).toFixed(0)}%`, theme.positive)}
-          {((botCount != null && botCount > 0) || (botRate != null && botRate > 0)) &&
-            stat('hardware-chip', `${botCount ?? 0}/${(botRate != null ? (botRate * 100).toFixed(0) : '0')}%`, theme.warn)}
-          {tpHolders != null && tpHolders > 0 && stat('hardware-chip', String(tpHolders), theme.warn)}
-          {topHolders != null && topHolders > 0 && stat('stats-chart', `${(topHolders * 100).toFixed(1)}%`, topHolders > 0.5 ? theme.warn : theme.accent)}
-          {holdersTotal != null && holdersTotal > 0 && stat('person', fmtNum(holdersTotal), theme.accent)}
-          {rug != null && rug > 0 && stat('warning', `${(rug * 100).toFixed(0)}%`, theme.negative)}
-          {bundler != null && bundler > 0 && stat('layers', `${(bundler * 100).toFixed(0)}%`, '#f97316')}
-          {bundleCnt != null && bundleCnt > 0 && stat('cube', String(bundleCnt), '#f97316')}
-          {buys != null && buys > 0 && stat('cart', String(buys), theme.accent)}
-          {entrap != null && entrap > 0 && stat('fish', `${(entrap * 100).toFixed(0)}%`, '#ef4444')}
-        </View>
 
         {item.tweetTimes.length ? (
           <View style={styles.tweetRow}>
@@ -568,11 +532,9 @@ const styles = StyleSheet.create({
   logo: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   cardInfo: { flex: 1 },
   cardRight: { alignItems: 'flex-end' },
-  statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   tweetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 },
-  statItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   snapToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   timeline: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
