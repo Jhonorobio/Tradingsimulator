@@ -6,9 +6,11 @@ import { ThemedText } from '@/components/themed-text';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
 import { getXTrackerTokens, type XTrackerToken, type XTrackerTokensResponse } from '@/api/market';
+import { useWs, type TrackerSummary } from '@/store/ws';
 import { fmtUsd, shortAddress } from '@/utils/format';
 
-const REFRESH_MS = 10_000;
+// Fallback poll — the WS push is the primary path, this is just the safety net.
+const REFRESH_MS = 1_000;
 
 const STOP_LABELS: Record<string, string> = {
   mcap_below_8k: 'MCap < 8K',
@@ -32,6 +34,13 @@ function fmtTime(iso?: string | null): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/** Whether a live WS update should replace the copy we already render. */
+function isFresher(u: XTrackerToken, cur: XTrackerToken): boolean {
+  if (u.status !== cur.status) return true;
+  if (!u.last_dex_check || !cur.last_dex_check) return true;
+  return u.last_dex_check >= cur.last_dex_check;
 }
 
 const TrackingCard = React.memo(function TrackingCard({ item, theme }: {
@@ -113,6 +122,11 @@ export function TrackingPanel() {
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
+  const trackerLive = useWs((s) => s.tracker);
+  const liveSummary = useWs((s) => s.trackerSummary);
+  const subscribeTracker = useWs((s) => s.subscribeTracker);
+  const unsubscribeTracker = useWs((s) => s.unsubscribeTracker);
+
   const load = useCallback(async () => {
     try {
       const res = await getXTrackerTokens({ status: 'all', limit: 1000 });
@@ -131,6 +145,35 @@ export function TrackingPanel() {
     const timer = setInterval(load, REFRESH_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  // Live push: the 10s fetch stays as the fallback, the WS topic paints instantly.
+  useEffect(() => {
+    subscribeTracker();
+    return () => unsubscribeTracker();
+  }, [subscribeTracker, unsubscribeTracker]);
+
+  useEffect(() => {
+    const updates = Object.values(trackerLive);
+    if (updates.length === 0) return;
+    // Defer like `load` does: setState must not run synchronously in the effect.
+    const t = setTimeout(() => {
+      setTokens((prev) => {
+        const byAddr = new Map(prev.map((tok) => [tok.address, tok]));
+        let changed = false;
+        for (const u of updates) {
+          const cur = byAddr.get(u.address);
+          if (!cur) { byAddr.set(u.address, u); changed = true; continue; }
+          if (!isFresher(u, cur)) continue;
+          if (JSON.stringify(cur) !== JSON.stringify(u)) {
+            byAddr.set(u.address, { ...cur, ...u });
+            changed = true;
+          }
+        }
+        return changed ? Array.from(byAddr.values()) : prev;
+      });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [trackerLive]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -155,20 +198,22 @@ export function TrackingPanel() {
     />
   ), [theme]);
 
+  const shownSummary: TrackerSummary | null = liveSummary ?? summary;
+
   return (
     <View style={styles.panel}>
       <View style={[styles.summary, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
         <View style={styles.summaryItem}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>Activos</ThemedText>
-          <ThemedText type="smallBold" style={{ color: theme.positive }}>{summary?.active ?? 0}</ThemedText>
+          <ThemedText type="smallBold" style={{ color: theme.positive }}>{shownSummary?.active ?? 0}</ThemedText>
         </View>
         <View style={styles.summaryItem}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>Photon</ThemedText>
-          <ThemedText type="smallBold" style={{ color: theme.accent }}>{summary?.photon ?? 0}</ThemedText>
+          <ThemedText type="smallBold" style={{ color: theme.accent }}>{shownSummary?.photon ?? 0}</ThemedText>
         </View>
         <View style={styles.summaryItem}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>Trenches</ThemedText>
-          <ThemedText type="smallBold" style={{ color: theme.accent }}>{summary?.trenches ?? 0}</ThemedText>
+          <ThemedText type="smallBold" style={{ color: theme.accent }}>{shownSummary?.trenches ?? 0}</ThemedText>
         </View>
       </View>
 

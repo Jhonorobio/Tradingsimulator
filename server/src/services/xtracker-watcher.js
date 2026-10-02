@@ -167,6 +167,7 @@ export function ingestTrenches(tokens, category) {
     const liq = t.liquidity ?? null;
     if (liq != null) e.liquidity = liq;
     azuraSubscribe(t.address);
+    queueTrackerUpdate(t.address);
     dirty = true;
   }
   return added;
@@ -178,6 +179,7 @@ function stopEntry(e, reason) {
   e.stop_reason = reason;
   e.stopped_at = new Date().toISOString();
   azuraUnsubscribe(e.address);
+  queueTrackerUpdate(e.address);
   dirty = true;
   console.log(`[tracker] stop ${e.symbol || e.address} (${reason})`);
 }
@@ -317,6 +319,53 @@ function enabledTweetCategories(devices) {
   return set;
 }
 
+// ─── live push (app "Rastreando" card) ─────────────────────────────────────
+
+const TRACKER_FLUSH_MS = 500;
+const pendingTracker = new Set(); // addresses changed since last flush
+let trackerFlushTimer = null;
+
+/** Queues an entry for the next live broadcast (deduped per flush window). */
+function queueTrackerUpdate(address) {
+  if (!address) return;
+  pendingTracker.add(address);
+  if (trackerFlushTimer) return;
+  trackerFlushTimer = setTimeout(flushTrackerUpdates, TRACKER_FLUSH_MS);
+}
+
+/**
+ * Sends every queued entry (fresh from the watchlist) plus a recomputed
+ * summary on the `tracker` WS topic. Compactation keeps bursts — one
+ * token can emit several messages per flush window — down to one frame.
+ */
+function flushTrackerUpdates() {
+  trackerFlushTimer = null;
+  if (!pendingTracker.size) return;
+  const updates = {};
+  for (const address of pendingTracker) {
+    const e = watchlist[address];
+    if (e) updates[address] = mapWatchToken(e);
+  }
+  pendingTracker.clear();
+  broadcast('tracker', { event: 'tracker', data: { updates, summary: trackerSummary() } });
+}
+
+function trackerSummary() {
+  let active = 0;
+  let stopped = 0;
+  let photon = 0;
+  let trenches = 0;
+  for (const e of Object.values(watchlist)) {
+    if (!e) continue;
+    if (e.status !== 'active') { stopped += 1; continue; }
+    active += 1;
+    const cats = e.categories || [];
+    if (cats.some((c) => c === 'photon' || c === 'photon_new' || c === 'photon_graduated')) photon += 1;
+    if (cats.includes('new_creation') || cats.includes('completed')) trenches += 1;
+  }
+  return { active, stopped, photon, trenches };
+}
+
 // ─── market phase (Azura WSS push) ─────────────────────────────────────────
 
 /**
@@ -346,6 +395,7 @@ function handleMarketUpdate(data) {
   if (data.mcap != null) e.mcap = data.mcap;
   if (data.liquidity != null) e.liquidity = data.liquidity;
   dirty = true;
+  queueTrackerUpdate(data.address);
   if (e.mcap != null && e.mcap < MAX_MCAP) stopEntry(e, 'mcap_below_8k');
 }
 

@@ -20,12 +20,14 @@ import { ensureWorkers, connectionForTab } from './trenches-refresher.js';
  *     { event: "trenches_updated", tab: "new_creation", data: [...] }
  *     { event: "notification_new", data: {...} }
  *     { event: "memescope_updated", data: {...} }
+ *     { event: "tracker", data: { updates: {...}, summary: {...} } }
  *     { event: "pong" }
  *
  * Topics:
  *   trenches:new_creation | trenches:completed
  *   notifications:{deviceId}
  *   memscope
+ *   tracker
  */
 
 let wss = null;

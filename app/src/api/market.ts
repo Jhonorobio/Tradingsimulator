@@ -47,7 +47,6 @@ export interface XTrackerToken {
   mcap: number | null;
   liquidity: number | null;
   checks: number;
-  no_pairs: number;
   last_dex_check: string | null;
   age_seconds: number | null;
 }
