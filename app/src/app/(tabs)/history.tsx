@@ -67,6 +67,10 @@ interface UnifiedItem {
     events: { category: string; column?: 'new' | 'graduated' | null; label: string; notified_at: string }[];
   /** All snapshots from every notification, sorted oldest → newest. */
   snapshots: TokenSnapshot[];
+  /** Snapshots from trenches events (new_creation / completed) — the "Gmgn" toggle. */
+  gmgnSnapshots: TokenSnapshot[];
+  /** Snapshots from photon events — the "Photon" toggle. */
+  photonSnapshots: TokenSnapshot[];
   /** Union of tweet notification times, ascending. */
   tweetTimes: string[];
 }
@@ -93,6 +97,8 @@ function groupByAddress(history: NotificationHistoryItem[]): UnifiedItem[] {
         base: h,
         events: [],
         snapshots: [],
+        gmgnSnapshots: [],
+        photonSnapshots: [],
         tweetTimes: [],
       };
       map.set(h.address, u);
@@ -106,13 +112,19 @@ function groupByAddress(history: NotificationHistoryItem[]): UnifiedItem[] {
       }
     }
     u.events.push({ category: h.category, column: h.column, label: eventLabel(h.category, h.column), notified_at: h.notified_at });
-    if (h.snapshots?.length) u.snapshots.push(...h.snapshots);
+    if (h.snapshots?.length) {
+      u.snapshots.push(...h.snapshots);
+      if (h.category === 'photon') u.photonSnapshots.push(...h.snapshots);
+      else u.gmgnSnapshots.push(...h.snapshots);
+    }
     if (h.tweet_notified_at?.length) u.tweetTimes.push(...h.tweet_notified_at);
   }
   const out = Array.from(map.values());
   for (const u of out) {
     u.events.sort((a, b) => (a.notified_at || '').localeCompare(b.notified_at || ''));
     u.snapshots.sort((a, b) => (a.t || '').localeCompare(b.t || ''));
+    u.gmgnSnapshots.sort((a, b) => (a.t || '').localeCompare(b.t || ''));
+    u.photonSnapshots.sort((a, b) => (a.t || '').localeCompare(b.t || ''));
     u.tweetTimes = Array.from(new Set(u.tweetTimes)).sort();
   }
   return out;
@@ -129,15 +141,70 @@ function fmtClock(iso?: string | null): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onToggle }: {
+/** One expandable snapshot timeline (used once for Gmgn, once for Photon). */
+function SnapTimeline({ snaps, theme }: { snaps: TokenSnapshot[]; theme: any }) {
+  return (
+    <View style={[styles.timeline, { borderTopColor: theme.border }]}>
+      {snaps.map((s: TokenSnapshot, i: number) => {
+        const sMcap = s.usd_market_cap ?? s.market_cap;
+        const sVol = s.volume_24h;
+        const sSm = s.smart_degen_count;
+        const sKol = s.renowned_count;
+        const sFresh = s.fresh_wallet_rate;
+        const sBotCount = s.bot_degen_count;
+        const sBot = s.bot_degen_rate;
+        const sRug = s.rug_ratio;
+        const sBundler = s.bundler_rate ?? s.bundler_trader_amount_rate;
+        const sEntrap = s.entrapment_ratio;
+        const sBundleCnt = s.bundle_holders_count;
+        const sBuys = s.buys_count;
+        const sTpHolders = s.tp_holders_count;
+        const sTopHolders = s.top_holders_rate;
+        const sHolders = s.holders_count;
+        const snapStat = (icon: string, value: string, color: string) => (
+          <View style={styles.snapStatItem}>
+            <Ionicons name={icon as any} size={10} color={color} />
+            <ThemedText type="small" style={{ color, fontSize: 10 }}>{value}</ThemedText>
+          </View>
+        );
+        return (
+          <View key={i} style={[styles.snapRow, { borderBottomColor: theme.border }]}>
+            <ThemedText type="small" style={{ color: theme.textSecondary, width: 34, fontSize: 10 }}>
+              {new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+            </ThemedText>
+            {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 42, fontSize: 10 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
+            {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 42, fontSize: 10 }}>{fmtUsd(sVol, { compact: true })}</ThemedText>}
+            {sSm != null && sSm > 0 && snapStat('wallet', `${sSm}`, theme.accent)}
+            {sKol != null && sKol > 0 && snapStat('people', `${sKol}`, theme.accent)}
+            {sFresh != null && sFresh > 0 && snapStat('leaf', `${(sFresh * 100).toFixed(0)}%`, theme.positive)}
+            {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
+              snapStat('hardware-chip', `${sBotCount ?? 0}/${(sBot != null ? (sBot * 100).toFixed(0) : '0')}%`, theme.warn)}
+            {sTpHolders != null && sTpHolders > 0 && snapStat('hardware-chip', String(sTpHolders), theme.warn)}
+            {sTopHolders != null && sTopHolders > 0 && snapStat('stats-chart', `${(sTopHolders * 100).toFixed(1)}%`, sTopHolders > 0.5 ? theme.warn : theme.accent)}
+            {sHolders != null && sHolders > 0 && snapStat('person', fmtNum(sHolders), theme.accent)}
+            {sRug != null && sRug > 0 && snapStat('warning', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
+            {sBundler != null && sBundler > 0 && snapStat('layers', `${(sBundler * 100).toFixed(0)}%`, '#f97316')}
+            {sBundleCnt != null && sBundleCnt > 0 && snapStat('cube', String(sBundleCnt), '#f97316')}
+            {sBuys != null && sBuys > 0 && snapStat('cart', String(sBuys), theme.accent)}
+            {sEntrap != null && sEntrap > 0 && snapStat('fish', `${(sEntrap * 100).toFixed(0)}%`, '#ef4444')}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+const HistoryCard = React.memo(function HistoryCard({ item, theme, expandedGmgn, expandedPhoton, onToggleGmgn, onTogglePhoton }: {
   item: UnifiedItem; theme: any;
-  expanded: boolean; onToggle: () => void;
+  expandedGmgn: boolean; expandedPhoton: boolean;
+  onToggleGmgn: () => void; onTogglePhoton: () => void;
 }) {
   // Newest notification supplies the stats; snapshots are the merged timeline.
   const base = item.base;
   const snap = base.snapshots?.[0] ?? null;
   const mcap = snap?.usd_market_cap ?? snap?.market_cap ?? base.mcap;
-  const snapCount = item.snapshots.length;
+  const gmgnCount = item.gmgnSnapshots.length;
+  const photonCount = item.photonSnapshots.length;
 
   // Gain across the merged timeline: first mcap vs highest mcap.
   const gainVal = calcGain(item);
@@ -214,63 +281,24 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onT
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
             {shortAddress(item.address)}
           </ThemedText>
-          {snapCount > 1 && (
-            <Pressable onPress={onToggle} style={styles.snapToggle}>
-              <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={theme.accent} />
-              <ThemedText type="small" style={{ color: theme.accent }}>{snapCount} snapshots</ThemedText>
-            </Pressable>
-          )}
+          <View style={styles.togglesRow}>
+            {gmgnCount > 1 && (
+              <Pressable onPress={onToggleGmgn} style={styles.snapToggle}>
+                <Ionicons name={expandedGmgn ? 'chevron-up' : 'chevron-down'} size={14} color={theme.accent} />
+                <ThemedText type="small" style={{ color: theme.accent }}>{gmgnCount} snapshots Gmgn</ThemedText>
+              </Pressable>
+            )}
+            {photonCount > 1 && (
+              <Pressable onPress={onTogglePhoton} style={styles.snapToggle}>
+                <Ionicons name={expandedPhoton ? 'chevron-up' : 'chevron-down'} size={14} color={theme.accent} />
+                <ThemedText type="small" style={{ color: theme.accent }}>{photonCount} snapshots Photon</ThemedText>
+              </Pressable>
+            )}
+          </View>
         </View>
 
-        {expanded && item.snapshots && item.snapshots.length > 1 && (
-          <View style={[styles.timeline, { borderTopColor: theme.border }]}>
-            {item.snapshots.map((s: TokenSnapshot, i: number) => {
-              const sMcap = s.usd_market_cap ?? s.market_cap;
-              const sVol = s.volume_24h;
-              const sSm = s.smart_degen_count;
-              const sKol = s.renowned_count;
-              const sFresh = s.fresh_wallet_rate;
-              const sBotCount = s.bot_degen_count;
-              const sBot = s.bot_degen_rate;
-              const sRug = s.rug_ratio;
-              const sBundler = s.bundler_rate ?? s.bundler_trader_amount_rate;
-              const sEntrap = s.entrapment_ratio;
-              const sBundleCnt = s.bundle_holders_count;
-              const sBuys = s.buys_count;
-              const sTpHolders = s.tp_holders_count;
-              const sTopHolders = s.top_holders_rate;
-              const sHolders = s.holders_count;
-              const snapStat = (icon: string, value: string, color: string) => (
-                <View style={styles.snapStatItem}>
-                  <Ionicons name={icon as any} size={10} color={color} />
-                  <ThemedText type="small" style={{ color, fontSize: 10 }}>{value}</ThemedText>
-                </View>
-              );
-              return (
-                <View key={i} style={[styles.snapRow, { borderBottomColor: theme.border }]}>
-                  <ThemedText type="small" style={{ color: theme.textSecondary, width: 34, fontSize: 10 }}>
-                    {new Date(s.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
-                  </ThemedText>
-                  {sMcap != null && <ThemedText type="small" style={{ color: theme.text, width: 42, fontSize: 10 }}>{fmtUsd(sMcap, { compact: true })}</ThemedText>}
-                  {sVol != null && <ThemedText type="small" style={{ color: theme.textSecondary, width: 42, fontSize: 10 }}>{fmtUsd(sVol, { compact: true })}</ThemedText>}
-                  {sSm != null && sSm > 0 && snapStat('wallet', `${sSm}`, theme.accent)}
-                  {sKol != null && sKol > 0 && snapStat('people', `${sKol}`, theme.accent)}
-                  {sFresh != null && sFresh > 0 && snapStat('leaf', `${(sFresh * 100).toFixed(0)}%`, theme.positive)}
-                  {((sBotCount != null && sBotCount > 0) || (sBot != null && sBot > 0)) &&
-                    snapStat('hardware-chip', `${sBotCount ?? 0}/${(sBot != null ? (sBot * 100).toFixed(0) : '0')}%`, theme.warn)}
-                  {sTpHolders != null && sTpHolders > 0 && snapStat('hardware-chip', String(sTpHolders), theme.warn)}
-                  {sTopHolders != null && sTopHolders > 0 && snapStat('stats-chart', `${(sTopHolders * 100).toFixed(1)}%`, sTopHolders > 0.5 ? theme.warn : theme.accent)}
-                  {sHolders != null && sHolders > 0 && snapStat('person', fmtNum(sHolders), theme.accent)}
-                  {sRug != null && sRug > 0 && snapStat('warning', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
-                  {sBundler != null && sBundler > 0 && snapStat('layers', `${(sBundler * 100).toFixed(0)}%`, '#f97316')}
-                  {sBundleCnt != null && sBundleCnt > 0 && snapStat('cube', String(sBundleCnt), '#f97316')}
-                  {sBuys != null && sBuys > 0 && snapStat('cart', String(sBuys), theme.accent)}
-                  {sEntrap != null && sEntrap > 0 && snapStat('fish', `${(sEntrap * 100).toFixed(0)}%`, '#ef4444')}
-                </View>
-              );
-            })}
-          </View>
-        )}
+        {expandedGmgn && gmgnCount > 1 && <SnapTimeline snaps={item.gmgnSnapshots} theme={theme} />}
+        {expandedPhoton && photonCount > 1 && <SnapTimeline snaps={item.photonSnapshots} theme={theme} />}
       </Card>
     </Pressable>
   );
@@ -397,8 +425,10 @@ export default function HistoryScreen() {
     <HistoryCard
       item={item}
       theme={theme}
-      expanded={expandedIds.has(item.address)}
-      onToggle={() => toggleExpanded(item.address)}
+      expandedGmgn={expandedIds.has(item.address)}
+      expandedPhoton={expandedIds.has(`${item.address}:photon`)}
+      onToggleGmgn={() => toggleExpanded(item.address)}
+      onTogglePhoton={() => toggleExpanded(`${item.address}:photon`)}
     />
   ), [theme, expandedIds, toggleExpanded]);
 
@@ -534,7 +564,8 @@ const styles = StyleSheet.create({
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   tweetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, flexWrap: 'wrap', gap: 8 },
+  togglesRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   snapToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   timeline: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
   snapRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 1, borderBottomWidth: StyleSheet.hairlineWidth, gap: 2 },
