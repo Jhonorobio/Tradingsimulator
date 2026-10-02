@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Image, Linking, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -141,6 +141,12 @@ function fmtClock(iso?: string | null): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function gmgnUrl(chain: string, address: string): string {
+  const c = (chain || 'sol').toLowerCase();
+  const seg = c === 'solana' || c === 'sol' ? 'sol' : c;
+  return `https://gmgn.ai/${seg}/token/${address}`;
+}
+
 /** One expandable snapshot timeline (used once for Gmgn, once for Photon). */
 function SnapTimeline({ snaps, theme }: { snaps: TokenSnapshot[]; theme: any }) {
   return (
@@ -278,9 +284,18 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expandedGmgn,
         ) : null}
 
         <View style={styles.cardFooter}>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {shortAddress(item.address)}
-          </ThemedText>
+          <View style={styles.footerLeft}>
+            <Pressable
+              onPress={() => Linking.openURL(gmgnUrl(item.chain, item.address)).catch(() => {})}
+              style={[styles.gmgnBtn, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}
+            >
+              <Ionicons name="open-outline" size={12} color={theme.accent} />
+              <ThemedText type="small" style={{ color: theme.accent }}>Gmgn</ThemedText>
+            </Pressable>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              {shortAddress(item.address)}
+            </ThemedText>
+          </View>
           <View style={styles.togglesRow}>
             {gmgnCount > 1 && (
               <Pressable onPress={onToggleGmgn} style={styles.snapToggle}>
@@ -565,6 +580,8 @@ const styles = StyleSheet.create({
   chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   tweetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, flexWrap: 'wrap', gap: 8 },
+  footerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  gmgnBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   togglesRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   snapToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   timeline: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
