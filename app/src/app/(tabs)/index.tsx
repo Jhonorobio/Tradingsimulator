@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
+import { TrackingPanel } from '@/components/tracking-panel';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
 import { getWallet } from '@/api/trading';
@@ -69,9 +70,7 @@ export default function DashboardScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={theme.textSecondary} />}>
+        <View style={styles.header}>
           <ThemedText type="subtitle">Dashboard</ThemedText>
 
           {proxyStatuses.length > 0 && proxyStatuses.some((s) => !s.working) && (
@@ -99,7 +98,9 @@ export default function DashboardScreen() {
               {solPrice > 0 ? <SummaryItem label="Precio SOL" value={fmtUsd(solPrice, { decimals: 2 })} /> : null}
             </View>
           </Card>
-        </ScrollView>
+        </View>
+
+        <TrackingPanel />
       </SafeAreaView>
     </ThemedView>
   );
@@ -122,7 +123,7 @@ function SummaryItem({ label, value, color }: { label: string; value: string; co
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safe: { flex: 1 },
-  scroll: { padding: 16, gap: 12, paddingBottom: 40 },
+  header: { paddingHorizontal: 16, paddingTop: 12, gap: 12, paddingBottom: 4 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   centerText: { textAlign: 'center' },
   balanceCard: { gap: 14 },

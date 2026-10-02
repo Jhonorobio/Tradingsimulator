@@ -8,7 +8,6 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { WinnersPanel } from '@/components/winners-panel';
-import { TrackingPanel } from '@/components/tracking-panel';
 import { useTheme } from '@/hooks/use-theme';
 import { getNotificationHistory } from '@/api/notifications';
 import { useWs } from '@/store/ws';
@@ -27,7 +26,6 @@ const CATEGORY_OPTIONS = [
 
 const VIEW_TABS = [
   { key: 'history', label: 'Historial' },
-  { key: 'tracking', label: 'Rastreando' },
   { key: 'winners', label: 'Winners' },
 ] as const;
 type ViewKey = (typeof VIEW_TABS)[number]['key'];
@@ -377,8 +375,6 @@ export default function HistoryScreen() {
 
         {view === 'winners' ? (
           <WinnersPanel />
-        ) : view === 'tracking' ? (
-          <TrackingPanel />
         ) : (
           <>
             <View style={styles.chainTabs}>
