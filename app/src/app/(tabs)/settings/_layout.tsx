@@ -9,7 +9,6 @@ export default function SettingsLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="server" />
       <Stack.Screen name="proxies" />
-      <Stack.Screen name="budget" />
       <Stack.Screen name="notifications" />
       <Stack.Screen name="colors" />
     </Stack>

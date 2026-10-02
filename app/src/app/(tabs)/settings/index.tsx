@@ -12,7 +12,6 @@ import { clearHistory, clearWinners } from '@/api/notifications';
 const SECTIONS = [
   { key: 'server', label: 'Servidor', icon: 'server-outline' as const },
   { key: 'proxies', label: 'Proxies GMGN', icon: 'globe-outline' as const },
-  { key: 'budget', label: 'Presupuesto', icon: 'wallet-outline' as const },
   { key: 'notifications', label: 'Notificaciones', icon: 'notifications-outline' as const },
   { key: 'colors', label: 'Colores de métricas', icon: 'color-palette-outline' as const },
 ] as const;
