@@ -15,9 +15,8 @@ import type { ProxyConfig, ProxyTestResult } from '@/api/types';
 const TAB_LABELS: Record<string, string> = {
   new_creation: 'Nueva creación (SOL)',
   completed: 'Completado (SOL)',
-  token_info: 'Token Info (Detalle)',
 };
-const TAB_ORDER = ['new_creation', 'completed', 'token_info'];
+const TAB_ORDER = ['new_creation', 'completed'];
 
 export default function ProxiesScreen() {
   const theme = useTheme();
@@ -27,7 +26,6 @@ export default function ProxiesScreen() {
   const [proxyConfigs, setProxyConfigs] = useState<Record<string, ProxyConfig>>({
     new_creation: { url: '', apiKey: '' },
     completed: { url: '', apiKey: '' },
-    token_info: { url: '', apiKey: '' },
   });
   const [proxyTesting, setProxyTesting] = useState<Record<string, boolean>>({});
   const [proxyTestResults, setProxyTestResults] = useState<Record<string, ProxyTestResult | null>>({});
@@ -119,7 +117,7 @@ export default function ProxiesScreen() {
           <Card>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               Cada categoría usa su propia API key (rate limit independiente).
-              Nueva creación conecta directo; Completado y Token Info requieren además un proxy.
+              Nueva creación conecta directo; Completado requiere además un proxy.
             </ThemedText>
             <Pressable
               onPress={() => router.push('/proxy-tester')}

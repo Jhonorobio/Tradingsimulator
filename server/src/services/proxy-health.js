@@ -104,7 +104,7 @@ export function setTabStatus(tab, status) {
  * @param {import('../stores.js').proxyConfigs} proxyConfigsStore
  */
 export async function checkAllProxies(proxyConfigsStore) {
-  const tabs = ['new_creation', 'completed', 'token_info'];
+  const tabs = ['new_creation', 'completed'];
   const results = [];
   for (const tab of tabs) {
     const config = proxyConfigsStore.get(tab);
@@ -120,7 +120,7 @@ export async function checkAllProxies(proxyConfigsStore) {
       results.push(getTabStatus(tab));
       continue;
     }
-    // completed / token_info: proxy + API key required
+    // completed: proxy + API key required
     if (!config?.url || !config?.apiKey) {
       setTabStatus(tab, {
         tab,

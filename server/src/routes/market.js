@@ -29,7 +29,7 @@ function fail(res, err, status = 500) {
   res.status(status).json({ error: message });
 }
 
-const VALID_TABS = ['new_creation', 'completed', 'token_info'];
+const VALID_TABS = ['new_creation', 'completed'];
 
 /**
  * GET /api/market/proxies — returns saved proxy configs for all 3 tabs.
