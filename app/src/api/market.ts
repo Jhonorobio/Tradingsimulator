@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { GmgnStatus, ProxyConfig, ProxyStatus, ProxyTestResult, TokenDetail, TrenchesResponse } from './types';
+import type { GmgnStatus, ProxyConfig, ProxyStatus, ProxyTestResult, TrenchesResponse } from './types';
 
 /** The server owns the GMGN filter config; the app only asks for a tab. */
 export function getTrenches(tab: string) {
@@ -30,37 +30,6 @@ export function getPhotonFilters() {
 
 export function savePhotonFilters(filters: PhotonFilters) {
   return api.put<{ ok: boolean; filters: PhotonFilters }>('/api/market/memescope-filters', { filters });
-}
-
-export function getTokenDetail(chain: string, address: string) {
-  return api.get<TokenDetail>(`/api/market/token/${chain}/${address}`);
-}
-
-export interface MentionUser {
-  screen_name?: string;
-  name?: string;
-  avatar?: string;
-  followers?: number;
-  verified?: boolean;
-}
-
-export interface MentionItem {
-  tweet_id?: string;
-  tw_type?: string;
-  tw_timestamp?: string | number;
-  user?: MentionUser;
-  content?: { text?: string; media?: { type?: string; url?: string }[] };
-}
-
-export interface MentionsResponse {
-  items: MentionItem[];
-  cached?: boolean;
-  error?: string | null;
-}
-
-/** X/Twitter mentions for a token (server caches 60s; safe to poll). */
-export function getMentions(mint: string, limit = 20) {
-  return api.get<MentionsResponse>(`/api/market/mentions/${encodeURIComponent(mint)}?limit=${limit}`);
 }
 
 export interface XTrackerToken {
@@ -168,48 +137,6 @@ export function getMemescope() {
   return api.get<MemescopeResponse>('/api/market/memescope');
 }
 
-export function getLiveTokenPrice(chain: string, address: string) {
-  return api.get<{
-    price: number | null;
-    marketCap: number | null;
-    supply: number | null;
-    liquidity: number | null;
-    priceChange24h: number | null;
-  }>(`/api/market/token/${chain}/${address}/live`);
-}
-
-export function getTokenMarketCap(chain: string, address: string) {
-  return api.get<{ marketCap: number | null; source: 'gmgn' | 'dexscreener' }>(
-    `/api/market/token/${chain}/${address}/mcap`
-  );
-}
-
-export interface LiveMcapResponse {
-  marketCap: number | null;
-  time: number | null;
-  cached?: boolean;
-  error?: string | null;
-}
-
-/**
- * Live market cap (USD) from GMGN's internal candles endpoint via the server
- * (CycleTLS). Server caches ~400ms, so polling at 500ms is safe.
- */
-export function getLiveMcap(chain: string, address: string) {
-  return api.get<LiveMcapResponse>(`/api/market/token/${chain}/${address}/live-mcap`);
-}
-
-export const SOL_MINT = 'So11111111111111111111111111111111111111112';
-
-export function getSolPrice() {
-  return api.get<{ sol_price: number | null; source: string | null }>('/api/market/sol-price');
-}
-
-export function getPrices(addresses: string[] = []) {
-  const qs = new URLSearchParams({ addresses: addresses.join(',') });
-  return api.get<{ prices: Record<string, number | null> }>(`/api/market/prices?${qs.toString()}`);
-}
-
 export function getGmgnStatus() {
   return api.get<GmgnStatus>('/api/market/status');
 }
@@ -226,20 +153,6 @@ export function getProxies() {
 
 export function saveProxy(tab: string, url: string, apiKey: string, enabled?: boolean) {
   return api.put<{ ok: boolean }>('/api/market/proxies', { tab, url, apiKey, enabled });
-}
-
-// ── Cielo WS (second live market cap): connection status ──
-export interface CieloStatus {
-  connected: boolean;
-  connecting: boolean;
-  tokens: number;
-  received: number;
-  lastError: string | null;
-  attempts: number;
-}
-
-export function getCieloStatus() {
-  return api.get<CieloStatus>('/api/market/cielo/status');
 }
 
 export function testProxy(url: string, apiKey: string) {

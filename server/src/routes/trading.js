@@ -1,17 +1,15 @@
 import { Router } from 'express';
 import * as trading from '../services/trading.js';
-import { getTokenInfo as getDataTokenInfo, getPrices, SOL_MINT } from '../services/token-data.js';
-import { getTokenInfo } from '../services/dexscreener.js';
-import { getLiveMcapMany } from '../services/gmgn-mcap.js';
-import { getCieloData } from '../services/cielo-ws.js';
+import { getTokenInfo as dexGetTokenInfo } from '../services/dexscreener.js';
 
 const router = Router();
 
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const SOL_PRICE_FALLBACK = 150;
 
 async function solPriceUsd() {
   try {
-    const info = await getDataTokenInfo('sol', SOL_MINT);
+    const info = await dexGetTokenInfo(SOL_MINT);
     if (info?.price) return Number(info.price);
   } catch {
     // fall through to fallback
@@ -31,43 +29,6 @@ function fail(res, err, status = 500) {
   const message = err?.message || String(err);
   if (process.env.NODE_ENV !== 'production') console.error('[trading]', message);
   res.status(err?.status || status).json({ error: message });
-}
-
-// Cielo pushes a market cap only on swaps, so a quiet token keeps its last
-// value around. Beyond this window we stop trusting it and fall back to
-// shotgun.fun (fresh REST) instead of pricing a trade with stale data.
-const CIELO_MAX_AGE_MS = 15_000;
-
-async function resolveToken(address, chain = 'sol') {
-  // The single live market cap (Cielo WS) prices the simulated trade;
-  // shotgun.fun answers as fallback and Dexscreener as last resort. Metadata
-  // (name/symbol/logo) prefers shotgun too.
-  const cieloRaw = getCieloData(address);
-  const cielo = cieloRaw && Date.now() - cieloRaw.updatedAt < CIELO_MAX_AGE_MS ? cieloRaw : null;
-  const data = await Promise.allSettled([
-    getDataTokenInfo(chain, address),
-    getTokenInfo(address),
-  ]);
-  const dataInfo = data[0].status === 'fulfilled' ? data[0].value : null;
-  const dexInfo = data[1].status === 'fulfilled' ? data[1].value : null;
-
-  const marketCap = cielo?.mcap ?? dataInfo?.marketCap ?? dexInfo?.marketCap ?? null;
-  if (!marketCap || marketCap <= 0) {
-    throw Object.assign(new Error('Could not resolve a market cap for this token'), { status: 422 });
-  }
-
-  return {
-    token: {
-      address,
-      chain,
-      symbol: dataInfo?.symbol ?? dexInfo?.symbol ?? null,
-      name: dataInfo?.name ?? dexInfo?.name ?? null,
-      logo: dataInfo?.logo ?? dexInfo?.logo ?? null,
-    },
-    marketCap,
-    source: cielo ? 'cielo'
-      : dataInfo?.marketCap != null ? dataInfo.source : 'dexscreener',
-  };
 }
 
 /**
@@ -118,160 +79,6 @@ router.post('/wallet/convert', async (req, res) => {
       solPrice,
     });
     res.json({ wallet, sol_price: solPrice });
-  } catch (err) {
-    fail(res, err);
-  }
-});
-
-/**
- * POST /api/trade/buy
- * Body: { token_address, chain?, usd?, sol?, gas_sol? } — `usd` is the USD amount
- * to spend (converted to SOL at the current rate); `sol` is a raw SOL amount.
- */
-router.post('/trade/buy', async (req, res) => {
-  try {
-    const id = deviceId(req);
-    const { token_address, chain } = req.body;
-    if (!token_address) throw Object.assign(new Error('token_address is required'), { status: 400 });
-
-    const solPrice = await solPriceUsd();
-    const { token, marketCap, source } = await resolveToken(token_address, chain || 'sol');
-
-    const usd = req.body.usd != null ? Number(req.body.usd) : undefined;
-    const sol = req.body.sol != null ? Number(req.body.sol) : undefined;
-    const spendSol = usd != null && Number.isFinite(usd) && usd > 0 ? usd / solPrice : sol;
-
-    const wallet = trading.getWallet(id, { solPrice });
-    const result = trading.buy(id, token, {
-      marketCap,
-      sol: spendSol,
-      gasSol: req.body.gas_sol != null ? Number(req.body.gas_sol) : undefined,
-      solPrice,
-    });
-    res.json({ ...result, price_source: source, sol_price: solPrice });
-  } catch (err) {
-    fail(res, err);
-  }
-});
-
-/**
- * POST /api/trade/sell
- * Body: { token_address, chain?, quantity?, gas_sol? } — quantity omitted = sell all
- */
-router.post('/trade/sell', async (req, res) => {
-  try {
-    const id = deviceId(req);
-    const { token_address, chain } = req.body;
-    if (!token_address) throw Object.assign(new Error('token_address is required'), { status: 400 });
-
-    const solPrice = await solPriceUsd();
-    const { token, marketCap, source } = await resolveToken(token_address, chain || 'sol');
-
-    const wallet = trading.getWallet(id, { solPrice });
-    const result = trading.sell(id, token, {
-      quantity: req.body.quantity != null ? Number(req.body.quantity) : null,
-      marketCap,
-      gasSol: req.body.gas_sol != null ? Number(req.body.gas_sol) : undefined,
-      solPrice,
-    });
-    res.json({ ...result, price_source: source, sol_price: solPrice });
-  } catch (err) {
-    fail(res, err);
-  }
-});
-
-/**
- * POST /api/trade/discard
- * Body: { token_address, chain? } — closes the position at current market
- * value without paying gas (for when the value dropped below the gas fee).
- */
-router.post('/trade/discard', async (req, res) => {
-  try {
-    const id = deviceId(req);
-    const { token_address, chain } = req.body;
-    if (!token_address) throw Object.assign(new Error('token_address is required'), { status: 400 });
-
-    const solPrice = await solPriceUsd();
-    const { token, marketCap, source } = await resolveToken(token_address, chain || 'sol');
-    const result = trading.discard(id, token, { marketCap, solPrice });
-    res.json({ ...result, price_source: source, sol_price: solPrice });
-  } catch (err) {
-    fail(res, err);
-  }
-});
-
-/**
- * GET /api/portfolio — positions + live valuation + stats
- * Header: X-Device-Id
- */
-router.get('/portfolio', async (req, res) => {
-  try {
-    const id = deviceId(req);
-    const solPrice = await solPriceUsd();
-    const wallet = trading.getWallet(id, { solPrice });
-    const positions = trading.getPositions(id);
-    const stats = trading.getStats(id);
-
-    const mints = positions.map((p) => ({ address: p.token_address, chain: p.chain || 'sol' }));
-    const solMints = positions
-      .filter((p) => (p.chain || 'sol') === 'sol')
-      .map((p) => p.token_address);
-    const [market, live] = await Promise.all([
-      getPrices(mints), // fallback batched request (GMGN proxy / Dexscreener)
-      // Same live mcap as the token detail badge (GMGN candles); reads a
-      // cache the service refreshes in the background every ~400ms.
-      getLiveMcapMany(solMints).catch(() => ({})),
-    ]);
-
-    const enriched = positions.map((p) => {
-      const m = market[p.token_address];
-      const mcap = live[p.token_address]?.marketCap ?? m?.marketCap ?? p.entry_market_cap;
-      const value = p.quantity * mcap;
-      const pnl = value - p.cost_usdc;
-      return {
-        ...p,
-        market_cap: mcap,
-        value,
-        pnl,
-        pnl_percent: p.cost_usdc > 0 ? (pnl / p.cost_usdc) * 100 : 0,
-      };
-    });
-
-    const invested = positions.reduce((s, p) => s + p.cost_usdc, 0);
-    const totalValue = enriched.reduce((s, p) => s + p.value, 0);
-    const unrealizedPnl = totalValue - invested;
-    const solValueUsd = wallet.balance_sol * solPrice;
-    const totalEquity = wallet.balance_usd + solValueUsd + totalValue;
-
-    res.json({
-      wallet,
-      sol_price: solPrice,
-      stats,
-      positions: enriched,
-      summary: {
-        balance_usd: wallet.balance_usd,
-        balance_sol: wallet.balance_sol,
-        sol_value_usd: solValueUsd,
-        invested,
-        total_value: totalValue,
-        unrealized_pnl: unrealizedPnl,
-        total_equity: totalEquity,
-      },
-    });
-  } catch (err) {
-    fail(res, err);
-  }
-});
-
-/**
- * GET /api/orders?limit=50
- * Header: X-Device-Id
- */
-router.get('/orders', (req, res) => {
-  try {
-    const id = deviceId(req);
-    const limit = Math.min(Number(req.query.limit) || 50, 200);
-    res.json({ orders: trading.getOrders(id, limit) });
   } catch (err) {
     fail(res, err);
   }

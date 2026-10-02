@@ -5,8 +5,6 @@ import { trenchesFilters } from '../stores.js';
 import { buildParamsFromConfig, TRENCH_TABS } from './trenches-filters.js';
 import { fetchTrenches } from '../cli/args.js';
 import { ensureWorkers, connectionForTab } from './trenches-refresher.js';
-import { subscribeTokenRealtime, getLiveTweets } from './gmgn-ws.js';
-import { subscribeCieloToken, unsubscribeCieloToken } from './cielo-ws.js';
 
 /**
  * WebSocket server for real-time data push to connected clients.
@@ -18,21 +16,16 @@ import { subscribeCieloToken, unsubscribeCieloToken } from './cielo-ws.js';
  *     { action: "set_trenches_filters", deviceId: "...", filters: {...} }
  *     { action: "ping" }
  *
- *   Server → Client:
+ *   Server -> Client:
  *     { event: "trenches_updated", tab: "new_creation", data: [...] }
- *     { event: "token_price", chain: "sol", address: "...", data: {...} }
- *     { event: "portfolio", data: { equity, positions, ... } }
- *     { event: "sol_price", data: { price: 150.5 } }
+ *     { event: "notification_new", data: {...} }
+ *     { event: "memescope_updated", data: {...} }
  *     { event: "pong" }
  *
  * Topics:
  *   trenches:new_creation | trenches:completed
- *   token:{chain}:{address}
- *   token_mcap:{address}
- *   token_cielo:{address}
- *   token_tweets:{address}
- *   portfolio:{deviceId}
- *   sol_price
+ *   notifications:{deviceId}
+ *   memscope
  */
 
 let wss = null;
@@ -56,12 +49,10 @@ export function initWebSocket(server) {
 
     ws.on('close', () => {
       clients.delete(client);
-      releaseCieloTopics(client);
     });
 
     ws.on('error', () => {
       clients.delete(client);
-      releaseCieloTopics(client);
     });
 
     // Send initial connection ack + current filters so client can sync immediately
@@ -81,38 +72,12 @@ function handleMessage(client, msg) {
       const data = getCurrentData(tab);
       sendTo(client, { event: 'trenches_updated', tab, data });
     }
-    // Auto-subscribe to GMGN WebSocket for token_mcap topics
-    if (msg.topic.startsWith('token_mcap:')) {
-      const address = msg.topic.replace('token_mcap:', '');
-      subscribeTokenRealtime(address);
-    }
-    // Auto-subscribe to Cielo WS for token_cielo topics
-    if (msg.topic.startsWith('token_cielo:')) {
-      const address = msg.topic.replace('token_cielo:', '');
-      subscribeCieloToken(address);
-    }
-    // Push the live tweet buffer immediately for token_tweets topics
-    if (msg.topic.startsWith('token_tweets:')) {
-      const address = msg.topic.replace('token_tweets:', '');
-      sendTo(client, { event: msg.topic, type: 'snapshot', address, data: getLiveTweets(address) });
-    }
   } else if (msg.action === 'unsubscribe' && typeof msg.topic === 'string') {
     client.subscriptions.delete(msg.topic);
-    if (msg.topic.startsWith('token_cielo:') && !getSubscriptions().has(msg.topic)) {
-      unsubscribeCieloToken(msg.topic.replace('token_cielo:', ''));
-    }
   } else if (msg.action === 'set_trenches_filters') {
     handleSetTrenchesFilters(client, msg);
   } else if (msg.action === 'ping') {
     client.ws.send(JSON.stringify({ event: 'pong' }));
-  }
-}
-
-function releaseCieloTopics(client) {
-  for (const topic of client.subscriptions) {
-    if (topic.startsWith('token_cielo:') && !getSubscriptions().has(topic)) {
-      unsubscribeCieloToken(topic.replace('token_cielo:', ''));
-    }
   }
 }
 

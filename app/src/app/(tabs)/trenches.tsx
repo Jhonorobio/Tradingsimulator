@@ -294,7 +294,7 @@ export default function TrenchesScreen() {
         <FlatList
           data={activeTokens}
           keyExtractor={(item, i) => `t-${item.address}-${i}`}
-          renderItem={({ item }) => <TokenRow token={item} chain="solana" />}
+          renderItem={({ item }) => <TokenRow token={item} />}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
             !wsConnected ? (

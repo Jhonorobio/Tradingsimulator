@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import { Stack, useRouter } from 'expo-router';
+import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { Platform, useColorScheme } from 'react-native';
 
@@ -17,9 +17,6 @@ let wsInitialized = false;
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const { ready, load, deviceId } = useSettings();
-  const router = useRouter();
-  const routerRef = useRef(router);
-  routerRef.current = router;
 
   useEffect(() => {
     load().catch(() => {});
@@ -42,22 +39,12 @@ export default function RootLayout() {
     if (ready) SplashScreen.hideAsync().catch(() => {});
   }, [ready]);
 
-  // Notification listeners (deep-link + foreground)
+  // Notification listeners (foreground)
   useEffect(() => {
     if (!notificationsAvailable()) return;
 
-    let mounted = true;
-
     const setup = async () => {
       const Notifications = require('expo-notifications') as typeof import('expo-notifications');
-
-      // Deep-link: navigate to token screen when user taps a notification
-      const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
-        const data = response.notification.request.content.data;
-        if (data?.address && data?.chain && mounted) {
-          routerRef.current.push(`/token/${data.chain}/${data.address}`);
-        }
-      });
 
       // Foreground: process notification while app is open
       // The system banner is already shown by the handler in notifications.ts.
@@ -67,8 +54,6 @@ export default function RootLayout() {
       });
 
       return () => {
-        mounted = false;
-        responseSub.remove();
         receivedSub.remove();
       };
     };
@@ -83,7 +68,6 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="token/[chain]/[address]" options={{ headerShown: false }} />
         <Stack.Screen name="proxy-tester" options={{ headerShown: false }} />
       </Stack>
     </ThemeProvider>

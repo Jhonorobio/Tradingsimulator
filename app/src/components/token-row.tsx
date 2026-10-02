@@ -1,5 +1,4 @@
 import { Pressable, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from '@/components/themed-text';
 import { TokenAvatar } from '@/components/token-avatar';
@@ -33,8 +32,7 @@ function StatsBar({ stats }: { stats: StatItem[] }) {
   );
 }
 
-export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?: string }) {
-  const router = useRouter();
+export function TokenRow({ token }: { token: TrenchesItem }) {
   const theme = useTheme();
   const { colorRangesByChain } = useSettings();
 
@@ -70,9 +68,7 @@ export function TokenRow({ token, chain = 'sol' }: { token: TrenchesItem; chain?
   ];
 
   return (
-    <Pressable
-      onPress={() => router.push(`/token/${chain}/${token.address}`)}
-      style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]}>
+    <Pressable style={styles.card}>
       <View style={styles.mainRow}>
         {/* Avatar */}
         <View style={[styles.avatarWrap, { borderColor: '#a855f7' }]}>

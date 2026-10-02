@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -140,10 +139,8 @@ interface StatItem {
 }
 
 function PhotonRow({ token }: { token: PhotonToken }) {
-  const router = useRouter();
   const theme = useTheme();
 
-  const address = token.tokenAddress || token.address || '';
   // Photon sends some numbers as strings ("0.0") — coerce before math.
   const num = (v: unknown): number | null => {
     if (v == null || v === '') return null;
@@ -173,9 +170,7 @@ function PhotonRow({ token }: { token: PhotonToken }) {
   const visible = stats.filter((s) => s.value != null);
 
   return (
-    <Pressable
-      onPress={() => address && router.push(`/token/solana/${address}`)}
-      style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]}>
+    <Pressable style={styles.card}>
       <View style={styles.mainRow}>
         <View style={[styles.avatarWrap, { borderColor: '#a855f7' }]}>
           <TokenAvatar logo={token.imgUrl} symbol={token.symbol} size={50} borderRadius={4} headers={PHOTON_IMG_HEADERS} />

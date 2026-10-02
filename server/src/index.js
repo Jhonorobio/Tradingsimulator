@@ -9,11 +9,9 @@ import { startNotificationWatcher } from './services/poller.js';
 import { startTrenchesRefresher } from './services/trenches-refresher.js';
 import { ensureCalibrated } from './services/gmgn-clock.js';
 import { initWebSocket } from './services/ws-server.js';
-import { startPricePoller } from './services/ws-price-poller.js';
 import { startSnapshotWorker } from './services/token-snapshots.js';
 import { startXTrackerWatcher } from './services/xtracker-watcher.js';
 import { startGmgnWs } from './services/gmgn-ws.js';
-import { startCieloWs } from './services/cielo-ws.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -39,8 +37,6 @@ app.use((err, _req, res, _next) => {
 // HTTP + WebSocket server
 const server = createServer(app);
 initWebSocket(server);
-startPricePoller();
-
 server.listen(PORT, () => {
   console.log(`Trading Simulator server on http://localhost:${PORT}`);
   console.log(`WebSocket server on ws://localhost:${PORT}/ws`);
@@ -62,9 +58,6 @@ startXTrackerWatcher({
 
 // GMGN WebSocket real-time token data
 startGmgnWs();
-
-// Cielo Finance WS second live market-cap source
-startCieloWs();
 
 // Auto-calibrate GMGN clock from Date header, then start refresher
 ensureCalibrated().then(() => {

@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Image, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
@@ -42,8 +41,8 @@ function fmtTime(iso?: string | null): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-const TrackingCard = React.memo(function TrackingCard({ item, theme, onPress }: {
-  item: XTrackerToken; theme: any; onPress: () => void;
+const TrackingCard = React.memo(function TrackingCard({ item, theme }: {
+  item: XTrackerToken; theme: any;
 }) {
   const active = item.status === 'active';
   const statusColor = active ? theme.positive : theme.negative;
@@ -57,7 +56,7 @@ const TrackingCard = React.memo(function TrackingCard({ item, theme, onPress }: 
   );
 
   return (
-    <Pressable onPress={onPress}>
+    <Pressable>
       <Card style={[styles.card, { borderColor: theme.border, opacity: active ? 1 : 0.65 }]}>
         <View style={styles.cardHeader}>
           <View style={[styles.logo, { backgroundColor: theme.backgroundSelected }]}>
@@ -116,7 +115,6 @@ const TrackingCard = React.memo(function TrackingCard({ item, theme, onPress }: 
 
 export function TrackingPanel() {
   const theme = useTheme();
-  const router = useRouter();
   const [tokens, setTokens] = useState<XTrackerToken[]>([]);
   const [summary, setSummary] = useState<XTrackerTokensResponse['summary'] | null>(null);
   const [status, setStatus] = useState<StatusKey>('active');
@@ -163,9 +161,8 @@ export function TrackingPanel() {
     <TrackingCard
       item={item}
       theme={theme}
-      onPress={() => router.push(`/token/${item.chain}/${item.address}`)}
     />
-  ), [theme, router]);
+  ), [theme]);
 
   return (
     <View style={styles.panel}>

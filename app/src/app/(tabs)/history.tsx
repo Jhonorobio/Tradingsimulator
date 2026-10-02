@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -57,8 +56,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   photon: 'Photon',
 };
 
-const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expanded, onToggle }: {
-  item: NotificationHistoryItem; theme: any; onPress: () => void;
+const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onToggle }: {
+  item: NotificationHistoryItem; theme: any;
   expanded: boolean; onToggle: () => void;
 }) {
   // Use first snapshot if available, otherwise use notification data
@@ -96,7 +95,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, onPress, expa
   );
 
   return (
-    <Pressable onPress={onPress}>
+    <Pressable>
       <Card style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.cardHeader}>
           {item.logo ? (
@@ -236,7 +235,6 @@ const HISTORY_CACHE_KEY = 'history_cache_v1';
 
 export default function HistoryScreen() {
   const theme = useTheme();
-  const router = useRouter();
   const { notifications: wsNotifications, connected } = useWs();
   const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
   const [view, setView] = useState<ViewKey>('history');
@@ -352,12 +350,11 @@ export default function HistoryScreen() {
       <HistoryCard
         item={item}
         theme={theme}
-        onPress={() => router.push(`/token/${item.chain}/${item.address}`)}
         expanded={expandedIds.has(id)}
         onToggle={() => toggleExpanded(id)}
       />
     );
-  }, [theme, router, expandedIds, toggleExpanded]);
+  }, [theme, expandedIds, toggleExpanded]);
 
   return (
     <ThemedView style={styles.container}>

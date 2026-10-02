@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
@@ -22,8 +21,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   x_tracker: 'Tracker',
 };
 
-const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expanded, onToggle }: {
-  item: WinnerItem; theme: any; onPress: () => void;
+const WinnerCard = React.memo(function WinnerCard({ item, theme, expanded, onToggle }: {
+  item: WinnerItem; theme: any;
   expanded: boolean; onToggle: () => void;
 }) {
   const snap = item.snapshots?.[0] ?? null;
@@ -47,7 +46,7 @@ const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expand
   );
 
   return (
-    <Pressable onPress={onPress}>
+    <Pressable>
       <Card style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.cardHeader}>
           {item.logo ? (
@@ -158,7 +157,6 @@ const WinnerCard = React.memo(function WinnerCard({ item, theme, onPress, expand
 
 export function WinnersPanel() {
   const theme = useTheme();
-  const router = useRouter();
   const [winnersList, setWinnersList] = useState<WinnerItem[]>([]);
   const [chainFilter, setChainFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
@@ -208,12 +206,11 @@ export function WinnersPanel() {
       <WinnerCard
         item={item}
         theme={theme}
-        onPress={() => router.push(`/token/${item.chain}/${item.address}`)}
         expanded={expandedIds.has(id)}
         onToggle={() => toggleExpanded(id)}
       />
     );
-  }, [theme, router, expandedIds, toggleExpanded]);
+  }, [theme, expandedIds, toggleExpanded]);
 
   return (
     <View style={styles.panel}>

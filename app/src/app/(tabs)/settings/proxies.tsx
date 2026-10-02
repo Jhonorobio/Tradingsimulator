@@ -8,8 +8,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { useTheme } from '@/hooks/use-theme';
 import { useSettings } from '@/store/settings';
-import { getProxies, saveProxy, testProxy, getCieloStatus } from '@/api/market';
-import type { CieloStatus } from '@/api/market';
+import { getProxies, saveProxy, testProxy } from '@/api/market';
 import { ApiError } from '@/api/client';
 import type { ProxyConfig, ProxyTestResult } from '@/api/types';
 
@@ -33,16 +32,10 @@ export default function ProxiesScreen() {
   const [proxyTesting, setProxyTesting] = useState<Record<string, boolean>>({});
   const [proxyTestResults, setProxyTestResults] = useState<Record<string, ProxyTestResult | null>>({});
 
-  const [cieloStatus, setCieloStatus] = useState<CieloStatus | null>(null);
-
   const loadAll = useCallback(async () => {
     try {
       const proxies = await getProxies().catch(() => null);
       if (proxies) setProxyConfigs(proxies);
-    } catch {}
-    try {
-      const cs = await getCieloStatus();
-      setCieloStatus(cs);
     } catch {}
     loadProxyStatuses();
   }, [loadProxyStatuses]);
@@ -213,28 +206,7 @@ export default function ProxiesScreen() {
             })}
           </Card>
 
-          <Card>
-            <View style={styles.proxyHeader}>
-              <View style={[styles.proxyDot, { backgroundColor: cieloStatus?.connected ? theme.positive : theme.negative }]} />
-              <ThemedText type="smallBold" style={{ flex: 1 }}>Cielo — MC en vivo #2</ThemedText>
-              <ThemedText type="small" style={{ color: cieloStatus?.connected ? theme.positive : theme.textSecondary }}>
-                {cieloStatus?.connected ? 'Conectado' : cieloStatus?.connecting ? 'Conectando…' : 'Sin conexión'}
-              </ThemedText>
-            </View>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Segunda fuente de market cap en vivo (WS directo, sin proxy). Se muestra en la ficha de cada token.
-            </ThemedText>
-            {cieloStatus && (
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Tokens: {cieloStatus.tokens} · updates: {cieloStatus.received}
-              </ThemedText>
-            )}
-            {cieloStatus?.lastError && (
-              <ThemedText type="small" style={{ color: theme.negative }}>
-                Último error: {cieloStatus.lastError}
-              </ThemedText>
-            )}
-          </Card>
+          
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
