@@ -30,15 +30,15 @@ const VIEW_TABS = [
 ] as const;
 type ViewKey = (typeof VIEW_TABS)[number]['key'];
 
-function calcGain(item: NotificationHistoryItem): number {
-  const first = item.snapshots?.[0];
-  if (!first) return 0;
-  const firstMcap = first.usd_market_cap ?? first.market_cap ?? item.mcap;
+function calcGain(item: UnifiedItem): number {
+  const snaps = item.snapshots;
+  if (!snaps?.length) return 0;
+  const firstMcap = snaps[0].usd_market_cap ?? snaps[0].market_cap;
   if (!firstMcap || firstMcap <= 0) return 0;
-  const maxMcap = item.snapshots?.reduce((max, s) => {
+  const maxMcap = snaps.reduce((max, s) => {
     const v = s.usd_market_cap ?? s.market_cap;
     return v != null && v > max ? v : max;
-  }, firstMcap) ?? firstMcap;
+  }, firstMcap);
   return ((maxMcap - firstMcap) / firstMcap) * 100;
 }
 
@@ -54,36 +54,108 @@ const CATEGORY_LABELS: Record<string, string> = {
   photon: 'Photon',
 };
 
+/** One card per token: every notification of the same mint merged together. */
+interface UnifiedItem {
+  address: string;
+  chain: string;
+  symbol: string | null;
+  name: string | null;
+  logo: string | null;
+  /** Newest notification — source for mcap, volume and the stats row. */
+  base: NotificationHistoryItem;
+    /** Every category/column this token hit, chronological (for the chips). */
+    events: { category: string; column?: 'new' | 'graduated' | null; label: string; notified_at: string }[];
+  /** All snapshots from every notification, sorted oldest → newest. */
+  snapshots: TokenSnapshot[];
+  /** Union of tweet notification times, ascending. */
+  tweetTimes: string[];
+}
+
+function eventLabel(category: string, column?: 'new' | 'graduated' | null): string {
+  if (category === 'photon') {
+    return column ? `Photon · ${column === 'graduated' ? 'Graduated' : 'New'}` : 'Photon';
+  }
+  return CATEGORY_LABELS[category] || category;
+}
+
+function groupByAddress(history: NotificationHistoryItem[]): UnifiedItem[] {
+  const map = new Map<string, UnifiedItem>();
+  for (const h of history) {
+    if (h.id == null || !h.address) continue;
+    let u = map.get(h.address);
+    if (!u) {
+      u = {
+        address: h.address,
+        chain: h.chain,
+        symbol: h.symbol,
+        name: h.name,
+        logo: h.logo,
+        base: h,
+        events: [],
+        snapshots: [],
+        tweetTimes: [],
+      };
+      map.set(h.address, u);
+    }
+    if ((h.notified_at || '') > (u.base.notified_at || '')) {
+      u.base = h;
+      if (h.symbol || h.name || h.logo) {
+        u.symbol = h.symbol ?? u.symbol;
+        u.name = h.name ?? u.name;
+        u.logo = h.logo ?? u.logo;
+      }
+    }
+    u.events.push({ category: h.category, column: h.column, label: eventLabel(h.category, h.column), notified_at: h.notified_at });
+    if (h.snapshots?.length) u.snapshots.push(...h.snapshots);
+    if (h.tweet_notified_at?.length) u.tweetTimes.push(...h.tweet_notified_at);
+  }
+  const out = Array.from(map.values());
+  for (const u of out) {
+    u.events.sort((a, b) => (a.notified_at || '').localeCompare(b.notified_at || ''));
+    u.snapshots.sort((a, b) => (a.t || '').localeCompare(b.t || ''));
+    u.tweetTimes = Array.from(new Set(u.tweetTimes)).sort();
+  }
+  return out;
+}
+
+function firstNotifiedAt(u: UnifiedItem): string {
+  return u.events[0]?.notified_at || u.base.notified_at;
+}
+
+function fmtClock(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onToggle }: {
-  item: NotificationHistoryItem; theme: any;
+  item: UnifiedItem; theme: any;
   expanded: boolean; onToggle: () => void;
 }) {
-  // Use first snapshot if available, otherwise use notification data
-  const snap = item.snapshots?.[0] ?? null;
-  const mcap = snap?.usd_market_cap ?? snap?.market_cap ?? item.mcap;
-  const vol = snap?.volume_24h ?? item.vol24h ?? 0;
-  const sm = snap?.smart_degen_count ?? item.smart_degen_count;
-  const kol = snap?.renowned_count ?? item.renowned_count;
-  const fresh = snap?.fresh_wallet_rate ?? item.fresh_wallet_rate;
-  const botCount = snap?.bot_degen_count ?? item.bot_degen_count;
-  const botRate = snap?.bot_degen_rate ?? item.bot_degen_rate;
-  const rug = snap?.rug_ratio ?? item.rug_ratio;
-  const bundler = snap?.bundler_rate ?? snap?.bundler_trader_amount_rate ?? item.bundler_rate ?? item.bundler_trader_amount_rate;
-  const entrap = snap?.entrapment_ratio ?? item.entrapment_ratio;
-  const bundleCnt = item.bundle_holders_count ?? null;
-  const buys = item.buys_count ?? null;
-  const tpHolders = item.tp_holders_count ?? null;
-  const topHolders = item.top_holders_rate ?? null;
-  const holdersTotal = item.holders_count ?? null;
-  const snapCount = item.snapshots?.length ?? 0;
+  // Newest notification supplies the stats; snapshots are the merged timeline.
+  const base = item.base;
+  const snap = base.snapshots?.[0] ?? null;
+  const mcap = snap?.usd_market_cap ?? snap?.market_cap ?? base.mcap;
+  const vol = snap?.volume_24h ?? base.vol24h ?? 0;
+  const sm = snap?.smart_degen_count ?? base.smart_degen_count;
+  const kol = snap?.renowned_count ?? base.renowned_count;
+  const fresh = snap?.fresh_wallet_rate ?? base.fresh_wallet_rate;
+  const botCount = snap?.bot_degen_count ?? base.bot_degen_count;
+  const botRate = snap?.bot_degen_rate ?? base.bot_degen_rate;
+  const rug = snap?.rug_ratio ?? base.rug_ratio;
+  const bundler = snap?.bundler_rate ?? snap?.bundler_trader_amount_rate ?? base.bundler_rate ?? base.bundler_trader_amount_rate;
+  const entrap = snap?.entrapment_ratio ?? base.entrapment_ratio;
+  const bundleCnt = base.bundle_holders_count ?? null;
+  const buys = base.buys_count ?? null;
+  const tpHolders = base.tp_holders_count ?? null;
+  const topHolders = base.top_holders_rate ?? null;
+  const holdersTotal = base.holders_count ?? null;
+  const snapCount = item.snapshots.length;
 
-  // Calculate gain: first mcap vs highest mcap in timeline
-  const firstMcap = item.snapshots?.[0]?.usd_market_cap ?? item.snapshots?.[0]?.market_cap ?? item.mcap;
-  const maxMcap = item.snapshots?.reduce((max, s) => {
-    const v = s.usd_market_cap ?? s.market_cap;
-    return v != null && v > max ? v : max;
-  }, firstMcap ?? 0);
-  const gainPct = firstMcap && firstMcap > 0 && maxMcap != null ? ((maxMcap - firstMcap) / firstMcap) * 100 : null;
+  // Gain across the merged timeline: first mcap vs highest mcap.
+  const gainVal = calcGain(item);
+  const gainPct = gainVal !== 0 ? gainVal : null;
 
   const stat = (icon: string, value: string, color: string) => (
     <View style={styles.statItem}>
@@ -106,16 +178,14 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onT
               {item.symbol || item.name || shortAddress(item.address)}
             </ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {item.chain.toUpperCase()} · {item.category === 'photon'
-                ? (item.column ? `Photon · ${item.column === 'graduated' ? 'Graduated' : 'New'}` : 'Photon')
-                : (CATEGORY_LABELS[item.category] || item.category)}
+              {item.chain.toUpperCase()}
             </ThemedText>
           </View>
           <View style={styles.cardRight}>
             {mcap != null && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>{fmtUsd(mcap, { compact: true })}</ThemedText>
-                {gainPct != null && gainPct !== 0 && (
+                {gainPct != null && (
                   <ThemedText type="small" style={{ color: gainPct > 0 ? theme.positive : theme.negative, fontWeight: '600' }}>
                     {gainPct > 0 ? '+' : ''}{gainPct.toFixed(0)}%
                   </ThemedText>
@@ -126,15 +196,29 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onT
               <ThemedText type="small" style={{ color: theme.textSecondary }}>Vol {fmtUsd(vol, { compact: true })}</ThemedText>
             )}
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {new Date(item.entered_at || item.notified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {fmtClock(firstNotifiedAt(item))}
             </ThemedText>
-            {item.filter_matched_at && (
+            {base.filter_matched_at && (
               <ThemedText type="small" style={{ color: theme.accent }}>
-                Filtro: {new Date(item.filter_matched_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                Filtro: {fmtClock(base.filter_matched_at)}
               </ThemedText>
             )}
           </View>
         </View>
+
+        {item.events.length > 0 && (
+          <View style={styles.chipsRow}>
+            {item.events.map((e, i) => (
+              <View
+                key={`${e.category}-${e.notified_at}-${i}`}
+                style={[styles.chip, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}
+              >
+                <ThemedText type="small" style={{ color: theme.accent, fontSize: 11 }}>{e.label}</ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 10 }}>{fmtClock(e.notified_at)}</ThemedText>
+              </View>
+            ))}
+          </View>
+        )}
 
         <View style={styles.statsRow}>
           {sm != null && sm > 0 && stat('wallet', `${sm}`, theme.accent)}
@@ -152,12 +236,13 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expanded, onT
           {entrap != null && entrap > 0 && stat('fish', `${(entrap * 100).toFixed(0)}%`, '#ef4444')}
         </View>
 
-        {item.tweet_notified_at?.length ? (
+        {item.tweetTimes.length ? (
           <View style={styles.tweetRow}>
             <Ionicons name="logo-twitter" size={12} color={theme.accent} />
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Notificó por tweet · {item.tweet_notified_at
-                .map((t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+              Notificó por tweet · {item.tweetTimes
+                .slice(-5)
+                .map(fmtClock)
                 .join(', ')}
             </ThemedText>
           </View>
@@ -313,25 +398,29 @@ export default function HistoryScreen() {
 
   const searchLower = search.trim().toLowerCase();
 
+  const unified = useMemo(() => groupByAddress(history), [history]);
+
   const filtered = useMemo(() => {
-    let result = history.filter((h) => {
-      if (chainFilter !== 'all' && h.chain !== chainFilter) return false;
-      if (categoryFilter === 'new' && !h.category.startsWith('new_creation')) return false;
-      if (categoryFilter === 'completed' && !h.category.startsWith('completed')) return false;
-      if (categoryFilter === 'x_tracker' && !(h.tweet_notified_at?.length)) return false;
-      if (categoryFilter === 'photon' && h.category !== 'photon') return false;
+    let result = unified.filter((u) => {
+      if (chainFilter !== 'all' && u.chain !== chainFilter) return false;
+      if (categoryFilter === 'new' && !u.events.some((e) => e.category.startsWith('new_creation'))) return false;
+      if (categoryFilter === 'completed' && !u.events.some((e) => e.category.startsWith('completed'))) return false;
+      if (categoryFilter === 'x_tracker' && u.tweetTimes.length === 0) return false;
+      if (categoryFilter === 'photon' && !u.events.some((e) => e.category === 'photon')) return false;
       if (searchLower) {
-        return (h.symbol?.toLowerCase().includes(searchLower)) || (h.name?.toLowerCase().includes(searchLower));
+        return (u.symbol?.toLowerCase().includes(searchLower)) || (u.name?.toLowerCase().includes(searchLower));
       }
       return true;
     });
     if (categoryFilter === 'snaps') {
-      result = [...result].sort((a, b) => (b.snapshots?.length ?? 0) - (a.snapshots?.length ?? 0));
+      result = [...result].sort((a, b) => b.snapshots.length - a.snapshots.length);
     } else if (categoryFilter === 'gain') {
       result = [...result].sort((a, b) => calcGain(b) - calcGain(a));
+    } else if (categoryFilter === 'recent') {
+      result = [...result].sort((a, b) => (firstNotifiedAt(b) || '').localeCompare(firstNotifiedAt(a) || ''));
     }
     return result;
-  }, [history, chainFilter, categoryFilter, searchLower]);
+  }, [unified, chainFilter, categoryFilter, searchLower]);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -342,17 +431,14 @@ export default function HistoryScreen() {
     });
   }, []);
 
-  const renderItem = useCallback(({ item }: { item: NotificationHistoryItem }) => {
-    const id = `${item.address}-${item.category}-${item.notified_at}`;
-    return (
-      <HistoryCard
-        item={item}
-        theme={theme}
-        expanded={expandedIds.has(id)}
-        onToggle={() => toggleExpanded(id)}
-      />
-    );
-  }, [theme, expandedIds, toggleExpanded]);
+  const renderItem = useCallback(({ item }: { item: UnifiedItem }) => (
+    <HistoryCard
+      item={item}
+      theme={theme}
+      expanded={expandedIds.has(item.address)}
+      onToggle={() => toggleExpanded(item.address)}
+    />
+  ), [theme, expandedIds, toggleExpanded]);
 
   return (
     <ThemedView style={styles.container}>
@@ -445,7 +531,7 @@ export default function HistoryScreen() {
 
             <FlatList
               data={filtered}
-              keyExtractor={(item, i) => `${item.address}-${item.category}-${item.notified_at}-${i}`}
+              keyExtractor={(item) => item.address}
               renderItem={renderItem}
               initialNumToRender={10}
               maxToRenderPerBatch={8}
@@ -483,6 +569,8 @@ const styles = StyleSheet.create({
   cardInfo: { flex: 1 },
   cardRight: { alignItems: 'flex-end' },
   statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   tweetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 },
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
