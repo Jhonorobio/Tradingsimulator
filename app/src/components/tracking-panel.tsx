@@ -10,13 +10,6 @@ import { fmtUsd, shortAddress } from '@/utils/format';
 
 const REFRESH_MS = 10_000;
 
-const STATUS_TABS = [
-  { key: 'active', label: 'Rastreando' },
-  { key: 'stopped', label: 'Detenidos' },
-  { key: 'all', label: 'Todos' },
-] as const;
-type StatusKey = (typeof STATUS_TABS)[number]['key'];
-
 const STOP_LABELS: Record<string, string> = {
   mcap_below_8k: 'MCap < 8K',
   mcap_below_10k: 'MCap < 10K',
@@ -117,7 +110,6 @@ export function TrackingPanel() {
   const theme = useTheme();
   const [tokens, setTokens] = useState<XTrackerToken[]>([]);
   const [summary, setSummary] = useState<XTrackerTokensResponse['summary'] | null>(null);
-  const [status, setStatus] = useState<StatusKey>('active');
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -149,13 +141,12 @@ export function TrackingPanel() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tokens.filter((t) => {
-      if (status !== 'all' && t.status !== status) return false;
       if (!q) return true;
       return (t.symbol || '').toLowerCase().includes(q)
         || (t.name || '').toLowerCase().includes(q)
         || t.address.toLowerCase().includes(q);
     });
-  }, [tokens, status, search]);
+  }, [tokens, search]);
 
   const renderItem = useCallback(({ item }: { item: XTrackerToken }) => (
     <TrackingCard
@@ -166,26 +157,6 @@ export function TrackingPanel() {
 
   return (
     <View style={styles.panel}>
-      <View style={styles.statusTabs}>
-        {STATUS_TABS.map((tab) => {
-          const count = tab.key === 'active' ? summary?.active
-            : tab.key === 'stopped' ? summary?.stopped
-            : summary ? summary.active + summary.stopped : null;
-          const on = status === tab.key;
-          return (
-            <Pressable
-              key={tab.key}
-              onPress={() => setStatus(tab.key)}
-              style={[styles.statusTab, on && { backgroundColor: theme.accent }]}
-            >
-              <ThemedText type="small" style={{ color: on ? '#000' : theme.textSecondary }}>
-                {tab.label}{count != null ? ` ${count}` : ''}
-              </ThemedText>
-            </Pressable>
-          );
-        })}
-      </View>
-
       <View style={[styles.summary, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
         <View style={styles.summaryItem}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>Activos</ThemedText>
@@ -232,8 +203,6 @@ export function TrackingPanel() {
 
 const styles = StyleSheet.create({
   panel: { flex: 1 },
-  statusTabs: { flexDirection: 'row', marginBottom: 8, gap: 6, marginHorizontal: 16 },
-  statusTab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, backgroundColor: '#1a1a1a' },
   summary: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, padding: 12, borderRadius: 10, borderWidth: 1, gap: 24 },
   summaryItem: { alignItems: 'center' },
   searchWrap: { marginHorizontal: 16, marginBottom: 8 },
