@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
 import { Card } from '@/components/card';
+import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
 import { getXTrackerTokens, type XTrackerToken, type XTrackerTokensResponse } from '@/api/market';
 import { useWs, type TrackerSummary } from '@/store/ws';
@@ -61,13 +62,7 @@ const TrackingCard = React.memo(function TrackingCard({ item, theme }: {
     <Pressable>
       <Card style={[styles.card, { borderColor: theme.border, opacity: active ? 1 : 0.65 }]}>
         <View style={styles.cardHeader}>
-          <View style={[styles.logo, { backgroundColor: theme.backgroundSelected }]}>
-            {item.logo ? (
-              <Image source={{ uri: item.logo }} style={styles.logoImg} />
-            ) : (
-              <ThemedText type="small">{item.symbol?.charAt(0) || '?'}</ThemedText>
-            )}
-          </View>
+          <TokenAvatar logo={item.logo} symbol={item.symbol} size={32} />
           <View style={styles.cardInfo}>
             <ThemedText type="smallBold" style={{ color: theme.text }} numberOfLines={1}>
               {item.symbol || item.name || shortAddress(item.address)}
@@ -114,7 +109,7 @@ export function TrackingPanel() {
 
   const load = useCallback(async () => {
     try {
-      const res = await getXTrackerTokens({ status: 'all', limit: 1000 });
+      const res = await getXTrackerTokens({ status: 'active', limit: 1000 });
       setTokens(res.tokens);
       setSummary(res.summary);
     } catch {}
@@ -169,6 +164,8 @@ export function TrackingPanel() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tokens.filter((t) => {
+      // Only live tokens: a WS push can carry a just-stopped one before the poll.
+      if (t.status !== 'active') return false;
       if (!q) return true;
       return (t.symbol || '').toLowerCase().includes(q)
         || (t.name || '').toLowerCase().includes(q)
@@ -240,8 +237,6 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 16, paddingBottom: 40 },
   card: { marginBottom: 8, padding: 12 },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
-  logo: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 10, overflow: 'hidden' },
-  logoImg: { width: 32, height: 32, borderRadius: 16 },
   cardInfo: { flex: 1 },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   dot: { width: 6, height: 6, borderRadius: 3 },

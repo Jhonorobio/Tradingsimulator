@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Image } from 'expo-image';
 import { StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '@/hooks/use-theme';
@@ -21,14 +22,29 @@ export function TokenAvatar({
 }) {
   const theme = useTheme();
   const br = borderRadius ?? size / 2;
+  // Track WHICH uri failed so a different logo renders again (no effect needed).
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const failed = logo != null && failedUri === logo;
 
-  if (logo) {
+  // Photon's CDN 403s image requests without its own Referer (hotlink guard).
+  const autoHeaders = (uri: string): Record<string, string> | undefined => {
+    try {
+      if (new URL(uri).hostname.endsWith('tradewithphoton.com')) {
+        return { referer: 'https://photon-sol.tinyastro.io/' };
+      }
+    } catch {}
+    return undefined;
+  };
+
+  if (logo && !failed) {
+    const reqHeaders = headers ?? autoHeaders(logo);
     return (
       <Image
-        source={headers ? { uri: logo, headers } : { uri: logo }}
+        source={reqHeaders ? { uri: logo, headers: reqHeaders } : { uri: logo }}
         style={{ width: size, height: size, borderRadius: br }}
         contentFit="cover"
         transition={150}
+        onError={() => setFailedUri(logo)}
       />
     );
   }

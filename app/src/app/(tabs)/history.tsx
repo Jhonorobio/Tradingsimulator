@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, Linking, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Linking, Modal, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,6 +8,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card } from '@/components/card';
 import { WinnersPanel } from '@/components/winners-panel';
+import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
 import { getNotificationHistory } from '@/api/notifications';
 import { useWs } from '@/store/ws';
@@ -218,13 +219,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expandedGmgn,
     <Pressable>
       <Card style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.cardHeader}>
-          <View style={[styles.logo, { backgroundColor: theme.backgroundSelected }]}>
-            {item.logo ? (
-              <Image source={{ uri: item.logo }} style={styles.logoImg} />
-            ) : (
-              <ThemedText type="small">{item.symbol?.charAt(0) || '?'}</ThemedText>
-            )}
-          </View>
+          <TokenAvatar logo={item.logo} symbol={item.symbol} size={32} />
           <View style={styles.cardInfo}>
             <ThemedText type="smallBold" style={{ color: theme.text }}>
               {item.symbol || item.name || shortAddress(item.address)}
@@ -570,8 +565,6 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 16, paddingBottom: 40 },
   card: { marginBottom: 8, padding: 12 },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
-  logo: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 10, overflow: 'hidden' },
-  logoImg: { width: 32, height: 32, borderRadius: 16 },
   cardInfo: { flex: 1 },
   cardRight: { alignItems: 'flex-end' },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
