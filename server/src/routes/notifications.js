@@ -2,9 +2,6 @@ import { Router } from 'express';
 import { notificationConfig, notificationHistory, winners } from '../stores.js';
 import { isValidPushToken } from '../services/push.js';
 import { getSnapshots, getAllTracks, getTracksStatus } from '../services/token-snapshots.js';
-import { getPumpStatus } from '../services/pumpfun.js';
-import { getAxiomStatus } from '../services/axiom.js';
-import { getTelemetryStatus } from '../services/telemetry.js';
 import { resetTweetCondQuota } from '../services/xtracker-watcher.js';
 
 const router = Router();
@@ -197,7 +194,7 @@ export function buildHistoryEntries(limit) {
     ) === i)
     .slice(0, limit)
     .map((e) => {
-      const card = { ...e, snapshots: getSnapshots(e.address, e.category), pumpSnapshots: getSnapshots(e.address, 'pump') };
+      const card = { ...e, snapshots: getSnapshots(e.address, e.category) };
       const times = tweetsByAddr.get(e.address);
       return times?.length ? { ...card, tweet_notified_at: [...times].sort().slice(-5) } : card;
     });
@@ -224,7 +221,7 @@ router.get('/history', (req, res) => {
  */
 router.get('/snapshots/status', (_req, res) => {
   try {
-    res.json({ tracks: getTracksStatus(), pump: getPumpStatus(), axiom: getAxiomStatus(), telemetry: getTelemetryStatus() });
+    res.json({ tracks: getTracksStatus() });
   } catch (err) {
     fail(res, err);
   }

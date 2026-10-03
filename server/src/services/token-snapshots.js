@@ -8,9 +8,6 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from '
 import path from 'node:path';
 import { getCurrentData } from './trenches-store.js';
 import { findPhotonToken } from './photon-memescope.js';
-import { getAxiomInfo, prefetchAxiomInfo, getAxiomStatus } from './axiom.js';
-import { getKolsTraded, getPumpSnapshot, prefetchPumpData, getPumpStatus } from './pumpfun.js';
-import { getTelemetrySnapshot, prefetchTelemetry, getTelemetryStatus } from './telemetry.js';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirname, '..', '..', 'data'));
 const FILE = path.join(DATA_DIR, 'token-snapshots.json');
@@ -33,7 +30,7 @@ const SNAPSHOT_FIELDS = [
   'bot_degen_count', 'bot_degen_rate',
   'bundler_rate', 'bundler_trader_amount_rate', 'entrapment_ratio',
   'bundle_holders_count', 'buys_count', 'tp_holders_count',
-  'top_holders_rate', 'holders_count', 'num_kols_traded', 'trading_bot_holders',
+  'top_holders_rate', 'holders_count',
 ];
 
 function load() {
@@ -209,54 +206,6 @@ export function captureSnapshots() {
       continue;
     }
 
-    // Pump.fun indexer track (mcap / volume / holders / KOLs). It piggybacks
-    // on gmgn/photon tracks and dies with them: no companion track → stop
-    // sampling, then close an hour later.
-    if (category === 'pump') {
-      let companion = false;
-      for (const k of activeTracks.keys()) {
-        if (k.startsWith(`${address}:`) && k.slice(address.length + 1) !== 'pump') {
-          companion = true;
-          break;
-        }
-      }
-      if (!companion) {
-        closeIfStale(track, key);
-        continue;
-      }
-      prefetchTelemetry(address);
-      const p = getPumpSnapshot(address);
-      if (!p) {
-        closeIfStale(track, key);
-        continue;
-      }
-      // Bonus track: KOLs from pump.fun + trading_bot_holders from Telemetry.
-      const tel = getTelemetrySnapshot(address);
-      track.snapshots.push(takeSnapshot({
-        num_kols_traded: p.kols,
-        trading_bot_holders: tel?.botHolders ?? null,
-      }));
-      if (track.snapshots.length > TRACK_SNAPSHOTS_MAX) track.snapshots.shift();
-      captured++;
-      prefetchPumpData(address);
-      continue;
-    }
-
-    // Every tracked gmgn/photon token also gets a pump track piggybacked
-    // (created as soon as the indexer knows the mint).
-    prefetchPumpData(address);
-    prefetchTelemetry(address);
-    if (!activeTracks.has(`${address}:pump`)) {
-      const p = getPumpSnapshot(address);
-      if (p) {
-        const tel = getTelemetrySnapshot(address);
-        ensureTrack(address, 'pump', {
-          num_kols_traded: p.kols,
-          trading_bot_holders: tel?.botHolders ?? null,
-        });
-      }
-    }
-
     // Trenches tokens come from the store; Photon tracks sample the live
     // screener cache. Absent tokens are skipped — the track closes once the
     // token has been gone for an hour (and resumes as a new track if it
@@ -270,21 +219,9 @@ export function captureSnapshots() {
     }
 
     const snap = takeSnapshot(token);
-    // Axiom fills holders/bot count when the source left them empty.
-    const ax = getAxiomInfo(address);
-    if (ax) {
-      if (snap.holders_count == null && ax.numHolders != null) snap.holders_count = ax.numHolders;
-      if (snap.bot_degen_count == null && ax.numBotUsers != null) snap.bot_degen_count = ax.numBotUsers;
-    }
-    // Pump.fun indexer: KOL traders count.
-    if (snap.num_kols_traded == null) {
-      const kols = getKolsTraded(address);
-      if (kols != null) snap.num_kols_traded = kols;
-    }
     track.snapshots.push(snap);
     if (track.snapshots.length > TRACK_SNAPSHOTS_MAX) track.snapshots.shift();
     captured++;
-    prefetchAxiomInfo(address, token.pool_address || null);
   }
 
   if (captured > 0 || closed > 0) save();
@@ -548,18 +485,12 @@ load();
 
 // Start snapshot capture loop (every 30 seconds)
 let snapshotInterval = null;
-let axiomLogTick = 0;
 export function startSnapshotWorker() {
   if (snapshotInterval) return;
   snapshotInterval = setInterval(() => {
     try {
       const n = captureSnapshots();
       if (n > 0) console.log(`[snapshots] captured ${n} snapshots`);
-      if (++axiomLogTick % 20 === 0) {
-        console.log('[axiom]', JSON.stringify(getAxiomStatus()));
-        console.log('[pump]', JSON.stringify(getPumpStatus()));
-        console.log('[telemetry]', JSON.stringify(getTelemetryStatus()));
-      }
     } catch (err) {
       console.error('[snapshots] error:', err.message);
     }

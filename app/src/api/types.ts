@@ -142,8 +142,6 @@ export interface NotificationHistoryItem {
   top_holders_rate?: number | null;
   holders_count?: number | null;
   snapshots: TokenSnapshot[] | null;
-  /** Bonus timeline (KOLs from pump.fun — will grow with more data). */
-  pumpSnapshots?: TokenSnapshot[] | null;
   entered_at: string | null;
   notified_at: string;
   filter_matched_at: string | null;
@@ -176,8 +174,6 @@ export interface TokenSnapshot {
   tp_holders_count?: number | null;
   top_holders_rate?: number | null;
   holders_count?: number | null;
-  num_kols_traded?: number | null;
-  trading_bot_holders?: number | null;
 }
 
 export interface ProxyConfig {
