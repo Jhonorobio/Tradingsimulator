@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from '
 import path from 'node:path';
 import { getCurrentData } from './trenches-store.js';
 import { findPhotonToken } from './photon-memescope.js';
+import { getAxiomInfo, prefetchAxiomInfo, getAxiomStatus } from './axiom.js';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirname, '..', '..', 'data'));
 const FILE = path.join(DATA_DIR, 'token-snapshots.json');
@@ -197,9 +198,17 @@ export function captureSnapshots() {
       : getCurrentData(category).find((t) => t.address === address);
     if (!token) continue;
 
-    track.snapshots.push(takeSnapshot(token));
+    const snap = takeSnapshot(token);
+    // Axiom fills holders/bot count when the source left them empty.
+    const ax = getAxiomInfo(address);
+    if (ax) {
+      if (snap.holders_count == null && ax.numHolders != null) snap.holders_count = ax.numHolders;
+      if (snap.bot_degen_count == null && ax.numBotUsers != null) snap.bot_degen_count = ax.numBotUsers;
+    }
+    track.snapshots.push(snap);
     if (track.snapshots.length > TRACK_SNAPSHOTS_MAX) track.snapshots.shift();
     captured++;
+    prefetchAxiomInfo(address, token.pool_address || null);
   }
 
   if (captured > 0) save();
@@ -436,12 +445,16 @@ load();
 
 // Start snapshot capture loop (every 60 seconds)
 let snapshotInterval = null;
+let axiomLogTick = 0;
 export function startSnapshotWorker() {
   if (snapshotInterval) return;
   snapshotInterval = setInterval(() => {
     try {
       const n = captureSnapshots();
       if (n > 0) console.log(`[snapshots] captured ${n} snapshots`);
+      if (++axiomLogTick % 10 === 0) {
+        console.log('[axiom]', JSON.stringify(getAxiomStatus()));
+      }
     } catch (err) {
       console.error('[snapshots] error:', err.message);
     }
