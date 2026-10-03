@@ -62,6 +62,7 @@ export default function NotificationsScreen() {
   });
   const [filters, setFilters] = useState<Record<string, NotificationCategoryFilters>>({});
   const [trackerTweets, setTrackerTweets] = useState<TrackerTweets>(EMPTY_TWEET_FLAGS);
+  const [volMcapAlerts, setVolMcapAlerts] = useState(true);
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
@@ -71,6 +72,7 @@ export default function NotificationsScreen() {
         setNotifCategories(notifCfg.categories);
         setFilters(notifCfg.filters || {});
         setTrackerTweets(notifCfg.tracker_tweets ?? EMPTY_TWEET_FLAGS);
+        setVolMcapAlerts(notifCfg.vol_mcap_alerts ?? true);
       }
     } catch {}
   }, []);
@@ -81,6 +83,8 @@ export default function NotificationsScreen() {
     cats: NotificationConfig['categories'],
     f: Record<string, NotificationCategoryFilters>,
     tt: TrackerTweets,
+    // Default to the current state so unrelated toggles never reset it.
+    vm: boolean = volMcapAlerts,
   ) => {
     let token = pushToken;
     if (!token) {
@@ -96,7 +100,7 @@ export default function NotificationsScreen() {
       setPushToken(token);
     }
     try {
-      await saveNotificationConfig(token, cats, f, tt);
+      await saveNotificationConfig(token, cats, f, tt, vm);
     } catch (err) {
       Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo guardar');
     }
@@ -117,6 +121,12 @@ export default function NotificationsScreen() {
     };
     setTrackerTweets(next);
     await persistConfig(notifCategories, filters, next);
+  };
+
+  const toggleVolMcap = async () => {
+    const next = !volMcapAlerts;
+    setVolMcapAlerts(next);
+    await persistConfig(notifCategories, filters, trackerTweets, next);
   };
 
   const updateFilter = async (cat: string, field: NotificationFilterFields, bound: 'min' | 'max', value: string) => {
@@ -278,6 +288,22 @@ export default function NotificationsScreen() {
                   trackColor={{ true: theme.accent }}
                 />
               </View>
+            </View>
+          </Card>
+
+          <Card>
+            <View style={styles.rowBetween}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <ThemedText type="smallBold">Volumen ≈ Marketcap</ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  Push una sola vez por token cuando su volumen 24h esté entre 0.9x y 2.3x de su Marketcap. Solo tokens en Rastreando.
+                </ThemedText>
+              </View>
+              <Switch
+                value={volMcapAlerts}
+                onValueChange={toggleVolMcap}
+                trackColor={{ true: theme.accent }}
+              />
             </View>
           </Card>
         </ScrollView>

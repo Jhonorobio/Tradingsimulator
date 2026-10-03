@@ -33,7 +33,7 @@
  * State is mutated in memory and flushed to disk at most once per tick.
  */
 
-import { tokenWatchlist, notificationConfig, notificationHistory, tweetCondCounts, pushSubscriptions } from '../stores.js';
+import { tokenWatchlist, notificationConfig, notificationHistory, tweetCondCounts, pushSubscriptions, notifiedTokens } from '../stores.js';
 import { startAzura, stopAzura, azuraSubscribe, azuraUnsubscribe, getAzuraStatus } from './azura-ws.js';
 import { getMentions, getMentionsStatus } from './gmgn-mentions.js';
 import { fetchTokensBatch } from './dexscreener.js';
@@ -669,6 +669,60 @@ async function deliver(entry, tweet, device, info) {
   }
 }
 
+// ─── vol ≈ mcap alert ───────────────────────────────────────────────────────
+
+// Push once per token per device while volume24h sits between 0.9x and 2.3x
+// of the market cap (tokens in the active "Rastreando" list). The notified
+// list is never pruned: a token gets at most one alert for its whole life.
+const VOL_MCAP_MIN = 0.9;
+const VOL_MCAP_MAX = 2.3;
+const volMcapPending = new Set(); // "deviceId:address" currently being sent
+
+async function notifyVolMcap(e, device, ratio, newList) {
+  const title = `${e.symbol || e.name || 'Token'} 📊 Volumen ${ratio.toFixed(1)}x del MCap`;
+  const body = `Vol ${fmtUsd(e.volume24h)} · MCap ${fmtUsd(e.mcap)}`;
+  try {
+    const { result } = await sendPush(device.push_token, {
+      title,
+      body,
+      data: { address: e.address, chain: e.chain || 'sol', symbol: e.symbol, type: 'vol_mcap' },
+    });
+    if (result?.data?.status === 'error') {
+      console.error(`[tracker] vol_mcap push failed: ${result.data.message}`);
+      return;
+    }
+    // Mark only after a successful send, so failures retry on the next tick.
+    notifiedTokens.set(`${device.device_id}:vol_mcap`, newList);
+    console.log(`[tracker] vol_mcap alert ${e.symbol || e.address} (${ratio.toFixed(1)}x)`);
+  } catch (err) {
+    console.error('[tracker] vol_mcap push error:', err.message);
+  }
+}
+
+/** Evaluates the ratio for every active token against every opted-in device. */
+function volMcapPhase() {
+  const devices = Object.values(notificationConfig.getAll())
+    .filter((d) => d?.push_token && d.vol_mcap_alerts !== false);
+  if (!devices.length) return;
+  for (const e of activeEntries()) {
+    const vol = e.volume24h;
+    const mc = e.mcap;
+    if (vol == null || mc == null || !(mc > 0)) continue;
+    const ratio = vol / mc;
+    if (ratio < VOL_MCAP_MIN || ratio > VOL_MCAP_MAX) continue;
+    for (const device of devices) {
+      const dedupe = `${device.device_id}:${e.address}`;
+      if (volMcapPending.has(dedupe)) continue;
+      const key = `${device.device_id}:vol_mcap`;
+      const list = notifiedTokens.get(key) || [];
+      if (list.includes(e.address)) continue;
+      volMcapPending.add(dedupe);
+      notifyVolMcap(e, device, ratio, [...list, e.address])
+        .finally(() => volMcapPending.delete(dedupe));
+    }
+  }
+}
+
 // ─── loop ───────────────────────────────────────────────────────────────────
 
 async function tick() {
@@ -678,6 +732,13 @@ async function tick() {
     marketPhase();
   } catch (err) {
     console.error('[tracker] market phase error:', err.message);
+  }
+
+  // Push alert when volume ≈ market cap (0.9x–2.3x), once per token.
+  try {
+    volMcapPhase();
+  } catch (err) {
+    console.error('[tracker] vol_mcap phase error:', err.message);
   }
 
   // HTTP safety net: fills any gap where the Azura push stream went silent.

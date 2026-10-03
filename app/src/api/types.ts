@@ -107,6 +107,8 @@ export interface NotificationConfig {
     /** Every other tweet about a tracked token. */
     others: TrackerTweetFlags;
   };
+  /** Push once per token while 24h volume ≈ 0.9x–2.3x of market cap. */
+  vol_mcap_alerts?: boolean;
 }
 
 export interface GmgnStatus {

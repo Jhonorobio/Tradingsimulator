@@ -77,7 +77,7 @@ function fail(res, err, status = 500) {
 router.put('/config', (req, res) => {
   try {
     const id = deviceId(req);
-    const { push_token, categories, filters, tracker_tweets } = req.body || {};
+    const { push_token, categories, filters, tracker_tweets, vol_mcap_alerts } = req.body || {};
 
     if (!isValidPushToken(push_token)) {
       throw Object.assign(new Error('Invalid Expo push token'), { status: 400 });
@@ -114,12 +114,19 @@ router.put('/config', (req, res) => {
       trackerTweets = sanitizeTrackerTweets(existing?.tracker_tweets) || defaultTrackerTweets();
     }
 
+    // Independent toggle (like tracker_tweets): only replaced when the client
+    // sends it; missing everywhere → ON by default.
+    const volMcapAlerts = vol_mcap_alerts !== undefined
+      ? !!vol_mcap_alerts
+      : existing ? existing.vol_mcap_alerts !== false : true;
+
     notificationConfig.set(id, {
       device_id: id,
       push_token,
       categories: cats,
       filters: mergedFilters,
       tracker_tweets: trackerTweets,
+      vol_mcap_alerts: volMcapAlerts,
       updated_at: new Date().toISOString(),
     });
 
@@ -144,6 +151,7 @@ router.get('/config', (req, res) => {
         categories: { new_creation: false, completed: false, x_tracker: false, photon_new: false, photon_graduated: false },
         filters: {},
         tracker_tweets: defaultTrackerTweets(),
+        vol_mcap_alerts: true,
       });
     }
     const categories = {};
@@ -153,6 +161,7 @@ router.get('/config', (req, res) => {
       categories,
       filters: entry.filters || {},
       tracker_tweets: sanitizeTrackerTweets(entry.tracker_tweets) || defaultTrackerTweets(),
+      vol_mcap_alerts: entry.vol_mcap_alerts !== false,
     });
   } catch (err) {
     fail(res, err);
