@@ -307,19 +307,19 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expandedGmgn,
             {gmgnCount > 1 && (
               <Pressable onPress={onToggleGmgn} style={styles.snapToggle}>
                 <Ionicons name={expandedGmgn ? 'chevron-up' : 'chevron-down'} size={14} color={theme.accent} />
-                <ThemedText type="small" style={{ color: theme.accent }}>{gmgnCount} snapshots Gmgn</ThemedText>
+                <ThemedText type="small" style={{ color: theme.accent }}>{gmgnCount} GMGN</ThemedText>
               </Pressable>
             )}
             {photonCount > 1 && (
               <Pressable onPress={onTogglePhoton} style={styles.snapToggle}>
                 <Ionicons name={expandedPhoton ? 'chevron-up' : 'chevron-down'} size={14} color={theme.accent} />
-                <ThemedText type="small" style={{ color: theme.accent }}>{photonCount} snapshots Photon</ThemedText>
+                <ThemedText type="small" style={{ color: theme.accent }}>{photonCount} Photon</ThemedText>
               </Pressable>
             )}
             {pumpCount > 1 && (
               <Pressable onPress={onTogglePump} style={styles.snapToggle}>
                 <Ionicons name={expandedPump ? 'chevron-up' : 'chevron-down'} size={14} color={theme.accent} />
-                <ThemedText type="small" style={{ color: theme.accent }}>{pumpCount} snapshots Pump</ThemedText>
+                <ThemedText type="small" style={{ color: theme.accent }}>{pumpCount} Pump</ThemedText>
               </Pressable>
             )}
           </View>
