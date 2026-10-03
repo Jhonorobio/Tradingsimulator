@@ -36,6 +36,7 @@
 import { tokenWatchlist, notificationConfig, notificationHistory, tweetCondCounts, pushSubscriptions } from '../stores.js';
 import { startAzura, stopAzura, azuraSubscribe, azuraUnsubscribe, getAzuraStatus } from './azura-ws.js';
 import { getMentions, getMentionsStatus } from './gmgn-mentions.js';
+import { fetchTokensBatch } from './dexscreener.js';
 import { getLiveTweets } from './gmgn-ws.js';
 import { sendPush } from './push.js';
 import { broadcast } from './ws-server.js';
@@ -62,6 +63,12 @@ let timer = null;
 let lastTickAt = null;
 let lastDexAt = null;
 let lastFlushAt = null;
+// Diagnostics: Azura pushes vs HTTP fallback quotes.
+let lastAzuraAt = null;
+let lastFallbackAt = null;
+// An active entry with no Azura push for this long gets refreshed over HTTP.
+const STALE_QUOTE_MS = 15_000;
+let fallbackInFlight = false;
 const inFlight = new Set();
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -392,11 +399,54 @@ function handleMarketUpdate(data) {
   const nowIso = new Date().toISOString();
   e.last_dex_check = nowIso;
   lastDexAt = nowIso;
+  lastAzuraAt = nowIso;
   if (data.mcap != null) e.mcap = data.mcap;
   if (data.liquidity != null) e.liquidity = data.liquidity;
   dirty = true;
   queueTrackerUpdate(data.address);
   if (e.mcap != null && e.mcap < MAX_MCAP) stopEntry(e, 'mcap_below_8k');
+}
+
+/**
+ * Fallback for when Azura pushes stop while the socket stays open (all mcaps
+ * freeze together in the dashboard). Refreshes active entries whose last quote
+ * is older than STALE_QUOTE_MS via Dexscreener's batch endpoint — a single
+ * request covers every stale token, and the normal path costs nothing.
+ */
+async function refreshStaleQuotes() {
+  if (fallbackInFlight) return;
+  const now = Date.now();
+  const stale = activeEntries().filter((e) =>
+    !e.last_dex_check || now - new Date(e.last_dex_check).getTime() > STALE_QUOTE_MS);
+  if (!stale.length) return;
+
+  fallbackInFlight = true;
+  try {
+    const { results, failed } = await fetchTokensBatch(stale.map((e) => e.address));
+    let applied = 0;
+    results.forEach((r, i) => {
+      const e = stale[i];
+      if (!r || failed.has(e.address)) return; // network error or no pairs
+      const nowIso = new Date().toISOString();
+      e.checks += 1;
+      e.last_dex_check = nowIso;
+      lastDexAt = nowIso;
+      if (r.marketCap != null) e.mcap = r.marketCap;
+      if (r.liquidity) e.liquidity = r.liquidity;
+      dirty = true;
+      queueTrackerUpdate(e.address);
+      applied++;
+      if (e.mcap != null && e.mcap < MAX_MCAP) stopEntry(e, 'mcap_below_8k');
+    });
+    if (applied) {
+      lastFallbackAt = new Date().toISOString();
+      console.log(`[tracker] azura stale — refreshed ${applied}/${stale.length} quote(s) via dexscreener`);
+    }
+  } catch (err) {
+    console.error('[tracker] fallback quotes error:', err.message);
+  } finally {
+    fallbackInFlight = false;
+  }
 }
 
 // ─── tweet phase ────────────────────────────────────────────────────────────
@@ -627,6 +677,11 @@ async function tick() {
     console.error('[tracker] market phase error:', err.message);
   }
 
+  // HTTP safety net: fills any gap where the Azura push stream went silent.
+  refreshStaleQuotes().catch((err) => {
+    console.error('[tracker] fallback quotes error:', err.message);
+  });
+
   try {
     const devices = trackerTweetDevices();
     if (devices.length) xPhase(devices);
@@ -751,6 +806,8 @@ export function getXTrackerStatus() {
     gmgnQueue: queue,
     lastTickAt,
     lastDexAt,
+    lastAzuraAt,
+    lastFallbackAt,
     lastFlushAt,
     sample: active.slice(0, 15).map((e) => ({
       address: e.address,

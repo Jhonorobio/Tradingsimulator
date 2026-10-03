@@ -20,6 +20,10 @@ const CHAIN_ID = 1399811149; // Solana
 const RECONNECT_MS = 3_000;
 const PING_MS = 30_000;
 const PONG_TIMEOUT_MS = 15_000;
+// The socket can stay "open" while Azura stops pushing data (observed in
+// production: every mcap freezes at once, then resumes). No data for this
+// long → restart the socket, which re-sends the whole subscription set.
+const SILENT_MS = 60_000;
 
 let ws = null;
 let running = false;
@@ -27,6 +31,7 @@ let reconnectTimer = null;
 let pingTimer = null;
 let pongTimer = null;
 let onUpdate = null;
+let lastMsgAt = 0;
 
 const subs = new Set(); // mint addresses currently subscribed
 
@@ -63,6 +68,7 @@ export function getAzuraStatus() {
     running,
     connected: ws != null && ws.readyState === WebSocket.OPEN,
     subs: subs.size,
+    lastMsgAgeMs: lastMsgAt ? Date.now() - lastMsgAt : null,
   };
 }
 
@@ -90,6 +96,12 @@ function startPing() {
   stopPing();
   pingTimer = setInterval(() => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // Open but silent: restart so subscriptions are re-sent on the new socket.
+    if (lastMsgAt && Date.now() - lastMsgAt > SILENT_MS) {
+      console.log(`[azura] silent ${Math.round((Date.now() - lastMsgAt) / 1000)}s — restarting socket`);
+      try { ws.terminate(); } catch { /* already gone */ }
+      return;
+    }
     try { ws.ping(); } catch { return; }
     if (pongTimer) return;
     pongTimer = setTimeout(() => {
@@ -129,11 +141,13 @@ function connect() {
   ws.on('open', () => {
     if (!running) { try { ws.close(); } catch {} return; }
     for (const address of subs) send(subFrame(address));
+    lastMsgAt = Date.now();
     startPing();
     console.log(`[azura] connected (${subs.size} subscriptions restored)`);
   });
 
   ws.on('message', (data) => {
+    lastMsgAt = Date.now();
     let j;
     try { j = JSON.parse(data.toString()); } catch { return; }
     if (j?.type !== 'explorerCard') return;
