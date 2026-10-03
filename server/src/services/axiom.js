@@ -314,6 +314,16 @@ async function fetchTokenInfo(pair) {
     noteRateLimited();
     throw new Error('axiom rate limited (425)');
   }
+  // h2 allows ~5 calls/s — a burst returning 429 just needs a short pause.
+  for (let i = 0; i < 2 && res.status === 429; i++) {
+    await new Promise((r) => setTimeout(r, 2_000));
+    res = await http(
+      'GET',
+      `${host()}/token-info-v2?pairAddress=${encodeURIComponent(pair)}&v=2`,
+      apiHeaders(cookie),
+    );
+  }
+  if (res.status === 429) throw new Error('axiom throttled (429)');
   lastStatus = res.status;
   if (res.status === 404) return null; // pair unknown to Axiom
   if (res.status < 200 || res.status >= 300) {
