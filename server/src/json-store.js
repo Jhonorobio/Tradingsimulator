@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, promises as fsp } from 'node:fs';
 import path from 'node:path';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirname, '..', 'data'));
@@ -6,6 +6,8 @@ const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirn
 export class JsonStore {
   #file;
   #data;
+  #writing = false;
+  #pending = false;
 
   constructor(name) {
     mkdirSync(DATA_DIR, { recursive: true });
@@ -21,10 +23,26 @@ export class JsonStore {
     }
   }
 
+  /** Async single-flight write: the sync version stalled the event loop
+   *  (writes of MB-sized files while requests were waiting). */
   #write() {
-    const tmp = this.#file + '.tmp';
-    writeFileSync(tmp, JSON.stringify(this.#data, null, 2), 'utf8');
-    renameSync(tmp, this.#file);
+    this.#pending = true;
+    if (this.#writing) return;
+    this.#writing = true;
+    setImmediate(async () => {
+      while (this.#pending) {
+        this.#pending = false;
+        try {
+          const tmp = this.#file + '.tmp';
+          await fsp.writeFile(tmp, JSON.stringify(this.#data, null, 2), 'utf8');
+          await fsp.rename(tmp, this.#file);
+        } catch (err) {
+          console.error(`[json-store] write error ${this.#file}:`, err.message);
+          break;
+        }
+      }
+      this.#writing = false;
+    });
   }
 
   get(key) {
@@ -62,6 +80,8 @@ export class JsonStore {
 export class JsonArrayStore {
   #file;
   #data;
+  #writing = false;
+  #pending = false;
 
   constructor(name) {
     mkdirSync(DATA_DIR, { recursive: true });
@@ -77,10 +97,25 @@ export class JsonArrayStore {
     }
   }
 
+  /** Async single-flight write: see JsonStore#write. */
   #write() {
-    const tmp = this.#file + '.tmp';
-    writeFileSync(tmp, JSON.stringify(this.#data, null, 2), 'utf8');
-    renameSync(tmp, this.#file);
+    this.#pending = true;
+    if (this.#writing) return;
+    this.#writing = true;
+    setImmediate(async () => {
+      while (this.#pending) {
+        this.#pending = false;
+        try {
+          const tmp = this.#file + '.tmp';
+          await fsp.writeFile(tmp, JSON.stringify(this.#data, null, 2), 'utf8');
+          await fsp.rename(tmp, this.#file);
+        } catch (err) {
+          console.error(`[json-store] write error ${this.#file}:`, err.message);
+          break;
+        }
+      }
+      this.#writing = false;
+    });
   }
 
   getAll() {

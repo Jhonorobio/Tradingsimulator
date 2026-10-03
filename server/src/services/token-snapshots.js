@@ -4,7 +4,7 @@
  * Persists to data/token-snapshots.json.
  */
 
-import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { getCurrentData } from './trenches-store.js';
 import { findPhotonToken } from './photon-memescope.js';
@@ -41,13 +41,61 @@ function load() {
   } catch {
     store = {};
   }
+  // Close zombie tracks the legacy syncTracks left open forever: it removed
+  // disappeared tokens from activeTracks, so captureSnapshots' closeIfStale
+  // never ran for them. Same rule as closeIfStale — no snapshot for over an
+  // hour means the track ended at its last snapshot.
+  let closed = 0;
+  const cutoff = Date.now() - TRACK_CLOSE_MS;
+  for (const entry of Object.values(store)) {
+    for (const track of entry?.tracks || []) {
+      if (track.ended) continue;
+      const lastT = track.snapshots?.[track.snapshots.length - 1]?.t;
+      if (lastT && new Date(lastT).getTime() < cutoff) {
+        track.ended = lastT;
+        closed++;
+      }
+    }
+  }
+  if (closed) {
+    console.log(`[snapshots] closed ${closed} stale track(s) left open by legacy sync`);
+    save();
+  }
 }
 
+// Async, coalesced persistence. The old writeFileSync blocked the event loop
+// for seconds on every trenches refresh (a >30MB pretty-printed JSON on a
+// network volume) — HTTP and WS froze with it and every dashboard market cap
+// stalled. Writes now run off-loop, one at a time, and save() calls that
+// arrive mid-write collapse into a single trailing write.
+let writing = false;
+let pendingWrite = false;
+
 function save() {
-  mkdirSync(DATA_DIR, { recursive: true });
-  const tmp = FILE + '.tmp';
-  writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf8');
-  renameSync(tmp, FILE);
+  pendingWrite = true;
+  if (writing) return;
+  writing = true;
+  setImmediate(writeLoop);
+}
+
+async function writeLoop() {
+  while (pendingWrite) {
+    pendingWrite = false;
+    try {
+      mkdirSync(DATA_DIR, { recursive: true });
+      // Compact JSON: ~35% smaller and faster than the pretty-printed form.
+      const json = JSON.stringify(store);
+      const started = Date.now();
+      await fsp.writeFile(FILE + '.tmp', json, 'utf8');
+      await fsp.rename(FILE + '.tmp', FILE);
+      const ms = Date.now() - started;
+      if (ms > 1000) console.log(`[snapshots] slow save ${ms}ms (${(json.length / 1e6).toFixed(1)}MB)`);
+    } catch (err) {
+      console.error('[snapshots] save error:', err.message);
+      break;
+    }
+  }
+  writing = false;
 }
 
 function takeSnapshot(token) {
@@ -98,25 +146,14 @@ function photonSnapshotSource(address) {
  */
 export function syncTracks() {
   const now = new Date().toISOString();
-
-  // Get all current tokens grouped by category
-  const currentByCategory = {};
+  let changed = false;
   const TABS = ['new_creation', 'completed'];
-  for (const tab of TABS) {
-    const tokens = getCurrentData(tab);
-    currentByCategory[tab] = new Set(tokens.map((t) => t.address));
-  }
 
-  // Deregister tokens that disappeared — but keep their track OPEN so the
-  // timeline continues seamlessly if the token reappears later. Only the
-  // trenches tabs are governed by these lists: Photon tracks stay registered
-  // (captureSnapshots skips them while absent from the live screener cache),
-  // otherwise every trenches refresh would silently kill photon timelines.
-  for (const key of activeTracks.keys()) {
-    const [address, category] = key.split(':');
-    if (!TABS.includes(category)) continue;
-    if (!currentByCategory[category]?.has(address)) activeTracks.delete(key);
-  }
+  // Disappeared tokens keep their activeTracks key on purpose: closure is
+  // captureSnapshots' closeIfStale job (after TRACK_CLOSE_MS of absence).
+  // Deregistering here used to make that unreachable — tracks never closed
+  // and the JSON file grew forever. Reappearing tokens still resume the same
+  // open track via the existingOpen check below.
 
   // Open tracks for new tokens
   for (const tab of TABS) {
@@ -147,10 +184,13 @@ export function syncTracks() {
       };
       tracks.push(track);
       activeTracks.set(trackKey, tracks.length - 1);
+      changed = true;
     }
   }
 
-  save();
+  // Only persist when a track was actually created — this used to run
+  // unconditionally on every trenches refresh (the event-loop killer).
+  if (changed) save();
 }
 
 /**
