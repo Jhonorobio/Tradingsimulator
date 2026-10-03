@@ -46,6 +46,7 @@ export interface XTrackerToken {
   stopped_at: string | null;
   mcap: number | null;
   liquidity: number | null;
+  volume24h: number | null;
   checks: number;
   last_dex_check: string | null;
   age_seconds: number | null;

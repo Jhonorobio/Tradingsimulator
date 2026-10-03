@@ -6,7 +6,8 @@
  * a mint). Messages arrive pushed only while the token has activity, shaped:
  *
  *   { type: 'explorerCard', chainId, tokenAddress,
- *     payload: { stats: { marketCap, liquidity: { amount: { usd } } } } }
+ *     payload: { stats: { marketCap, liquidity: { amount: { usd } },
+ *                          volume: { '24h': { usd } } } } }
  *
  * The subscription set survives reconnects: on every `open` the whole set is
  * re-sent, so callers only ever call azuraSubscribe/azuraUnsubscribe.
@@ -81,10 +82,12 @@ function parseExplorerCard(j) {
   if (!address) return null;
   const mcap = Number(st.marketCap ?? p.marketCap);
   const liqUsd = Number(st.liquidity?.amount?.usd ?? p.liquidity?.usd);
+  const vol24 = Number(st.volume?.['24h']?.usd);
   return {
     address,
     mcap: Number.isFinite(mcap) && mcap > 0 ? mcap : null,
     liquidity: Number.isFinite(liqUsd) && liqUsd > 0 ? liqUsd : null,
+    volume24h: Number.isFinite(vol24) && vol24 > 0 ? vol24 : null,
     dex: p.dex ?? null,
     holders: Number.isFinite(Number(p.holders)) ? Number(p.holders) : null,
   };
@@ -174,8 +177,8 @@ function connect() {
 }
 
 /**
- * Starts the feed. `callback({ address, mcap, liquidity, dex, holders })` fires
- * on every explorerCard message. Safe to call again (keeps existing subs).
+ * Starts the feed. `callback({ address, mcap, liquidity, volume24h, dex, holders })`
+ * fires on every explorerCard message. Safe to call again (keeps existing subs).
  */
 export function startAzura(callback) {
   onUpdate = callback;

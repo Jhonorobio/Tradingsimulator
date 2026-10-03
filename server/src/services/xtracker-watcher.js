@@ -134,6 +134,7 @@ function newEntry(address, token) {
     stopped_at: null,
     mcap: null,
     liquidity: null,
+    volume24h: null,
     checks: 0,
     last_dex_check: null,
     last_x_check: null,
@@ -402,6 +403,7 @@ function handleMarketUpdate(data) {
   lastAzuraAt = nowIso;
   if (data.mcap != null) e.mcap = data.mcap;
   if (data.liquidity != null) e.liquidity = data.liquidity;
+  if (data.volume24h != null) e.volume24h = data.volume24h;
   dirty = true;
   queueTrackerUpdate(data.address);
   if (e.mcap != null && e.mcap < MAX_MCAP) stopEntry(e, 'mcap_below_8k');
@@ -433,6 +435,7 @@ async function refreshStaleQuotes() {
       lastDexAt = nowIso;
       if (r.marketCap != null) e.mcap = r.marketCap;
       if (r.liquidity) e.liquidity = r.liquidity;
+      if (r.volume24h) e.volume24h = r.volume24h;
       dirty = true;
       queueTrackerUpdate(e.address);
       applied++;
@@ -733,6 +736,7 @@ function mapWatchToken(e) {
     stopped_at: e.stopped_at ?? null,
     mcap: e.mcap ?? null,
     liquidity: e.liquidity ?? null,
+    volume24h: e.volume24h ?? null,
     checks: e.checks || 0,
     last_dex_check: e.last_dex_check ?? null,
     age_seconds: Number.isFinite(firstSeen) ? Math.max(0, Math.round((Date.now() - firstSeen) / 1000)) : null,

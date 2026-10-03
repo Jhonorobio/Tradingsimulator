@@ -82,6 +82,14 @@ const TrackingCard = React.memo(function TrackingCard({ item, theme }: {
                 {fmtUsd(item.mcap, { compact: true })}
               </ThemedText>
             )}
+            {item.volume24h != null && (
+              <View style={styles.volRow}>
+                <Ionicons name="stats-chart" size={10} color={theme.textSecondary} />
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  {fmtUsd(item.volume24h, { compact: true })}
+                </ThemedText>
+              </View>
+            )}
           </View>
         </View>
 
@@ -241,6 +249,7 @@ const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   dot: { width: 6, height: 6, borderRadius: 3 },
   cardRight: { alignItems: 'flex-end', gap: 2 },
+  volRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   empty: { textAlign: 'center', marginTop: 40, opacity: 0.5 },
