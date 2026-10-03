@@ -77,7 +77,7 @@ function fail(res, err, status = 500) {
 router.put('/config', (req, res) => {
   try {
     const id = deviceId(req);
-    const { push_token, categories, filters, tracker_tweets, vol_mcap_alerts } = req.body || {};
+    const { push_token, categories, filters, tracker_tweets, vol_mcap_alerts, vol_mcap_min_mcap, vol_mcap_kol } = req.body || {};
 
     if (!isValidPushToken(push_token)) {
       throw Object.assign(new Error('Invalid Expo push token'), { status: 400 });
@@ -120,6 +120,18 @@ router.put('/config', (req, res) => {
       ? !!vol_mcap_alerts
       : existing ? existing.vol_mcap_alerts !== false : true;
 
+    // Optional conditions for the vol≈mcap alert: a minimum market cap in USD
+    // (null = off) and a ≥1 KOL holder requirement (off by default). Each is
+    // replaced only when the client sends it, so old clients keep their value.
+    const volMcapMinMcap = vol_mcap_min_mcap !== undefined
+      ? (typeof vol_mcap_min_mcap === 'number' && Number.isFinite(vol_mcap_min_mcap) && vol_mcap_min_mcap > 0
+        ? Math.round(vol_mcap_min_mcap)
+        : null)
+      : (typeof existing?.vol_mcap_min_mcap === 'number' ? existing.vol_mcap_min_mcap : null);
+    const volMcapKol = vol_mcap_kol !== undefined
+      ? !!vol_mcap_kol
+      : existing?.vol_mcap_kol === true;
+
     notificationConfig.set(id, {
       device_id: id,
       push_token,
@@ -127,6 +139,8 @@ router.put('/config', (req, res) => {
       filters: mergedFilters,
       tracker_tweets: trackerTweets,
       vol_mcap_alerts: volMcapAlerts,
+      vol_mcap_min_mcap: volMcapMinMcap,
+      vol_mcap_kol: volMcapKol,
       updated_at: new Date().toISOString(),
     });
 
@@ -152,6 +166,8 @@ router.get('/config', (req, res) => {
         filters: {},
         tracker_tweets: defaultTrackerTweets(),
         vol_mcap_alerts: true,
+        vol_mcap_min_mcap: null,
+        vol_mcap_kol: false,
       });
     }
     const categories = {};
@@ -162,6 +178,8 @@ router.get('/config', (req, res) => {
       filters: entry.filters || {},
       tracker_tweets: sanitizeTrackerTweets(entry.tracker_tweets) || defaultTrackerTweets(),
       vol_mcap_alerts: entry.vol_mcap_alerts !== false,
+      vol_mcap_min_mcap: typeof entry.vol_mcap_min_mcap === 'number' ? entry.vol_mcap_min_mcap : null,
+      vol_mcap_kol: entry.vol_mcap_kol === true,
     });
   } catch (err) {
     fail(res, err);

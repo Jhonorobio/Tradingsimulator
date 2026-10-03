@@ -7,8 +7,12 @@ export function saveNotificationConfig(
   filters?: Record<string, NotificationCategoryFilters>,
   tracker_tweets?: NotificationConfig['tracker_tweets'],
   vol_mcap_alerts?: boolean,
+  vol_mcap_min_mcap?: number | null,
+  vol_mcap_kol?: boolean,
 ) {
-  return api.put<{ ok: boolean }>('/api/notifications/config', { push_token, categories, filters, tracker_tweets, vol_mcap_alerts });
+  return api.put<{ ok: boolean }>('/api/notifications/config', {
+    push_token, categories, filters, tracker_tweets, vol_mcap_alerts, vol_mcap_min_mcap, vol_mcap_kol,
+  });
 }
 
 export function getNotificationConfig() {

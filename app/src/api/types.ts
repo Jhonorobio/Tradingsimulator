@@ -109,6 +109,10 @@ export interface NotificationConfig {
   };
   /** Push once per token while 24h volume ≈ 0.9x–2.3x of market cap. */
   vol_mcap_alerts?: boolean;
+  /** Minimum market cap (USD) for that alert; null/absent = condition off. */
+  vol_mcap_min_mcap?: number | null;
+  /** Require ≥1 KOL holder (GMGN renowned_count) for that alert. */
+  vol_mcap_kol?: boolean;
 }
 
 export interface GmgnStatus {

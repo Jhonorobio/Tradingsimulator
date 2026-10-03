@@ -34,6 +34,7 @@
  */
 
 import { tokenWatchlist, notificationConfig, notificationHistory, tweetCondCounts, pushSubscriptions, notifiedTokens } from '../stores.js';
+import { peekRenownedCount, requestRenownedCount } from './gmgn-kol.js';
 import { startAzura, stopAzura, azuraSubscribe, azuraUnsubscribe, getAzuraStatus } from './azura-ws.js';
 import { getMentions, getMentionsStatus } from './gmgn-mentions.js';
 import { fetchTokensBatch } from './dexscreener.js';
@@ -679,7 +680,7 @@ const VOL_MCAP_MIN = 0.9;
 const VOL_MCAP_MAX = 2.3;
 const volMcapPending = new Set(); // "deviceId:address" currently being sent
 
-async function notifyVolMcap(e, device, ratio, newList) {
+async function notifyVolMcap(e, device, ratio, newList, kolCount) {
   const title = `${e.symbol || e.name || 'Token'} 📊 Volumen ${ratio.toFixed(1)}x del MCap`;
   const body = `Vol ${fmtUsd(e.volume24h)} · MCap ${fmtUsd(e.mcap)}`;
   try {
@@ -695,7 +696,7 @@ async function notifyVolMcap(e, device, ratio, newList) {
     // Mark only after a successful send, so failures retry on the next tick.
     notifiedTokens.set(`${device.device_id}:vol_mcap`, newList);
     // History card (global, like every other category) + live update.
-    const saved = notificationHistory.add(volMcapHistoryEntry(e, device));
+    const saved = notificationHistory.add(volMcapHistoryEntry(e, device, kolCount));
     broadcastHistorySaved(saved);
     trimVolMcapHistory();
     console.log(`[tracker] vol_mcap alert ${e.symbol || e.address} (${ratio.toFixed(1)}x)`);
@@ -705,7 +706,7 @@ async function notifyVolMcap(e, device, ratio, newList) {
 }
 
 /** History record mirroring the trenches/photon card shape. */
-function volMcapHistoryEntry(e, device) {
+function volMcapHistoryEntry(e, device, kolCount) {
   return {
     device_id: device.device_id,
     address: e.address,
@@ -718,7 +719,7 @@ function volMcapHistoryEntry(e, device) {
     vol24h: e.volume24h ?? null,
     logo: e.logo || null,
     smart_degen_count: null,
-    renowned_count: null,
+    renowned_count: kolCount ?? null,
     fresh_wallet_rate: null,
     bot_degen_count: null,
     bot_degen_rate: null,
@@ -764,14 +765,27 @@ function volMcapPhase() {
     if (vol == null || mc == null || !(mc > 0)) continue;
     const ratio = vol / mc;
     if (ratio < VOL_MCAP_MIN || ratio > VOL_MCAP_MAX) continue;
+    let kolCount; // filled lazily, only when a device has the KOL condition on
     for (const device of devices) {
-      const dedupe = `${device.device_id}:${e.address}`;
-      if (volMcapPending.has(dedupe)) continue;
       const key = `${device.device_id}:vol_mcap`;
       const list = notifiedTokens.get(key) || [];
-      if (list.includes(e.address)) continue;
+      if (list.includes(e.address)) continue; // one alert per token, forever
+      const dedupe = `${device.device_id}:${e.address}`;
+      if (volMcapPending.has(dedupe)) continue;
+      // Condition 1: minimum market cap (null = condition off).
+      const minMcap = device.vol_mcap_min_mcap;
+      if (typeof minMcap === 'number' && mc < minMcap) continue;
+      // Condition 2: at least 1 KOL holder (GMGN renowned_count).
+      if (device.vol_mcap_kol) {
+        if (kolCount === undefined) kolCount = peekRenownedCount(e.address);
+        if (kolCount === undefined) {
+          requestRenownedCount(e.address); // async fill; decided on a later tick
+          continue;
+        }
+        if (kolCount < 1) continue;
+      }
       volMcapPending.add(dedupe);
-      notifyVolMcap(e, device, ratio, [...list, e.address])
+      notifyVolMcap(e, device, ratio, [...list, e.address], device.vol_mcap_kol ? kolCount : null)
         .finally(() => volMcapPending.delete(dedupe));
     }
   }

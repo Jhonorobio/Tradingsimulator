@@ -63,6 +63,9 @@ export default function NotificationsScreen() {
   const [filters, setFilters] = useState<Record<string, NotificationCategoryFilters>>({});
   const [trackerTweets, setTrackerTweets] = useState<TrackerTweets>(EMPTY_TWEET_FLAGS);
   const [volMcapAlerts, setVolMcapAlerts] = useState(true);
+  const [volMcapMinMcap, setVolMcapMinMcap] = useState<number | null>(null);
+  const [minMcapText, setMinMcapText] = useState('');
+  const [volMcapKol, setVolMcapKol] = useState(false);
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
@@ -73,6 +76,10 @@ export default function NotificationsScreen() {
         setFilters(notifCfg.filters || {});
         setTrackerTweets(notifCfg.tracker_tweets ?? EMPTY_TWEET_FLAGS);
         setVolMcapAlerts(notifCfg.vol_mcap_alerts ?? true);
+        const mn = typeof notifCfg.vol_mcap_min_mcap === 'number' ? notifCfg.vol_mcap_min_mcap : null;
+        setVolMcapMinMcap(mn);
+        setMinMcapText(mn != null ? String(mn) : '');
+        setVolMcapKol(notifCfg.vol_mcap_kol === true);
       }
     } catch {}
   }, []);
@@ -83,8 +90,10 @@ export default function NotificationsScreen() {
     cats: NotificationConfig['categories'],
     f: Record<string, NotificationCategoryFilters>,
     tt: TrackerTweets,
-    // Default to the current state so unrelated toggles never reset it.
+    // Default to the current state so unrelated toggles never reset them.
     vm: boolean = volMcapAlerts,
+    mn: number | null = volMcapMinMcap,
+    kl: boolean = volMcapKol,
   ) => {
     let token = pushToken;
     if (!token) {
@@ -100,7 +109,7 @@ export default function NotificationsScreen() {
       setPushToken(token);
     }
     try {
-      await saveNotificationConfig(token, cats, f, tt, vm);
+      await saveNotificationConfig(token, cats, f, tt, vm, mn, kl);
     } catch (err) {
       Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo guardar');
     }
@@ -127,6 +136,30 @@ export default function NotificationsScreen() {
     const next = !volMcapAlerts;
     setVolMcapAlerts(next);
     await persistConfig(notifCategories, filters, trackerTweets, next);
+  };
+
+  // Marketcap mínimo: the switch stores null (off) or the threshold (on);
+  // enabling without a value seeds a $10,000 default the user can edit.
+  const toggleVolMcapMin = async () => {
+    const next = volMcapMinMcap == null ? 10000 : null;
+    setVolMcapMinMcap(next);
+    setMinMcapText(next != null ? String(next) : '');
+    await persistConfig(notifCategories, filters, trackerTweets, volMcapAlerts, next, volMcapKol);
+  };
+
+  const commitVolMcapMin = async () => {
+    const n = parseInt(minMcapText.replace(/\D/g, ''), 10);
+    const next = Number.isFinite(n) && n > 0 ? n : null;
+    if (next === volMcapMinMcap) return;
+    setVolMcapMinMcap(next);
+    setMinMcapText(next != null ? String(next) : '');
+    await persistConfig(notifCategories, filters, trackerTweets, volMcapAlerts, next, volMcapKol);
+  };
+
+  const toggleVolMcapKol = async () => {
+    const next = !volMcapKol;
+    setVolMcapKol(next);
+    await persistConfig(notifCategories, filters, trackerTweets, volMcapAlerts, volMcapMinMcap, next);
   };
 
   const updateFilter = async (cat: string, field: NotificationFilterFields, bound: 'min' | 'max', value: string) => {
@@ -305,6 +338,59 @@ export default function NotificationsScreen() {
                 trackColor={{ true: theme.accent }}
               />
             </View>
+
+            {volMcapAlerts && (
+              <>
+                <View style={[styles.rowBetween, { borderTopWidth: 1, borderTopColor: theme.border, marginTop: 12, paddingTop: 12 }]}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <ThemedText type="smallBold">Marketcap mínimo</ThemedText>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                      Solo avisa cuando el Marketcap alcance este monto (USD).
+                    </ThemedText>
+                  </View>
+                  <Switch
+                    value={volMcapMinMcap != null}
+                    onValueChange={toggleVolMcapMin}
+                    trackColor={{ true: theme.accent }}
+                  />
+                </View>
+                {volMcapMinMcap != null && (
+                  <TextInput
+                    style={{
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      borderRadius: 8,
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      marginTop: 8,
+                      color: theme.text,
+                      fontSize: 14,
+                    }}
+                    keyboardType="number-pad"
+                    value={minMcapText}
+                    onChangeText={setMinMcapText}
+                    onEndEditing={commitVolMcapMin}
+                    placeholder="10000"
+                    placeholderTextColor={theme.textSecondary}
+                    selectTextOnFocus
+                  />
+                )}
+
+                <View style={[styles.rowBetween, { borderTopWidth: 1, borderTopColor: theme.border, marginTop: 12, paddingTop: 12 }]}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <ThemedText type="smallBold">Tiene KOL</ThemedText>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                      Solo avisa si GMGN reporta al menos 1 KOL (renowned_count ≥ 1).
+                    </ThemedText>
+                  </View>
+                  <Switch
+                    value={volMcapKol}
+                    onValueChange={toggleVolMcapKol}
+                    trackColor={{ true: theme.accent }}
+                  />
+                </View>
+              </>
+            )}
           </Card>
         </ScrollView>
       </SafeAreaView>
