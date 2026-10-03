@@ -183,6 +183,7 @@ function SnapTimeline({ snaps, theme }: { snaps: TokenSnapshot[]; theme: any }) 
         const sTopHolders = s.top_holders_rate;
         const sHolders = s.holders_count;
         const sKolsTraded = s.num_kols_traded;
+        const sBotHolders = s.trading_bot_holders;
         const snapStat = (icon: string, value: string, color: string) => (
           <View style={styles.snapStatItem}>
             <Ionicons name={icon as any} size={10} color={color} />
@@ -205,6 +206,7 @@ function SnapTimeline({ snaps, theme }: { snaps: TokenSnapshot[]; theme: any }) 
             {sTopHolders != null && sTopHolders > 0 && snapStat('stats-chart', `${(sTopHolders * 100).toFixed(1)}%`, sTopHolders > 0.5 ? theme.warn : theme.accent)}
             {sHolders != null && sHolders > 0 && snapStat('person', fmtNum(sHolders), theme.accent)}
             {sKolsTraded != null && sKolsTraded > 0 && snapStat('ribbon', String(sKolsTraded), '#a78bfa')}
+            {sBotHolders != null && sBotHolders > 0 && snapStat('hardware-chip', String(sBotHolders), '#38bdf8')}
             {sBundler != null && sBundler > 0 && snapStat('layers', `${(sBundler * 100).toFixed(0)}%`, '#f97316')}
             {sBundleCnt != null && sBundleCnt > 0 && snapStat('cube', String(sBundleCnt), '#f97316')}
             {sBuys != null && sBuys > 0 && snapStat('cart', String(sBuys), theme.accent)}

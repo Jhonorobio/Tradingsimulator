@@ -10,6 +10,7 @@ import { getCurrentData } from './trenches-store.js';
 import { findPhotonToken } from './photon-memescope.js';
 import { getAxiomInfo, prefetchAxiomInfo, getAxiomStatus } from './axiom.js';
 import { getKolsTraded, getPumpSnapshot, prefetchPumpData, getPumpStatus } from './pumpfun.js';
+import { getTelemetrySnapshot, prefetchTelemetry, getTelemetryStatus } from './telemetry.js';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirname, '..', '..', 'data'));
 const FILE = path.join(DATA_DIR, 'token-snapshots.json');
@@ -32,7 +33,7 @@ const SNAPSHOT_FIELDS = [
   'bot_degen_count', 'bot_degen_rate',
   'bundler_rate', 'bundler_trader_amount_rate', 'entrapment_ratio',
   'bundle_holders_count', 'buys_count', 'tp_holders_count',
-  'top_holders_rate', 'holders_count', 'num_kols_traded',
+  'top_holders_rate', 'holders_count', 'num_kols_traded', 'trading_bot_holders',
 ];
 
 function load() {
@@ -223,13 +224,18 @@ export function captureSnapshots() {
         closeIfStale(track, key);
         continue;
       }
+      prefetchTelemetry(address);
       const p = getPumpSnapshot(address);
       if (!p) {
         closeIfStale(track, key);
         continue;
       }
-      // Bonus track: KOLs only from pump.fun — more sources will be added here.
-      track.snapshots.push(takeSnapshot({ num_kols_traded: p.kols }));
+      // Bonus track: KOLs from pump.fun + trading_bot_holders from Telemetry.
+      const tel = getTelemetrySnapshot(address);
+      track.snapshots.push(takeSnapshot({
+        num_kols_traded: p.kols,
+        trading_bot_holders: tel?.botHolders ?? null,
+      }));
       if (track.snapshots.length > TRACK_SNAPSHOTS_MAX) track.snapshots.shift();
       captured++;
       prefetchPumpData(address);
@@ -239,9 +245,16 @@ export function captureSnapshots() {
     // Every tracked gmgn/photon token also gets a pump track piggybacked
     // (created as soon as the indexer knows the mint).
     prefetchPumpData(address);
+    prefetchTelemetry(address);
     if (!activeTracks.has(`${address}:pump`)) {
       const p = getPumpSnapshot(address);
-      if (p) ensureTrack(address, 'pump', { num_kols_traded: p.kols });
+      if (p) {
+        const tel = getTelemetrySnapshot(address);
+        ensureTrack(address, 'pump', {
+          num_kols_traded: p.kols,
+          trading_bot_holders: tel?.botHolders ?? null,
+        });
+      }
     }
 
     // Trenches tokens come from the store; Photon tracks sample the live
@@ -545,6 +558,7 @@ export function startSnapshotWorker() {
       if (++axiomLogTick % 20 === 0) {
         console.log('[axiom]', JSON.stringify(getAxiomStatus()));
         console.log('[pump]', JSON.stringify(getPumpStatus()));
+        console.log('[telemetry]', JSON.stringify(getTelemetryStatus()));
       }
     } catch (err) {
       console.error('[snapshots] error:', err.message);

@@ -177,6 +177,7 @@ export interface TokenSnapshot {
   top_holders_rate?: number | null;
   holders_count?: number | null;
   num_kols_traded?: number | null;
+  trading_bot_holders?: number | null;
 }
 
 export interface ProxyConfig {

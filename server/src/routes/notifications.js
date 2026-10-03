@@ -4,6 +4,7 @@ import { isValidPushToken } from '../services/push.js';
 import { getSnapshots, getAllTracks, getTracksStatus } from '../services/token-snapshots.js';
 import { getPumpStatus } from '../services/pumpfun.js';
 import { getAxiomStatus } from '../services/axiom.js';
+import { getTelemetryStatus } from '../services/telemetry.js';
 import { resetTweetCondQuota } from '../services/xtracker-watcher.js';
 
 const router = Router();
@@ -223,7 +224,7 @@ router.get('/history', (req, res) => {
  */
 router.get('/snapshots/status', (_req, res) => {
   try {
-    res.json({ tracks: getTracksStatus(), pump: getPumpStatus(), axiom: getAxiomStatus() });
+    res.json({ tracks: getTracksStatus(), pump: getPumpStatus(), axiom: getAxiomStatus(), telemetry: getTelemetryStatus() });
   } catch (err) {
     fail(res, err);
   }
