@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { notificationConfig, notificationHistory, winners } from '../stores.js';
 import { isValidPushToken } from '../services/push.js';
-import { getSnapshots, getAllTracks } from '../services/token-snapshots.js';
+import { getSnapshots, getAllTracks, getTracksStatus } from '../services/token-snapshots.js';
+import { getPumpStatus } from '../services/pumpfun.js';
+import { getAxiomStatus } from '../services/axiom.js';
 import { resetTweetCondQuota } from '../services/xtracker-watcher.js';
 
 const router = Router();
@@ -210,6 +212,18 @@ router.get('/history', (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 300);
     res.json({ history: buildHistoryEntries(limit) });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * GET /api/notifications/snapshots/status
+ * Diagnostics: active track counts per category + pump/axiom client status.
+ */
+router.get('/snapshots/status', (_req, res) => {
+  try {
+    res.json({ tracks: getTracksStatus(), pump: getPumpStatus(), axiom: getAxiomStatus() });
   } catch (err) {
     fail(res, err);
   }

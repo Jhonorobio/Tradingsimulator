@@ -310,6 +310,24 @@ export function isTrackActive(address, category) {
   return activeTracks.has(`${address}:${category}`);
 }
 
+/** Diagnostics: active track counts per category (and open/closed totals). */
+export function getTracksStatus() {
+  const byCategory = {};
+  for (const key of activeTracks.keys()) {
+    const cat = key.slice(key.indexOf(':') + 1);
+    byCategory[cat] = (byCategory[cat] || 0) + 1;
+  }
+  let open = 0;
+  let closed = 0;
+  for (const entry of Object.values(store)) {
+    for (const t of entry.tracks) {
+      if (t.ended) closed++;
+      else open++;
+    }
+  }
+  return { active: activeTracks.size, byCategory, open, closed };
+}
+
 /**
  * Returns the first snapshot for a token+category (the notification moment).
  */
