@@ -40,7 +40,7 @@ const HOSTS = [
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36';
 
 const ACCESS_SKEW_MS = 60_000; // refresh 1 min before JWT exp
-const INFO_TTL_MS = 10 * 60_000; // token-info freshness (bucket is tiny)
+const INFO_TTL_MS = 15 * 60_000; // token-info freshness (holders/bots change slowly)
 const PAIR_TTL_MS = 6 * 60 * 60_000; // mint→pair rarely changes
 const PAIR_NEGATIVE_TTL_MS = 10 * 60_000; // unknown pairs retry later
 const MIN_GAP_MS = 5_000; // h2 is unlimited in practice; 425 backoff still guards it
