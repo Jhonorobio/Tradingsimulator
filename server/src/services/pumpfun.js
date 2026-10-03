@@ -20,7 +20,7 @@ const MAX_GAP_MS = 120_000;
 const BACKOFF_BASE_MS = 180_000;
 const BACKOFF_MAX_MS = 900_000;
 
-const cache = new Map(); // mint -> { kols, at }
+const cache = new Map(); // mint -> { mcap, volume, holders, kols, at }
 const pending = new Map(); // mint -> true (queued)
 let timer = null;
 let backoffUntil = 0;
@@ -114,8 +114,8 @@ function noteSuccess() {
   gapMs = Math.max(MIN_GAP_MS, gapMs - 5_000);
 }
 
-/** GET /in-memory-coin/<mint> → numKolsTraded (null when unknown). */
-async function fetchKols(mint) {
+/** GET /in-memory-coin/<mint> → { mcap, volume, holders, kols } or null. */
+async function fetchPump(mint) {
   const res = await request(`/in-memory-coin/${mint}`);
   lastStatus = res.status;
   if (res.status === 429 || res.status === 425) {
@@ -129,23 +129,37 @@ async function fetchKols(mint) {
   }
   try {
     const j = JSON.parse(res.body);
-    const kols = typeof j?.numKolsTraded === 'number' ? j.numKolsTraded : null;
+    const num = (v) => (typeof v === 'number' ? v : null);
+    const data = {
+      mcap: num(j.marketCapUsd),
+      volume: num(j.volumeUsd),
+      holders: num(j.numHolders),
+      kols: num(j.numKolsTraded),
+    };
     noteSuccess();
-    return kols;
+    return data;
   } catch {
     return null;
   }
 }
 
-/** Synchronous cache lookup — never touches the network. */
-export function getKolsTraded(mint) {
+/** Last-known pump snapshot for a mint (ignores TTL — reads are free). */
+export function getPumpSnapshot(mint) {
   const hit = cache.get(mint);
-  if (hit && Date.now() - hit.at < INFO_TTL_MS) return hit.kols;
-  return null;
+  if (!hit) return null;
+  if (hit.mcap == null && hit.volume == null && hit.holders == null && hit.kols == null) {
+    return null; // negative cache (mint unknown to the indexer)
+  }
+  return { mcap: hit.mcap, volume: hit.volume, holders: hit.holders, kols: hit.kols };
+}
+
+/** KOL traders count only (thin wrapper over the pump cache). */
+export function getKolsTraded(mint) {
+  return getPumpSnapshot(mint)?.kols ?? null;
 }
 
 /** Fire-and-forget: queues a background fetch (deduped, spaced, backed off). */
-export function prefetchKolsTraded(mint) {
+export function prefetchPumpData(mint) {
   if (!mint) return;
   const hit = cache.get(mint);
   if (hit && Date.now() - hit.at < INFO_TTL_MS) return;
@@ -166,9 +180,13 @@ async function run() {
       timer = setTimeout(run, backoffUntil - Date.now() + 1_000);
       return;
     }
-    const kols = await fetchKols(mint);
-    if (kols != null) cache.set(mint, { kols, at: Date.now() });
-    else cache.set(mint, { kols: null, at: Date.now() }); // negative cache
+    const data = await fetchPump(mint);
+    if (data) {
+      cache.set(mint, { ...data, at: Date.now() });
+    } else {
+      // negative cache: mint unknown to the indexer
+      cache.set(mint, { mcap: null, volume: null, holders: null, kols: null, at: Date.now() });
+    }
   } catch (e) {
     lastError = String(e?.message || e);
     noteRateLimited(); // transient network failure → pause too

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { getCurrentData } from './trenches-store.js';
 import { findPhotonToken } from './photon-memescope.js';
 import { getAxiomInfo, prefetchAxiomInfo, getAxiomStatus } from './axiom.js';
-import { getKolsTraded, prefetchKolsTraded, getPumpStatus } from './pumpfun.js';
+import { getKolsTraded, getPumpSnapshot, prefetchPumpData, getPumpStatus } from './pumpfun.js';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirname, '..', '..', 'data'));
 const FILE = path.join(DATA_DIR, 'token-snapshots.json');
@@ -186,6 +186,19 @@ export function captureSnapshots() {
   let captured = 0;
   let closed = 0;
 
+  // A track closes once its source has been absent for an hour (the last
+  // snapshot's timestamp gates it) and reopens fresh on reappearance.
+  const closeIfStale = (track, key) => {
+    const lastT = track.snapshots[track.snapshots.length - 1]?.t;
+    if (lastT && Date.now() - new Date(lastT).getTime() > TRACK_CLOSE_MS) {
+      track.ended = lastT;
+      activeTracks.delete(key);
+      closed++;
+      return true;
+    }
+    return false;
+  };
+
   for (const [key, trackIdx] of activeTracks.entries()) {
     const [address, category] = key.split(':');
     const entry = store[address];
@@ -193,6 +206,53 @@ export function captureSnapshots() {
     if (!track || track.ended) {
       activeTracks.delete(key);
       continue;
+    }
+
+    // Pump.fun indexer track (mcap / volume / holders / KOLs). It piggybacks
+    // on gmgn/photon tracks and dies with them: no companion track → stop
+    // sampling, then close an hour later.
+    if (category === 'pump') {
+      let companion = false;
+      for (const k of activeTracks.keys()) {
+        if (k.startsWith(`${address}:`) && k.slice(address.length + 1) !== 'pump') {
+          companion = true;
+          break;
+        }
+      }
+      if (!companion) {
+        closeIfStale(track, key);
+        continue;
+      }
+      const p = getPumpSnapshot(address);
+      if (!p) {
+        closeIfStale(track, key);
+        continue;
+      }
+      track.snapshots.push(takeSnapshot({
+        usd_market_cap: p.mcap,
+        volume_24h: p.volume,
+        holders_count: p.holders,
+        num_kols_traded: p.kols,
+      }));
+      if (track.snapshots.length > TRACK_SNAPSHOTS_MAX) track.snapshots.shift();
+      captured++;
+      prefetchPumpData(address);
+      continue;
+    }
+
+    // Every tracked gmgn/photon token also gets a pump track piggybacked
+    // (created as soon as the indexer knows the mint).
+    prefetchPumpData(address);
+    if (!activeTracks.has(`${address}:pump`)) {
+      const p = getPumpSnapshot(address);
+      if (p) {
+        ensureTrack(address, 'pump', {
+          usd_market_cap: p.mcap,
+          volume_24h: p.volume,
+          holders_count: p.holders,
+          num_kols_traded: p.kols,
+        });
+      }
     }
 
     // Trenches tokens come from the store; Photon tracks sample the live
@@ -203,12 +263,7 @@ export function captureSnapshots() {
       ? photonSnapshotSource(address)
       : getCurrentData(category).find((t) => t.address === address);
     if (!token) {
-      const lastT = track.snapshots[track.snapshots.length - 1]?.t;
-      if (lastT && Date.now() - new Date(lastT).getTime() > TRACK_CLOSE_MS) {
-        track.ended = lastT;
-        activeTracks.delete(key);
-        closed++;
-      }
+      closeIfStale(track, key);
       continue;
     }
 
@@ -228,7 +283,6 @@ export function captureSnapshots() {
     if (track.snapshots.length > TRACK_SNAPSHOTS_MAX) track.snapshots.shift();
     captured++;
     prefetchAxiomInfo(address, token.pool_address || null);
-    prefetchKolsTraded(address);
   }
 
   if (captured > 0 || closed > 0) save();

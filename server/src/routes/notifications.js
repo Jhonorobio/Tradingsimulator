@@ -194,7 +194,7 @@ export function buildHistoryEntries(limit) {
     ) === i)
     .slice(0, limit)
     .map((e) => {
-      const card = { ...e, snapshots: getSnapshots(e.address, e.category) };
+      const card = { ...e, snapshots: getSnapshots(e.address, e.category), pumpSnapshots: getSnapshots(e.address, 'pump') };
       const times = tweetsByAddr.get(e.address);
       return times?.length ? { ...card, tweet_notified_at: [...times].sort().slice(-5) } : card;
     });

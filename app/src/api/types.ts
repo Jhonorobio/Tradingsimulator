@@ -142,6 +142,8 @@ export interface NotificationHistoryItem {
   top_holders_rate?: number | null;
   holders_count?: number | null;
   snapshots: TokenSnapshot[] | null;
+  /** Pump.fun indexer timeline (mcap / volume / holders / KOLs). */
+  pumpSnapshots?: TokenSnapshot[] | null;
   entered_at: string | null;
   notified_at: string;
   filter_matched_at: string | null;
@@ -175,6 +177,7 @@ export interface TokenSnapshot {
   tp_holders_count?: number | null;
   top_holders_rate?: number | null;
   holders_count?: number | null;
+  num_kols_traded?: number | null;
 }
 
 export interface ProxyConfig {

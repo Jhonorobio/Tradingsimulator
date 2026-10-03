@@ -71,6 +71,8 @@ interface UnifiedItem {
   gmgnSnapshots: TokenSnapshot[];
   /** Snapshots from photon events — the "Photon" toggle. */
   photonSnapshots: TokenSnapshot[];
+  /** Pump.fun indexer timeline (mcap / volume / holders / KOLs) — "Pump" toggle. */
+  pumpSnapshots: TokenSnapshot[];
   /** Union of tweet notification times, ascending. */
   tweetTimes: string[];
 }
@@ -99,6 +101,7 @@ function groupByAddress(history: NotificationHistoryItem[]): UnifiedItem[] {
         snapshots: [],
         gmgnSnapshots: [],
         photonSnapshots: [],
+        pumpSnapshots: [],
         tweetTimes: [],
       };
       map.set(h.address, u);
@@ -117,6 +120,8 @@ function groupByAddress(history: NotificationHistoryItem[]): UnifiedItem[] {
       if (h.category === 'photon') u.photonSnapshots.push(...h.snapshots);
       else u.gmgnSnapshots.push(...h.snapshots);
     }
+    // Same for every event of the address — take the first non-empty payload.
+    if (!u.pumpSnapshots.length && h.pumpSnapshots?.length) u.pumpSnapshots = h.pumpSnapshots;
     if (h.tweet_notified_at?.length) u.tweetTimes.push(...h.tweet_notified_at);
   }
   const out = Array.from(map.values());
@@ -125,6 +130,7 @@ function groupByAddress(history: NotificationHistoryItem[]): UnifiedItem[] {
     u.snapshots.sort((a, b) => (a.t || '').localeCompare(b.t || ''));
     u.gmgnSnapshots.sort((a, b) => (a.t || '').localeCompare(b.t || ''));
     u.photonSnapshots.sort((a, b) => (a.t || '').localeCompare(b.t || ''));
+    u.pumpSnapshots.sort((a, b) => (a.t || '').localeCompare(b.t || ''));
     u.tweetTimes = Array.from(new Set(u.tweetTimes)).sort();
   }
   return out;
@@ -167,6 +173,7 @@ function SnapTimeline({ snaps, theme }: { snaps: TokenSnapshot[]; theme: any }) 
         const sTpHolders = s.tp_holders_count;
         const sTopHolders = s.top_holders_rate;
         const sHolders = s.holders_count;
+        const sKolsTraded = s.num_kols_traded;
         const snapStat = (icon: string, value: string, color: string) => (
           <View style={styles.snapStatItem}>
             <Ionicons name={icon as any} size={10} color={color} />
@@ -188,6 +195,7 @@ function SnapTimeline({ snaps, theme }: { snaps: TokenSnapshot[]; theme: any }) 
             {sTpHolders != null && sTpHolders > 0 && snapStat('hardware-chip', String(sTpHolders), theme.warn)}
             {sTopHolders != null && sTopHolders > 0 && snapStat('stats-chart', `${(sTopHolders * 100).toFixed(1)}%`, sTopHolders > 0.5 ? theme.warn : theme.accent)}
             {sHolders != null && sHolders > 0 && snapStat('person', fmtNum(sHolders), theme.accent)}
+            {sKolsTraded != null && sKolsTraded > 0 && snapStat('ribbon', String(sKolsTraded), '#a78bfa')}
             {sRug != null && sRug > 0 && snapStat('warning', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
             {sBundler != null && sBundler > 0 && snapStat('layers', `${(sBundler * 100).toFixed(0)}%`, '#f97316')}
             {sBundleCnt != null && sBundleCnt > 0 && snapStat('cube', String(sBundleCnt), '#f97316')}
@@ -200,10 +208,10 @@ function SnapTimeline({ snaps, theme }: { snaps: TokenSnapshot[]; theme: any }) 
   );
 }
 
-const HistoryCard = React.memo(function HistoryCard({ item, theme, expandedGmgn, expandedPhoton, onToggleGmgn, onTogglePhoton }: {
+const HistoryCard = React.memo(function HistoryCard({ item, theme, expandedGmgn, expandedPhoton, expandedPump, onToggleGmgn, onTogglePhoton, onTogglePump }: {
   item: UnifiedItem; theme: any;
-  expandedGmgn: boolean; expandedPhoton: boolean;
-  onToggleGmgn: () => void; onTogglePhoton: () => void;
+  expandedGmgn: boolean; expandedPhoton: boolean; expandedPump: boolean;
+  onToggleGmgn: () => void; onTogglePhoton: () => void; onTogglePump: () => void;
 }) {
   // Newest notification supplies the stats; snapshots are the merged timeline.
   const base = item.base;
@@ -211,6 +219,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expandedGmgn,
   const mcap = snap?.usd_market_cap ?? snap?.market_cap ?? base.mcap;
   const gmgnCount = item.gmgnSnapshots.length;
   const photonCount = item.photonSnapshots.length;
+  const pumpCount = item.pumpSnapshots.length;
 
   // Gain across the merged timeline: first mcap vs highest mcap.
   const gainVal = calcGain(item);
@@ -309,11 +318,18 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expandedGmgn,
                 <ThemedText type="small" style={{ color: theme.accent }}>{photonCount} snapshots Photon</ThemedText>
               </Pressable>
             )}
+            {pumpCount > 1 && (
+              <Pressable onPress={onTogglePump} style={styles.snapToggle}>
+                <Ionicons name={expandedPump ? 'chevron-up' : 'chevron-down'} size={14} color={theme.accent} />
+                <ThemedText type="small" style={{ color: theme.accent }}>{pumpCount} snapshots Pump</ThemedText>
+              </Pressable>
+            )}
           </View>
         </View>
 
         {expandedGmgn && gmgnCount > 1 && <SnapTimeline snaps={item.gmgnSnapshots} theme={theme} />}
         {expandedPhoton && photonCount > 1 && <SnapTimeline snaps={item.photonSnapshots} theme={theme} />}
+        {expandedPump && pumpCount > 1 && <SnapTimeline snaps={item.pumpSnapshots} theme={theme} />}
       </Card>
     </Pressable>
   );
@@ -442,8 +458,10 @@ export default function HistoryScreen() {
       theme={theme}
       expandedGmgn={expandedIds.has(item.address)}
       expandedPhoton={expandedIds.has(`${item.address}:photon`)}
+      expandedPump={expandedIds.has(`${item.address}:pump`)}
       onToggleGmgn={() => toggleExpanded(item.address)}
       onTogglePhoton={() => toggleExpanded(`${item.address}:photon`)}
+      onTogglePump={() => toggleExpanded(`${item.address}:pump`)}
     />
   ), [theme, expandedIds, toggleExpanded]);
 
