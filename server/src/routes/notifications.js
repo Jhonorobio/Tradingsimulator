@@ -217,7 +217,7 @@ router.get('/history', (req, res) => {
 
 /**
  * GET /api/notifications/snapshots/status
- * Diagnostics: active track counts per category + pump/axiom client status.
+ * Diagnostics: active track counts per category (open/closed totals).
  */
 router.get('/snapshots/status', (_req, res) => {
   try {
