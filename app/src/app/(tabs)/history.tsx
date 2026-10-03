@@ -71,7 +71,7 @@ interface UnifiedItem {
   gmgnSnapshots: TokenSnapshot[];
   /** Snapshots from photon events — the "Photon" toggle. */
   photonSnapshots: TokenSnapshot[];
-  /** Pump.fun indexer timeline (mcap / volume / holders / KOLs) — "Pump" toggle. */
+  /** Bonus timeline (KOLs from pump.fun — will grow with more data) — "Bonus" toggle. */
   pumpSnapshots: TokenSnapshot[];
   /** Union of tweet notification times, ascending. */
   tweetTimes: string[];
@@ -121,7 +121,17 @@ function groupByAddress(history: NotificationHistoryItem[]): UnifiedItem[] {
       else u.gmgnSnapshots.push(...h.snapshots);
     }
     // Same for every event of the address — take the first non-empty payload.
-    if (!u.pumpSnapshots.length && h.pumpSnapshots?.length) u.pumpSnapshots = h.pumpSnapshots;
+    // Bonus rows show KOLs only: strip mcap/volume/holders from older rows
+    // that were captured before the field was dropped.
+    if (!u.pumpSnapshots.length && h.pumpSnapshots?.length) {
+      u.pumpSnapshots = h.pumpSnapshots.map((s) => ({
+        ...s,
+        usd_market_cap: null,
+        market_cap: null,
+        volume_24h: null,
+        holders_count: null,
+      }));
+    }
     if (h.tweet_notified_at?.length) u.tweetTimes.push(...h.tweet_notified_at);
   }
   const out = Array.from(map.values());
@@ -153,7 +163,7 @@ function gmgnUrl(chain: string, address: string): string {
   return `https://gmgn.ai/${seg}/token/${address}`;
 }
 
-/** One expandable snapshot timeline (used once for Gmgn, once for Photon). */
+/** One expandable snapshot timeline (Gmgn, Photon and Bonus). */
 function SnapTimeline({ snaps, theme }: { snaps: TokenSnapshot[]; theme: any }) {
   return (
     <View style={[styles.timeline, { borderTopColor: theme.border }]}>
@@ -319,7 +329,7 @@ const HistoryCard = React.memo(function HistoryCard({ item, theme, expandedGmgn,
             {pumpCount > 1 && (
               <Pressable onPress={onTogglePump} style={styles.snapToggle}>
                 <Ionicons name={expandedPump ? 'chevron-up' : 'chevron-down'} size={14} color={theme.accent} />
-                <ThemedText type="small" style={{ color: theme.accent }}>{pumpCount} Pump</ThemedText>
+                <ThemedText type="small" style={{ color: theme.accent }}>{pumpCount} Bonus</ThemedText>
               </Pressable>
             )}
           </View>

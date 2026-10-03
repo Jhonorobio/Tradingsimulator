@@ -228,12 +228,8 @@ export function captureSnapshots() {
         closeIfStale(track, key);
         continue;
       }
-      track.snapshots.push(takeSnapshot({
-        usd_market_cap: p.mcap,
-        volume_24h: p.volume,
-        holders_count: p.holders,
-        num_kols_traded: p.kols,
-      }));
+      // Bonus track: KOLs only from pump.fun — more sources will be added here.
+      track.snapshots.push(takeSnapshot({ num_kols_traded: p.kols }));
       if (track.snapshots.length > TRACK_SNAPSHOTS_MAX) track.snapshots.shift();
       captured++;
       prefetchPumpData(address);
@@ -245,14 +241,7 @@ export function captureSnapshots() {
     prefetchPumpData(address);
     if (!activeTracks.has(`${address}:pump`)) {
       const p = getPumpSnapshot(address);
-      if (p) {
-        ensureTrack(address, 'pump', {
-          usd_market_cap: p.mcap,
-          volume_24h: p.volume,
-          holders_count: p.holders,
-          num_kols_traded: p.kols,
-        });
-      }
+      if (p) ensureTrack(address, 'pump', { num_kols_traded: p.kols });
     }
 
     // Trenches tokens come from the store; Photon tracks sample the live

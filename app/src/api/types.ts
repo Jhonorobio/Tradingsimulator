@@ -142,7 +142,7 @@ export interface NotificationHistoryItem {
   top_holders_rate?: number | null;
   holders_count?: number | null;
   snapshots: TokenSnapshot[] | null;
-  /** Pump.fun indexer timeline (mcap / volume / holders / KOLs). */
+  /** Bonus timeline (KOLs from pump.fun — will grow with more data). */
   pumpSnapshots?: TokenSnapshot[] | null;
   entered_at: string | null;
   notified_at: string;
