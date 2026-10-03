@@ -265,6 +265,7 @@ async function refreshAccessToken() {
       throw new Error('axiom refresh rate limited (425)');
     }
     if (res.status < 200 || res.status >= 300) {
+      noteRateLimited(); // any refresh failure → pause instead of hammering
       throw new Error(`axiom refresh HTTP ${res.status}`);
     }
     const at = res.setCookies.map((l) => cookiePair(l, 'auth-access-token')).find(Boolean);
