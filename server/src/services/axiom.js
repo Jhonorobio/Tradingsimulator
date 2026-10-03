@@ -315,6 +315,7 @@ async function fetchTokenInfo(pair) {
     throw new Error('axiom rate limited (425)');
   }
   lastStatus = res.status;
+  if (res.status === 404) return null; // pair unknown to Axiom
   if (res.status < 200 || res.status >= 300) {
     throw new Error(`axiom token-info HTTP ${res.status}`);
   }
