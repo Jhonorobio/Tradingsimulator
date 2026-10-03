@@ -48,7 +48,7 @@ startNotificationWatcher({
   onError: (err) => console.error('[poller]', err?.message),
 });
 
-// Token snapshot capture worker (every 60s)
+// Token snapshot capture worker (every 30s)
 startSnapshotWorker();
 
 // Background X-Tracker watchlist worker (Dexscreener mcap + GMGN tweets, 10s)

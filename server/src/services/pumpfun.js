@@ -14,7 +14,7 @@ import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
 const HOST = 'advanced-indexer.pump.fun';
 const ORIGIN = `https://${HOST}`;
 
-const INFO_TTL_MS = 60_000; // mcap/volume/holders move fast — refresh every capture tick
+const INFO_TTL_MS = 30_000; // mcap/volume/holders move fast — refresh every capture tick
 const MIN_GAP_MS = 1_000;
 const MAX_GAP_MS = 120_000;
 const CONCURRENCY = 4;

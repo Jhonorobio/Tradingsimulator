@@ -1,6 +1,6 @@
 /**
  * Token snapshot tracker.
- * Captures token data every 1 minute while tokens are active in trenches.
+ * Captures token data every 30 seconds while tokens are active in trenches.
  * Persists to data/token-snapshots.json.
  */
 
@@ -180,7 +180,7 @@ export function ensureTrack(address, category, seed = {}, startedAt = null) {
 }
 
 /**
- * Called every 1 minute. Captures a snapshot for all active tracks.
+ * Called every 30 seconds. Captures a snapshot for all active tracks.
  */
 export function captureSnapshots() {
   let captured = 0;
@@ -544,7 +544,7 @@ function percentile(sortedArr, p) {
 // Load on import
 load();
 
-// Start snapshot capture loop (every 60 seconds)
+// Start snapshot capture loop (every 30 seconds)
 let snapshotInterval = null;
 let axiomLogTick = 0;
 export function startSnapshotWorker() {
@@ -553,15 +553,15 @@ export function startSnapshotWorker() {
     try {
       const n = captureSnapshots();
       if (n > 0) console.log(`[snapshots] captured ${n} snapshots`);
-      if (++axiomLogTick % 10 === 0) {
+      if (++axiomLogTick % 20 === 0) {
         console.log('[axiom]', JSON.stringify(getAxiomStatus()));
         console.log('[pump]', JSON.stringify(getPumpStatus()));
       }
     } catch (err) {
       console.error('[snapshots] error:', err.message);
     }
-  }, 60_000);
-  console.log('[snapshots] worker started (every 60s)');
+  }, 30_000);
+  console.log('[snapshots] worker started (every 30s)');
 }
 
 export function stopSnapshotWorker() {
