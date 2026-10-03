@@ -15,8 +15,9 @@ const HOST = 'advanced-indexer.pump.fun';
 const ORIGIN = `https://${HOST}`;
 
 const INFO_TTL_MS = 15 * 60_000; // KOL count changes slowly
-const MIN_GAP_MS = 5_000;
+const MIN_GAP_MS = 1_000;
 const MAX_GAP_MS = 120_000;
+const CONCURRENCY = 4;
 const BACKOFF_BASE_MS = 180_000;
 const BACKOFF_MAX_MS = 900_000;
 
@@ -111,7 +112,7 @@ function noteRateLimited() {
 
 function noteSuccess() {
   backoffMs = BACKOFF_BASE_MS;
-  gapMs = Math.max(MIN_GAP_MS, gapMs - 5_000);
+  gapMs = Math.max(MIN_GAP_MS, gapMs - 1_000);
 }
 
 /** GET /in-memory-coin/<mint> → { mcap, volume, holders, kols } or null. */
@@ -168,29 +169,40 @@ export function prefetchPumpData(mint) {
   if (!timer) timer = setTimeout(run, 0);
 }
 
+let running = false;
 async function run() {
   timer = null;
-  const next = pending.keys().next();
-  if (next.done) return;
-  const mint = next.value;
-  pending.delete(mint);
+  if (running) return;
+  if (Date.now() < backoffUntil) {
+    timer = setTimeout(run, backoffUntil - Date.now() + 1_000);
+    return;
+  }
+  const batch = [];
+  while (batch.length < CONCURRENCY && pending.size) {
+    const next = pending.keys().next().value;
+    pending.delete(next);
+    batch.push(next);
+  }
+  if (!batch.length) return;
+  running = true;
   try {
-    if (Date.now() < backoffUntil) {
-      pending.set(mint, true);
-      timer = setTimeout(run, backoffUntil - Date.now() + 1_000);
-      return;
-    }
-    const data = await fetchPump(mint);
-    if (data) {
-      cache.set(mint, { ...data, at: Date.now() });
-    } else {
-      // negative cache: mint unknown to the indexer
-      cache.set(mint, { mcap: null, volume: null, holders: null, kols: null, at: Date.now() });
-    }
-  } catch (e) {
-    lastError = String(e?.message || e);
-    noteRateLimited(); // transient network failure → pause too
-    pending.set(mint, true); // retry after the backoff window
+    await Promise.allSettled(batch.map(async (mint) => {
+      try {
+        const data = await fetchPump(mint);
+        if (data) {
+          cache.set(mint, { ...data, at: Date.now() });
+        } else {
+          // negative cache: mint unknown to the indexer
+          cache.set(mint, { mcap: null, volume: null, holders: null, kols: null, at: Date.now() });
+        }
+      } catch (e) {
+        lastError = String(e?.message || e);
+        noteRateLimited(); // transient network failure → pause too
+        pending.set(mint, true); // retry after the backoff window
+      }
+    }));
+  } finally {
+    running = false;
   }
   if (pending.size) timer = setTimeout(run, gapMs);
 }
