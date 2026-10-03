@@ -9,6 +9,7 @@ import path from 'node:path';
 import { getCurrentData } from './trenches-store.js';
 import { findPhotonToken } from './photon-memescope.js';
 import { getAxiomInfo, prefetchAxiomInfo, getAxiomStatus } from './axiom.js';
+import { getKolsTraded, prefetchKolsTraded, getPumpStatus } from './pumpfun.js';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirname, '..', '..', 'data'));
 const FILE = path.join(DATA_DIR, 'token-snapshots.json');
@@ -31,7 +32,7 @@ const SNAPSHOT_FIELDS = [
   'bot_degen_count', 'bot_degen_rate', 'rug_ratio',
   'bundler_rate', 'bundler_trader_amount_rate', 'entrapment_ratio',
   'bundle_holders_count', 'buys_count', 'tp_holders_count',
-  'top_holders_rate', 'holders_count',
+  'top_holders_rate', 'holders_count', 'num_kols_traded',
 ];
 
 function load() {
@@ -218,10 +219,16 @@ export function captureSnapshots() {
       if (snap.holders_count == null && ax.numHolders != null) snap.holders_count = ax.numHolders;
       if (snap.bot_degen_count == null && ax.numBotUsers != null) snap.bot_degen_count = ax.numBotUsers;
     }
+    // Pump.fun indexer: KOL traders count.
+    if (snap.num_kols_traded == null) {
+      const kols = getKolsTraded(address);
+      if (kols != null) snap.num_kols_traded = kols;
+    }
     track.snapshots.push(snap);
     if (track.snapshots.length > TRACK_SNAPSHOTS_MAX) track.snapshots.shift();
     captured++;
     prefetchAxiomInfo(address, token.pool_address || null);
+    prefetchKolsTraded(address);
   }
 
   if (captured > 0 || closed > 0) save();
@@ -476,6 +483,7 @@ export function startSnapshotWorker() {
       if (n > 0) console.log(`[snapshots] captured ${n} snapshots`);
       if (++axiomLogTick % 10 === 0) {
         console.log('[axiom]', JSON.stringify(getAxiomStatus()));
+        console.log('[pump]', JSON.stringify(getPumpStatus()));
       }
     } catch (err) {
       console.error('[snapshots] error:', err.message);
