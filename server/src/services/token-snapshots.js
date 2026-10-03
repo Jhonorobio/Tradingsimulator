@@ -22,6 +22,9 @@ const activeTracks = new Map();
 // 3 days of 1-minute samples — long-lived tokens never grow the file unbounded.
 const TRACK_SNAPSHOTS_MAX = 4320;
 
+// Close a track once its token has been absent from the live feeds for 1 hour.
+const TRACK_CLOSE_MS = 60 * 60_000;
+
 const SNAPSHOT_FIELDS = [
   'usd_market_cap', 'market_cap', 'liquidity', 'volume_24h',
   'smart_degen_count', 'renowned_count', 'fresh_wallet_rate',
@@ -180,6 +183,7 @@ export function ensureTrack(address, category, seed = {}, startedAt = null) {
  */
 export function captureSnapshots() {
   let captured = 0;
+  let closed = 0;
 
   for (const [key, trackIdx] of activeTracks.entries()) {
     const [address, category] = key.split(':');
@@ -191,12 +195,21 @@ export function captureSnapshots() {
     }
 
     // Trenches tokens come from the store; Photon tracks sample the live
-    // screener cache. Absent tokens keep their track open — the timeline
-    // resumes when they reappear.
+    // screener cache. Absent tokens are skipped — the track closes once the
+    // token has been gone for an hour (and resumes as a new track if it
+    // ever reappears).
     const token = category === 'photon'
       ? photonSnapshotSource(address)
       : getCurrentData(category).find((t) => t.address === address);
-    if (!token) continue;
+    if (!token) {
+      const lastT = track.snapshots[track.snapshots.length - 1]?.t;
+      if (lastT && Date.now() - new Date(lastT).getTime() > TRACK_CLOSE_MS) {
+        track.ended = lastT;
+        activeTracks.delete(key);
+        closed++;
+      }
+      continue;
+    }
 
     const snap = takeSnapshot(token);
     // Axiom fills holders/bot count when the source left them empty.
@@ -211,19 +224,24 @@ export function captureSnapshots() {
     prefetchAxiomInfo(address, token.pool_address || null);
   }
 
-  if (captured > 0) save();
+  if (captured > 0 || closed > 0) save();
+  if (closed > 0) console.log(`[snapshots] closed ${closed} stale track(s)`);
   return captured;
 }
 
 /**
  * Returns the snapshots for a token+category combination.
  * Used when building the notification history entry.
+ * Prefers the open track; falls back to the most recent closed one.
  */
 export function getSnapshots(address, category) {
   const entry = store[address];
   if (!entry) return [];
-  const track = entry.tracks.find((t) => t.category === category && !t.ended);
-  return track?.snapshots ?? [];
+  const tracks = entry.tracks.filter((t) => t.category === category);
+  const open = tracks.find((t) => !t.ended);
+  if (open) return open.snapshots ?? [];
+  const closedTracks = tracks.filter((t) => t.ended);
+  return closedTracks[closedTracks.length - 1]?.snapshots ?? [];
 }
 
 /** Whether a track is currently registered for snapshot sampling. */
@@ -272,12 +290,16 @@ export function getAllTracks(address) {
 /**
  * Returns the track started time for a token+category combination.
  * Used to record when a token first entered the system.
+ * Falls back to the latest closed track when none is open.
  */
 export function getTrackStarted(address, category) {
   const entry = store[address];
   if (!entry) return null;
-  const track = entry.tracks.find((t) => t.category === category && !t.ended);
-  return track?.started ?? null;
+  const tracks = entry.tracks.filter((t) => t.category === category);
+  const open = tracks.find((t) => !t.ended);
+  if (open) return open.started;
+  const closedTracks = tracks.filter((t) => t.ended);
+  return closedTracks[closedTracks.length - 1]?.started ?? null;
 }
 
 /**
