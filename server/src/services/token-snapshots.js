@@ -20,7 +20,7 @@ let store = {};
 // Active tracks: { "address:category": trackIndex }
 const activeTracks = new Map();
 
-// 3 days of 1-minute samples — long-lived tokens never grow the file unbounded.
+// ~36 hours of 30-second samples — long-lived tokens never grow the file unbounded.
 const TRACK_SNAPSHOTS_MAX = 4320;
 
 // Close a track once its token has been absent from the live feeds for 1 hour.
@@ -29,7 +29,7 @@ const TRACK_CLOSE_MS = 60 * 60_000;
 const SNAPSHOT_FIELDS = [
   'usd_market_cap', 'market_cap', 'liquidity', 'volume_24h',
   'smart_degen_count', 'renowned_count', 'fresh_wallet_rate',
-  'bot_degen_count', 'bot_degen_rate', 'rug_ratio',
+  'bot_degen_count', 'bot_degen_rate',
   'bundler_rate', 'bundler_trader_amount_rate', 'entrapment_ratio',
   'bundle_holders_count', 'buys_count', 'tp_holders_count',
   'top_holders_rate', 'holders_count', 'num_kols_traded',

@@ -168,7 +168,6 @@ export interface TokenSnapshot {
   fresh_wallet_rate: number | null;
   bot_degen_count: number | null;
   bot_degen_rate: number | null;
-  rug_ratio: number | null;
   bundler_rate: number | null;
   bundler_trader_amount_rate: number | null;
   entrapment_ratio: number | null;

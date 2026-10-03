@@ -165,7 +165,6 @@ function SnapTimeline({ snaps, theme }: { snaps: TokenSnapshot[]; theme: any }) 
         const sFresh = s.fresh_wallet_rate;
         const sBotCount = s.bot_degen_count;
         const sBot = s.bot_degen_rate;
-        const sRug = s.rug_ratio;
         const sBundler = s.bundler_rate ?? s.bundler_trader_amount_rate;
         const sEntrap = s.entrapment_ratio;
         const sBundleCnt = s.bundle_holders_count;
@@ -196,7 +195,6 @@ function SnapTimeline({ snaps, theme }: { snaps: TokenSnapshot[]; theme: any }) 
             {sTopHolders != null && sTopHolders > 0 && snapStat('stats-chart', `${(sTopHolders * 100).toFixed(1)}%`, sTopHolders > 0.5 ? theme.warn : theme.accent)}
             {sHolders != null && sHolders > 0 && snapStat('person', fmtNum(sHolders), theme.accent)}
             {sKolsTraded != null && sKolsTraded > 0 && snapStat('ribbon', String(sKolsTraded), '#a78bfa')}
-            {sRug != null && sRug > 0 && snapStat('warning', `${(sRug * 100).toFixed(0)}%`, theme.negative)}
             {sBundler != null && sBundler > 0 && snapStat('layers', `${(sBundler * 100).toFixed(0)}%`, '#f97316')}
             {sBundleCnt != null && sBundleCnt > 0 && snapStat('cube', String(sBundleCnt), '#f97316')}
             {sBuys != null && sBuys > 0 && snapStat('cart', String(sBuys), theme.accent)}
