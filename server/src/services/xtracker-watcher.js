@@ -56,6 +56,7 @@ const MAX_X_QUEUE = 100;             // backpressure sobre la cola de GMGN
 const MAX_NOTIFY_PER_TICK = 5;       // tweets por token/tick (el resto se reintenta)
 const MAX_IDS = 300;                 // tweets recordados por token
 const HISTORY_MAX_X = 300;           // entradas de historial category=x_tracker
+const HISTORY_MAX_VOL = 300;         // entradas de historial category=vol_mcap
 
 const watchlist = tokenWatchlist.getAll(); // live reference, flushed by flush()
 let dirty = false;
@@ -693,9 +694,62 @@ async function notifyVolMcap(e, device, ratio, newList) {
     }
     // Mark only after a successful send, so failures retry on the next tick.
     notifiedTokens.set(`${device.device_id}:vol_mcap`, newList);
+    // History card (global, like every other category) + live update.
+    const saved = notificationHistory.add(volMcapHistoryEntry(e, device));
+    broadcastHistorySaved(saved);
+    trimVolMcapHistory();
     console.log(`[tracker] vol_mcap alert ${e.symbol || e.address} (${ratio.toFixed(1)}x)`);
   } catch (err) {
     console.error('[tracker] vol_mcap push error:', err.message);
+  }
+}
+
+/** History record mirroring the trenches/photon card shape. */
+function volMcapHistoryEntry(e, device) {
+  return {
+    device_id: device.device_id,
+    address: e.address,
+    chain: e.chain || 'sol',
+    symbol: e.symbol || null,
+    name: e.name || null,
+    category: 'vol_mcap',
+    mcap: e.mcap,
+    liq: e.liquidity ?? null,
+    vol24h: e.volume24h ?? null,
+    logo: e.logo || null,
+    smart_degen_count: null,
+    renowned_count: null,
+    fresh_wallet_rate: null,
+    bot_degen_count: null,
+    bot_degen_rate: null,
+    rug_ratio: null,
+    bundler_rate: null,
+    bundler_trader_amount_rate: null,
+    entrapment_ratio: null,
+    entered_at: e.first_seen,
+    notified_at: new Date().toISOString(),
+    filter_matched_at: null,
+  };
+}
+
+/** Live `notification_new` to every device so open history screens paint it. */
+function broadcastHistorySaved(saved) {
+  const targets = new Set(Object.keys(notificationConfig.getAll()));
+  for (const dev of pushSubscriptions.getAll()) {
+    if (dev?.device_id) targets.add(dev.device_id);
+  }
+  for (const id of targets) {
+    broadcast(`notifications:${id}`, { event: 'notification_new', data: saved });
+  }
+}
+
+/** Cap vol_mcap records (drop the oldest) like every other category. */
+function trimVolMcapHistory() {
+  const entries = notificationHistory.getAll().filter((h) => h.category === 'vol_mcap');
+  if (entries.length <= HISTORY_MAX_VOL) return;
+  const ordered = [...entries].sort((a, b) => (a.notified_at || '').localeCompare(b.notified_at || ''));
+  for (const old of ordered.slice(0, entries.length - HISTORY_MAX_VOL)) {
+    notificationHistory.delete((h) => h.id === old.id);
   }
 }
 

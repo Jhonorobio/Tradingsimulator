@@ -21,6 +21,7 @@ const CATEGORY_OPTIONS = [
   { key: 'completed', label: 'Completadas' },
   { key: 'x_tracker', label: 'Tracker' },
   { key: 'photon', label: 'Photon' },
+  { key: 'vol_mcap', label: 'Vol ≈ MCap' },
   { key: 'snaps', label: 'Snapshots' },
   { key: 'gain', label: 'Ganancia' },
 ];
@@ -53,6 +54,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   completed: 'Completada',
   x_tracker: 'Tracker',
   photon: 'Photon',
+  vol_mcap: 'Vol ≈ MCap',
 };
 
 /** One card per token: every notification of the same mint merged together. */
@@ -405,6 +407,7 @@ export default function HistoryScreen() {
       if (categoryFilter === 'completed' && !u.events.some((e) => e.category.startsWith('completed'))) return false;
       if (categoryFilter === 'x_tracker' && u.tweetTimes.length === 0) return false;
       if (categoryFilter === 'photon' && !u.events.some((e) => e.category === 'photon')) return false;
+      if (categoryFilter === 'vol_mcap' && !u.events.some((e) => e.category === 'vol_mcap')) return false;
       if (searchLower) {
         return (u.symbol?.toLowerCase().includes(searchLower)) || (u.name?.toLowerCase().includes(searchLower));
       }
