@@ -45,7 +45,7 @@ import { broadcast } from './ws-server.js';
 const TICK_MS = Number(process.env.XTRACKER_TICK_MS) || 10_000;
 const MAX_AGE_MS = 60 * 60 * 1000;   // 1h rastreando como máximo
 const MAX_MCAP = 8_000;              // por debajo se deja de rastrear
-const PRUNE_STOPPED_MS = 24 * 60 * 60 * 1000; // tokens detenidos se borran a las 24h
+const PRUNE_STOPPED_MS = 60 * 60 * 1000; // tokens detenidos se borran a la 1h
 
 // Tweet phase
 const ALLOWLIST_ACCOUNTS = new Set(['autorunalert', 'bitecong']); // lowercased
@@ -160,7 +160,7 @@ export function ingestTrenches(tokens, category) {
       e = watchlist[t.address] = newEntry(t.address, t);
       added += 1;
     }
-    // Stops are final (entries are pruned after 24h). Reactivating a stopped
+    // Stops are final (entries are pruned after 1h). Reactivating a stopped
     // token here fought the stop rules — every trenches refresh (~7s) brought
     // it back, the next quote re-stopped it, and the token flickered on the
     // Dashboard. Restores "Tokens already stopped are never resurrected".
