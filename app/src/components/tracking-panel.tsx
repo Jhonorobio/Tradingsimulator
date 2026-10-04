@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
@@ -19,6 +20,23 @@ const STOP_LABELS: Record<string, string> = {
   no_pairs: 'Sin datos',
   max_age: '1h cumplida',
 };
+
+// ─── Dashboard visibility filter ─────────────────────────────────────────────
+// When on, the list only shows tokens whose 24h volume ≈ market cap (same
+// 0.9–2.3x range as the push alert) AND mcap > $20k. Persisted on device.
+const VOL_MCAP_ONLY_KEY = 'dashboard:vol_mcap_only';
+const VIS_RATIO_MIN = 0.9;
+const VIS_RATIO_MAX = 2.3;
+const VIS_MIN_MCAP = 20_000;
+
+/** Whether a token meets the vol≈mcap + mcap>20k visibility rule. */
+function matchesVolMcap(t: XTrackerToken): boolean {
+  const mc = t.mcap;
+  const vol = t.volume24h;
+  if (mc == null || vol == null || !(mc > 0) || mc <= VIS_MIN_MCAP) return false;
+  const ratio = vol / mc;
+  return ratio >= VIS_RATIO_MIN && ratio <= VIS_RATIO_MAX;
+}
 
 function fmtAge(seconds?: number | null): string {
   if (seconds == null || seconds < 0) return '';
@@ -109,6 +127,7 @@ export function TrackingPanel() {
   const [summary, setSummary] = useState<XTrackerTokensResponse['summary'] | null>(null);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [volMcapOnly, setVolMcapOnly] = useState(false);
 
   const trackerLive = useWs((s) => s.tracker);
   const liveSummary = useWs((s) => s.trackerSummary);
@@ -169,17 +188,34 @@ export function TrackingPanel() {
     setRefreshing(false);
   }, [load]);
 
+  // Restore the visibility filter (default: off) and persist every toggle.
+  useEffect(() => {
+    AsyncStorage.getItem(VOL_MCAP_ONLY_KEY)
+      .then((v) => { if (v === '1') setVolMcapOnly(true); })
+      .catch(() => {});
+  }, []);
+
+  const toggleVolMcap = useCallback(() => {
+    setVolMcapOnly((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem(VOL_MCAP_ONLY_KEY, next ? '1' : '0').catch(() => {});
+      return next;
+    });
+  }, []);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tokens.filter((t) => {
       // Only live tokens: a WS push can carry a just-stopped one before the poll.
       if (t.status !== 'active') return false;
+      // Optional view: only vol≈mcap tokens above 20k mcap.
+      if (volMcapOnly && !matchesVolMcap(t)) return false;
       if (!q) return true;
       return (t.symbol || '').toLowerCase().includes(q)
         || (t.name || '').toLowerCase().includes(q)
         || t.address.toLowerCase().includes(q);
     });
-  }, [tokens, search]);
+  }, [tokens, search, volMcapOnly]);
 
   const renderItem = useCallback(({ item }: { item: XTrackerToken }) => (
     <TrackingCard
@@ -207,6 +243,23 @@ export function TrackingPanel() {
         </View>
       </View>
 
+      <View style={styles.filterRow}>
+        <Pressable
+          onPress={toggleVolMcap}
+          accessibilityRole="button"
+          accessibilityState={{ selected: volMcapOnly }}
+          style={[styles.filterChip, {
+            borderColor: volMcapOnly ? theme.accent : theme.border,
+            backgroundColor: volMcapOnly ? theme.backgroundSelected : 'transparent',
+          }]}
+        >
+          <Ionicons name="stats-chart" size={12} color={volMcapOnly ? theme.accent : theme.textSecondary} />
+          <ThemedText type="small" style={{ color: volMcapOnly ? theme.accent : theme.textSecondary }}>
+            Vol ≈ MCap · &gt;20K
+          </ThemedText>
+        </Pressable>
+      </View>
+
       <View style={styles.searchWrap}>
         <TextInput
           value={search}
@@ -228,7 +281,11 @@ export function TrackingPanel() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
         ListEmptyComponent={
           <ThemedText style={styles.empty}>
-            {search ? 'Sin resultados' : 'Ningún token en rastreo todavía'}
+            {search
+              ? 'Sin resultados'
+              : volMcapOnly
+                ? 'Sin tokens con Vol ≈ MCap y mcap >20K'
+                : 'Ningún token en rastreo todavía'}
           </ThemedText>
         }
       />
@@ -240,6 +297,8 @@ const styles = StyleSheet.create({
   panel: { flex: 1 },
   summary: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, padding: 12, borderRadius: 10, borderWidth: 1, gap: 24 },
   summaryItem: { alignItems: 'center' },
+  filterRow: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8 },
+  filterChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
   searchWrap: { marginHorizontal: 16, marginBottom: 8 },
   searchInput: { borderWidth: 1, borderRadius: 10, padding: 10, fontSize: 14 },
   scroll: { paddingHorizontal: 16, paddingBottom: 40 },
