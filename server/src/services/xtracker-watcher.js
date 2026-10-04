@@ -160,13 +160,11 @@ export function ingestTrenches(tokens, category) {
       e = watchlist[t.address] = newEntry(t.address, t);
       added += 1;
     }
-    if (e.status !== 'active') {
-      e.status = 'active';
-      e.stop_reason = null;
-      e.stopped_at = null;
-      e.first_seen = now;
-      e.checks = 0;
-    }
+    // Stops are final (entries are pruned after 24h). Reactivating a stopped
+    // token here fought the stop rules — every trenches refresh (~7s) brought
+    // it back, the next quote re-stopped it, and the token flickered on the
+    // Dashboard. Restores "Tokens already stopped are never resurrected".
+    if (e.status !== 'active') continue;
     if (t.symbol != null) e.symbol = t.symbol;
     if (t.name != null) e.name = t.name;
     if (t.logo != null) e.logo = t.logo;
