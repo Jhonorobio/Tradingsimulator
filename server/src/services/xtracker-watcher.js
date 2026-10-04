@@ -34,7 +34,7 @@
  */
 
 import { tokenWatchlist, notificationConfig, notificationHistory, tweetCondCounts, pushSubscriptions, notifiedTokens } from '../stores.js';
-import { peekRenownedCount, requestRenownedCount } from './gmgn-kol.js';
+import { getKolCount } from './pulse-kol.js';
 import { startAzura, stopAzura, azuraSubscribe, azuraUnsubscribe, getAzuraStatus } from './azura-ws.js';
 import { getMentions, getMentionsStatus } from './gmgn-mentions.js';
 import { fetchTokensBatch } from './dexscreener.js';
@@ -406,7 +406,12 @@ function handleMarketUpdate(data) {
   if (data.volume24h != null) e.volume24h = data.volume24h;
   dirty = true;
   queueTrackerUpdate(data.address);
-  if (e.mcap != null && e.mcap < MAX_MCAP) stopEntry(e, 'mcap_below_8k');
+  if (e.mcap != null && e.mcap < MAX_MCAP) {
+    stopEntry(e, 'mcap_below_8k');
+    return;
+  }
+  // Evaluate the vol≈mcap alert on every push (freshest mcap/volume).
+  maybeVolMcapNotify(e);
 }
 
 /**
@@ -439,7 +444,12 @@ async function refreshStaleQuotes() {
       dirty = true;
       queueTrackerUpdate(e.address);
       applied++;
-      if (e.mcap != null && e.mcap < MAX_MCAP) stopEntry(e, 'mcap_below_8k');
+      if (e.mcap != null && e.mcap < MAX_MCAP) {
+        stopEntry(e, 'mcap_below_8k');
+      } else {
+        // Same per-quote alert evaluation as the Azura push path.
+        maybeVolMcapNotify(e);
+      }
     });
     if (applied) {
       lastFallbackAt = new Date().toISOString();
@@ -674,13 +684,21 @@ async function deliver(entry, tweet, device, info) {
 // Push once per token per device while volume24h sits between 0.9x and 2.3x
 // of the market cap (tokens in the active "Rastreando" list). The notified
 // list is never pruned: a token gets at most one alert for its whole life.
+// Evaluated on EVERY quote (Azura push + Dexscreener fallback) so the alert
+// fires in seconds; tick() only stays as a backstop for tokens whose pushes
+// stopped arriving.
 const VOL_MCAP_MIN = 0.9;
 const VOL_MCAP_MAX = 2.3;
 const volMcapPending = new Set(); // "deviceId:address" currently being sent
+const volMcapKolResolving = new Set(); // "deviceId:address" KOL lookup in flight
 
 async function notifyVolMcap(e, device, ratio, newList, kolCount) {
   const title = `${e.symbol || e.name || 'Token'} 📊 Volumen ${ratio.toFixed(1)}x del MCap`;
-  const body = `Vol ${fmtUsd(e.volume24h)} · MCap ${fmtUsd(e.mcap)}`;
+  // The KOL count (queried via Pulse when that condition is on) rides along.
+  const kolPart = typeof kolCount === 'number' && kolCount >= 1
+    ? ` · ${kolCount} ${kolCount === 1 ? 'KOL' : 'KOLs'}`
+    : '';
+  const body = `Vol ${fmtUsd(e.volume24h)} · MCap ${fmtUsd(e.mcap)}${kolPart}`;
   try {
     const { result } = await sendPush(device.push_token, {
       title,
@@ -691,13 +709,13 @@ async function notifyVolMcap(e, device, ratio, newList, kolCount) {
       console.error(`[tracker] vol_mcap push failed: ${result.data.message}`);
       return;
     }
-    // Mark only after a successful send, so failures retry on the next tick.
+    // Mark only after a successful send, so failures retry on the next quote.
     notifiedTokens.set(`${device.device_id}:vol_mcap`, newList);
     // History card (global, like every other category) + live update.
     const saved = notificationHistory.add(volMcapHistoryEntry(e, device, kolCount));
     broadcastHistorySaved(saved);
     trimVolMcapHistory();
-    console.log(`[tracker] vol_mcap alert ${e.symbol || e.address} (${ratio.toFixed(1)}x)`);
+    console.log(`[tracker] vol_mcap alert ${e.symbol || e.address} (${ratio.toFixed(1)}x${kolCount != null ? `, ${kolCount} KOL` : ''})`);
   } catch (err) {
     console.error('[tracker] vol_mcap push error:', err.message);
   }
@@ -752,41 +770,61 @@ function trimVolMcapHistory() {
   }
 }
 
-/** Evaluates the ratio for every active token against every opted-in device. */
-function volMcapPhase() {
-  const devices = Object.values(notificationConfig.getAll())
-    .filter((d) => d?.push_token && d.vol_mcap_alerts !== false);
-  if (!devices.length) return;
-  for (const e of activeEntries()) {
-    const vol = e.volume24h;
-    const mc = e.mcap;
-    if (vol == null || mc == null || !(mc > 0)) continue;
-    const ratio = vol / mc;
-    if (ratio < VOL_MCAP_MIN || ratio > VOL_MCAP_MAX) continue;
-    let kolCount; // filled lazily, only when a device has the KOL condition on
-    for (const device of devices) {
-      const key = `${device.device_id}:vol_mcap`;
-      const list = notifiedTokens.get(key) || [];
-      if (list.includes(e.address)) continue; // one alert per token, forever
-      const dedupe = `${device.device_id}:${e.address}`;
-      if (volMcapPending.has(dedupe)) continue;
-      // Condition 1: minimum market cap (null = condition off).
-      const minMcap = device.vol_mcap_min_mcap;
-      if (typeof minMcap === 'number' && mc < minMcap) continue;
-      // Condition 2: at least 1 KOL holder (GMGN renowned_count).
-      if (device.vol_mcap_kol) {
-        if (kolCount === undefined) kolCount = peekRenownedCount(e.address);
-        if (kolCount === undefined) {
-          requestRenownedCount(e.address); // async fill; decided on a later tick
-          continue;
-        }
-        if (kolCount < 1) continue;
-      }
-      volMcapPending.add(dedupe);
-      notifyVolMcap(e, device, ratio, [...list, e.address], device.vol_mcap_kol ? kolCount : null)
-        .finally(() => volMcapPending.delete(dedupe));
+/** Async KOL resolution (Pulse → GMGN fallback), then notify when ≥1. */
+async function resolveAndNotifyVolMcap(e, device, ratio, newList, dedupe) {
+  try {
+    const kolCount = await getKolCount(e.address);
+    // 0 KOLs (or both APIs down): stay silent — the next quote re-checks
+    // after the 10s memo expires, so Pulse is asked at most 1x per 10s.
+    if (kolCount == null || kolCount < 1) return;
+    if (volMcapPending.has(dedupe)) return;
+    volMcapPending.add(dedupe);
+    try {
+      await notifyVolMcap(e, device, ratio, newList, kolCount);
+    } finally {
+      volMcapPending.delete(dedupe);
     }
+  } catch (err) {
+    console.error('[tracker] vol_mcap KOL resolve error:', err.message);
+  } finally {
+    volMcapKolResolving.delete(dedupe);
   }
+}
+
+/** Evaluates the vol≈mcap alert for one token — runs on every fresh quote. */
+function maybeVolMcapNotify(e) {
+  if (e?.status !== 'active') return;
+  const vol = e.volume24h;
+  const mc = e.mcap;
+  if (vol == null || mc == null || !(mc > 0)) return;
+  const ratio = vol / mc;
+  if (ratio < VOL_MCAP_MIN || ratio > VOL_MCAP_MAX) return;
+  for (const device of Object.values(notificationConfig.getAll())) {
+    if (!device?.push_token || device.vol_mcap_alerts === false) continue;
+    const key = `${device.device_id}:vol_mcap`;
+    const list = notifiedTokens.get(key) || [];
+    if (list.includes(e.address)) continue; // one alert per token, forever
+    const dedupe = `${device.device_id}:${e.address}`;
+    if (volMcapPending.has(dedupe)) continue;
+    // Condition 1: minimum market cap (null = condition off).
+    const minMcap = device.vol_mcap_min_mcap;
+    if (typeof minMcap === 'number' && mc < minMcap) continue;
+    // Condition 2: at least 1 KOL holder (Pulse first, GMGN fallback).
+    if (device.vol_mcap_kol) {
+      if (volMcapKolResolving.has(dedupe)) continue;
+      volMcapKolResolving.add(dedupe);
+      resolveAndNotifyVolMcap(e, device, ratio, [...list, e.address], dedupe);
+      continue;
+    }
+    volMcapPending.add(dedupe);
+    notifyVolMcap(e, device, ratio, [...list, e.address], null)
+      .finally(() => volMcapPending.delete(dedupe));
+  }
+}
+
+/** Backstop: sweeps every active token once per tick. */
+function volMcapPhase() {
+  for (const e of activeEntries()) maybeVolMcapNotify(e);
 }
 
 // ─── loop ───────────────────────────────────────────────────────────────────
@@ -800,7 +838,7 @@ async function tick() {
     console.error('[tracker] market phase error:', err.message);
   }
 
-  // Push alert when volume ≈ market cap (0.9x–2.3x), once per token.
+  // Backstop for the vol≈mcap alert — fresh quotes usually evaluate it first.
   try {
     volMcapPhase();
   } catch (err) {

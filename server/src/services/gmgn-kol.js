@@ -1,21 +1,20 @@
 import initCycleTLS from 'cycletls';
 
-// GMGN's token_holder_stat endpoint (same domain as gmgn-mentions) returns the
-// holder counts behind the "Tiene KOL" condition: data.renowned_count.
-// Cloudflare 403s plain fetch (Node/OpenSSL JA3), so we reuse the CycleTLS
-// chrome131 fingerprint that gmgn-mentions already proved in production.
+// GMGN's token_holder_stat endpoint (same domain as gmgn-mentions) returns
+// data.renowned_count. Cloudflare 403s plain fetch (Node/OpenSSL JA3), so we
+// use the CycleTLS chrome131 fingerprint that gmgn-mentions proved in prod.
+// This module is the FALLBACK path of pulse-kol.js (Pulse first, GMGN here).
 const STAT_URL = 'https://gmgn.ai/vas/api/v1/token_holder_stat/sol';
 
-// Requests only fire for tokens whose volume≈mcap alert has the KOL condition
-// enabled, and results are cached for CACHE_TTL_MS. Tune pacing with
-// GMGN_KOL_MIN_INTERVAL_MS (0 = no pacing).
+// Serialise calls so bursts from the per-push evaluation can't stampede GMGN.
+// Tune with GMGN_KOL_MIN_INTERVAL_MS (0 = no pacing).
 const rawPacing = process.env.GMGN_KOL_MIN_INTERVAL_MS;
 const MIN_INTERVAL_MS = rawPacing != null && rawPacing !== ''
   ? Math.max(0, Number(rawPacing) || 0)
   : 200;
 // 403/429 → stop calling for 60s (same safety net as gmgn-mentions).
 const BACKOFF_MS = 60_000;
-// Holder counts move slowly — re-check successful results every 10 minutes.
+// Fresh results stay usable for 10 min (only read between Pulse retries).
 const CACHE_TTL_MS = 10 * 60_000;
 // Failed attempts are remembered for 60s so a down API isn't hammered.
 const ERROR_TTL_MS = 60_000;
@@ -23,11 +22,10 @@ const ERROR_TTL_MS = 60_000;
 const FETCH_TIMEOUT_MS = 15_000;
 
 const cache = new Map(); // mint -> { count: number|null, savedAt }
-const pending = new Set(); // mints queued or in flight
-let queue = [];
-let pumping = false;
+const inflight = new Map(); // mint -> Promise<number|null>
 let nextSlot = 0;
 let backoffUntil = 0;
+let paceChain = Promise.resolve();
 let cycleTLS = null;
 
 function sleep(ms) {
@@ -84,58 +82,51 @@ async function fetchRenownedCount(mint) {
   return count;
 }
 
-// Serialized pump: one request at a time respecting MIN_INTERVAL_MS + backoff.
-async function pump() {
-  if (pumping) return;
-  pumping = true;
-  try {
-    while (queue.length) {
-      if (Date.now() < backoffUntil) {
-        const wait = backoffUntil - Date.now();
-        queue.splice(0, queue.length).forEach((t) => pending.delete(t.mint));
-        await sleep(wait);
-        continue;
-      }
-      const wait = nextSlot - Date.now();
-      if (wait > 0) await sleep(wait);
-      const task = queue.shift();
-      nextSlot = Date.now() + MIN_INTERVAL_MS;
-      try {
-        const count = await withTimeout(fetchRenownedCount(task.mint), FETCH_TIMEOUT_MS);
-        cache.set(task.mint, { count, savedAt: Date.now() });
-        console.log(`[gmgn-kol] ${task.mint.slice(0, 8)}... renowned_count=${count}`);
-      } catch (err) {
-        // Remember the failure briefly (null = "unknown, retry soon").
-        cache.set(task.mint, { count: null, savedAt: Date.now() });
-        if (err.httpCode === 403 || err.httpCode === 429) backoffUntil = Date.now() + BACKOFF_MS;
-        console.error(`[gmgn-kol] ${task.mint.slice(0, 8)}... ${err.message}${err.bodyHead ? `: ${err.bodyHead}` : ''}`);
-      } finally {
-        pending.delete(task.mint);
-      }
-    }
-  } finally {
-    pumping = false;
-  }
+/** Waits until this call's pacing slot so bursts stay serialised. */
+function paced() {
+  const run = paceChain.then(async () => {
+    const wait = nextSlot - Date.now();
+    if (wait > 0) await sleep(wait);
+    nextSlot = Date.now() + MIN_INTERVAL_MS;
+  });
+  paceChain = run.catch(() => {});
+  return run;
 }
 
 /**
- * Cache-only lookup so callers stay synchronous.
- * @returns {number|null|undefined} the count, null if the last attempt failed,
- *   or undefined when unknown/stale (call requestRenownedCount and retry later).
+ * Promise-based lookup: cached value → in-flight request → paced fetch.
+ * Resolves with the count, or null when the call failed (failures are
+ * memoized for ERROR_TTL_MS so a downed API isn't hammered).
+ * @param {string} mint
+ * @returns {Promise<number|null>}
  */
-export function peekRenownedCount(mint) {
+export function getRenownedCount(mint) {
+  if (!mint) return Promise.resolve(null);
   const hit = cache.get(mint);
-  if (!hit) return undefined;
-  const ttl = hit.count == null ? ERROR_TTL_MS : CACHE_TTL_MS;
-  if (Date.now() - hit.savedAt > ttl) return undefined;
-  return hit.count;
-}
-
-/** Fire-and-forget: queues a fetch that fills peekRenownedCount for later ticks. */
-export function requestRenownedCount(mint) {
-  if (!mint || pending.has(mint)) return;
-  if (Date.now() < backoffUntil) return;
-  pending.add(mint);
-  queue.push({ mint });
-  pump();
+  if (hit) {
+    const ttl = hit.count == null ? ERROR_TTL_MS : CACHE_TTL_MS;
+    if (Date.now() - hit.savedAt <= ttl) return Promise.resolve(hit.count);
+  }
+  const running = inflight.get(mint);
+  if (running) return running;
+  if (Date.now() < backoffUntil) return Promise.resolve(null);
+  const p = (async () => {
+    try {
+      await paced();
+      if (Date.now() < backoffUntil) return null;
+      const count = await withTimeout(fetchRenownedCount(mint), FETCH_TIMEOUT_MS);
+      cache.set(mint, { count, savedAt: Date.now() });
+      console.log(`[gmgn-kol] ${mint.slice(0, 8)}... renowned_count=${count}`);
+      return count;
+    } catch (err) {
+      cache.set(mint, { count: null, savedAt: Date.now() });
+      if (err.httpCode === 403 || err.httpCode === 429) backoffUntil = Date.now() + BACKOFF_MS;
+      console.error(`[gmgn-kol] ${mint.slice(0, 8)}... ${err.message}${err.bodyHead ? `: ${err.bodyHead}` : ''}`);
+      return null;
+    } finally {
+      inflight.delete(mint);
+    }
+  })();
+  inflight.set(mint, p);
+  return p;
 }
