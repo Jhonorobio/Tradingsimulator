@@ -51,9 +51,10 @@ const COMMON_FILTERS =
 // Reduced on request (2026-09-27) to the preset the user actually uses:
 // age (minutes), holders_count, tp_holders_count, mkt_cap (USD), buys,
 // fresh_holding_perc (percent). All validated against the live API.
-// bundle_holders_count (bundled holders, count) added 2026-10-05 — probed
-// live: it applies; lookalike names (bundled_holders_count) are silently
-// ignored, so only the exact attribute name works.
+// bundle_holders_count (bundled holders, count) and bundle_holding_perc
+// (bundled %) added 2026-10-05 — probed live: both apply; lookalike names
+// (bundled_holders_count) are silently ignored, so only the exact attribute
+// names work.
 const FILTER_FIELDS = {
   age: 'age',
   holders: 'holders_count',
@@ -62,6 +63,7 @@ const FILTER_FIELDS = {
   buys: 'buys',
   freshPct: 'fresh_holding_perc',
   bundleHolders: 'bundle_holders_count',
+  bundlePct: 'bundle_holding_perc',
 };
 // Mirrors the app's first-run defaults (one entry per column).
 const DEFAULT_FILTERS = {

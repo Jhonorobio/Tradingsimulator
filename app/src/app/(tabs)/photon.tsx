@@ -42,6 +42,7 @@ const FILTER_FIELDS: PhotonFilterField[] = [
   { key: 'buys', label: 'Compras', unit: '' },
   { key: 'freshPct', label: 'Fresh holding', unit: '%' },
   { key: 'bundleHolders', label: 'Bundled holders', unit: '' },
+  { key: 'bundlePct', label: 'Bundled holding', unit: '%' },
 ];
 
 /** Same defaults the server uses when nothing is saved yet. */
