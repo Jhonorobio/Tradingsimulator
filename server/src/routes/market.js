@@ -10,7 +10,7 @@ import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-heal
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters, findPhotonToken } from '../services/photon-memescope.js';
 import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
-import { getFomoGraduated, getFomoStatus } from '../services/fomo-ws.js';
+import { getFomoGraduated, getFomoStatus, setFomoProxy } from '../services/fomo-ws.js';
 import { setRefreshToken, getRefreshToken, getAccessToken, fomoAuthStatus } from '../services/fomo-auth.js';
 
 const router = Router();
@@ -449,6 +449,20 @@ router.put('/fomo/auth', async (req, res) => {
       return;
     }
     res.json({ ok: true, auth: fomoAuthStatus() });
+  } catch (err) {
+    fail(res, err, 400);
+  }
+});
+
+/**
+ * PUT /api/market/fomo/proxy — egress proxy for the FOMO WS (Cloudflare 432s
+ * datacenter IPs). Body: { proxy: "host:port" | "http://…" | "" } — empty
+ * clears it (direct connection). Reconnects the feed with the new transport.
+ */
+router.put('/fomo/proxy', (req, res) => {
+  try {
+    const raw = typeof req.body?.proxy === 'string' ? req.body.proxy : '';
+    res.json({ ok: true, proxy: setFomoProxy(raw) });
   } catch (err) {
     fail(res, err, 400);
   }

@@ -18,7 +18,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
-import { getFomoGraduated } from '@/api/market';
+import { getFomoGraduated, setFomoProxy } from '@/api/market';
 import type { FomoFilters, FomoGraduatedResponse, FomoToken } from '@/api/market';
 import { fmtNum, fmtPct, fmtUsd, timeAgo } from '@/utils/format';
 
@@ -140,6 +140,10 @@ export default function FomoScreen() {
 
   const [editorVisible, setEditorVisible] = useState(false);
   const [draft, setDraft] = useState<FomoFilters>(FILTER_DEFAULTS);
+  /** Proxy draft — persisted on the SERVER (reconnects the FOMO WS). */
+  const [proxyDraft, setProxyDraft] = useState('');
+  const [proxyError, setProxyError] = useState<string | null>(null);
+  const [proxySaving, setProxySaving] = useState(false);
 
   // Load saved filters once (defaults: edad ≤1h, mcap 60K–450K).
   useEffect(() => {
@@ -181,23 +185,45 @@ export default function FomoScreen() {
 
   const openFilterEditor = useCallback(() => {
     setDraft(filters);
+    setProxyDraft(resp?.status.proxy?.url ?? '');
+    setProxyError(null);
     setEditorVisible(true);
-  }, [filters]);
+  }, [filters, resp]);
 
   const closeFilterEditor = useCallback(() => setEditorVisible(false), []);
 
-  const resetDraft = useCallback(() => setDraft({ ...FILTER_DEFAULTS }), []);
+  const resetDraft = useCallback(() => {
+    setDraft({ ...FILTER_DEFAULTS });
+    setProxyDraft('');
+    setProxyError(null);
+  }, []);
 
   const setDraftValue = useCallback((key: keyof FomoFilters, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const confirmFilters = useCallback(() => {
+  const confirmFilters = useCallback(async () => {
     const next: FomoFilters = { ...draft };
     setFilters(next);
     AsyncStorage.setItem(FILTERS_KEY, JSON.stringify(next)).catch(() => {});
+
+    // Proxy lives on the server: PUT only when it actually changed.
+    const currentProxy = resp?.status.proxy?.url ?? '';
+    const nextProxy = proxyDraft.trim();
+    if (nextProxy !== currentProxy) {
+      setProxySaving(true);
+      try {
+        await setFomoProxy(nextProxy);
+        setProxyError(null);
+      } catch (err) {
+        setProxyError(err instanceof Error ? err.message : String(err));
+        setProxySaving(false);
+        return; // keep the sheet open so the error is visible
+      }
+      setProxySaving(false);
+    }
     setEditorVisible(false);
-  }, [draft]);
+  }, [draft, proxyDraft, resp]);
 
   const tokens = useMemo(() => resp?.tokens ?? [], [resp]);
   const status = resp?.status;
@@ -207,7 +233,7 @@ export default function FomoScreen() {
     ? fetchError
     : status
       ? status.connected
-        ? `${status.count} tokens${status.lastMsgAgeMs != null ? ` · ${(status.lastMsgAgeMs / 1000).toFixed(0)}s` : ''}`
+        ? `${status.count} tokens${status.lastMsgAgeMs != null ? ` · ${(status.lastMsgAgeMs / 1000).toFixed(0)}s` : ''}${status.proxy?.transport === 'proxy' ? ' · px' : ''}`
         : 'conectando…'
       : 'cargando…';
 
@@ -316,13 +342,47 @@ export default function FomoScreen() {
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
                 Vacío = sin límite. El filtro se aplica en el servidor.
               </ThemedText>
+
+              <View style={styles.sectionDivider} />
+              <ThemedText type="smallBold" style={{ color: theme.text }}>
+                Conexión del feed (servidor)
+              </ThemedText>
+              <View style={styles.fieldRow}>
+                <ThemedText type="small" style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+                  Proxy para el WS de FOMO
+                </ThemedText>
+                <View style={styles.inputGroup}>
+                  <TextInput
+                    value={proxyDraft}
+                    onChangeText={setProxyDraft}
+                    placeholder="host:puerto o http://… (vacío = directo)"
+                    placeholderTextColor={theme.textSecondary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[styles.fieldInput, { color: theme.text }]}
+                  />
+                </View>
+              </View>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                {status?.proxy?.enabled
+                  ? `Actual: ${status.proxy.url} · vía ${status.proxy.transport === 'proxy' ? 'proxy' : 'directo (fallback)'}`
+                  : 'Sin proxy — conexión directa.'}
+                {' '}Se guarda en el servidor y reconecta el feed.
+              </ThemedText>
+              {proxyError != null && (
+                <ThemedText type="small" style={{ color: '#ef4444' }}>
+                  Error al guardar el proxy: {proxyError}
+                </ThemedText>
+              )}
             </ScrollView>
             <View style={styles.sheetFooter}>
               <Pressable onPress={closeFilterEditor} style={styles.cancelBtn}>
                 <ThemedText type="smallBold" style={{ color: '#ffffff' }}>Cancelar</ThemedText>
               </Pressable>
-              <Pressable onPress={confirmFilters} style={styles.confirmBtn}>
-                <ThemedText type="smallBold" style={{ color: '#000000' }}>Confirmar</ThemedText>
+              <Pressable onPress={confirmFilters} disabled={proxySaving} style={[styles.confirmBtn, proxySaving && styles.btnDisabled]}>
+                <ThemedText type="smallBold" style={{ color: '#000000' }}>
+                  {proxySaving ? 'Guardando…' : 'Confirmar'}
+                </ThemedText>
               </Pressable>
             </View>
           </KeyboardAvoidingView>
@@ -473,10 +533,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  btnDisabled: { opacity: 0.5 },
 
   /* ── Filter fields ── */
   fieldRow: { marginBottom: 14 },
   fieldLabel: { fontSize: 12, marginBottom: 6 },
+  sectionDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#333333',
+    marginVertical: 14,
+  },
   inputGroup: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -24,8 +24,17 @@
  * The token list lives in memory (≈100 entries — FOMO's own list is small),
  * snapshotted on every (re)subscribe and merged with incoming updates, then
  * read by GET /api/market/fomo/graduated with per-query filters.
+ *
+ * Egress: FOMO (Cloudflare) rejects datacenter IPs with HTTP 432 during the
+ * upgrade, so the connection supports an HTTP/SOCKS proxy — persisted via
+ * PUT /api/market/fomo/proxy (data/fomo-ws.json), overridable with the
+ * FOMO_WS_PROXY env var. With a proxy configured the attempts alternate
+ * proxy → direct → proxy… until one handshake succeeds.
  */
 import WebSocket from 'ws';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import { SocksProxyAgent } from 'socks-proxy-agent';
+import { JsonStore } from '../json-store.js';
 import { getAccessToken, invalidateAccessToken, hasCredentials, fomoAuthStatus } from './fomo-auth.js';
 
 const FOMO_WS_URL = 'wss://prod-api.fomo.family/ws';
@@ -47,6 +56,41 @@ const num = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const store = new JsonStore('fomo-ws');
+const PROXY_PROTOCOLS = ['http:', 'https:', 'socks:', 'socks4:', 'socks5:'];
+
+/** '' → '' (direct); a bare `host:port` gets an http:// scheme; throws on junk. */
+function normalizeProxy(raw) {
+  const v = String(raw ?? '').trim();
+  if (!v) return '';
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : `http://${v}`;
+  let u;
+  try {
+    u = new URL(withScheme);
+  } catch {
+    throw new Error(`proxy inválido: ${v.slice(0, 80)}`);
+  }
+  if (!PROXY_PROTOCOLS.includes(u.protocol)) {
+    throw new Error(`protocolo de proxy no soportado: ${u.protocol} (usa http:// o socks5://)`);
+  }
+  if (!u.hostname) throw new Error('proxy sin host');
+  return withScheme;
+}
+
+/** Configured proxy URL or null → direct connection. Store wins over env. */
+function getProxyUrl() {
+  const raw = store.has('proxy') ? store.get('proxy') : process.env.FOMO_WS_PROXY || '';
+  try {
+    return normalizeProxy(raw) || null;
+  } catch {
+    return null; // bad env value → degrade to direct instead of crash-looping
+  }
+}
+
+function makeAgent(url) {
+  return url.startsWith('socks') ? new SocksProxyAgent(url) : new HttpsProxyAgent(url);
+}
+
 /** address → normalized token record. */
 const tokens = new Map();
 
@@ -62,6 +106,10 @@ let subscribed = false;
 let authFailures = 0;
 let lastError = null;
 let snapshotCount = 0;
+/** With a proxy configured, prefer it; flip to direct only if its handshake fails. */
+let preferProxy = true;
+/** Transport of the current/last attempt ('proxy' | 'direct') — surfaced in status. */
+let currentTransport = 'direct';
 
 function normalize(item) {
   const t = item?.token;
@@ -194,9 +242,15 @@ function connect() {
   lastPongAt = Date.now();
   lastMsgAt = Date.now();
 
+  const proxyUrl = getProxyUrl();
+  const useProxy = Boolean(proxyUrl) && preferProxy;
+  currentTransport = useProxy ? 'proxy' : 'direct';
+
   let socket;
   try {
     socket = new WebSocket(FOMO_WS_URL, {
+      ...(useProxy ? { agent: makeAgent(proxyUrl) } : {}),
+      handshakeTimeout: 15_000,
       headers: {
         origin: 'https://fomo.family',
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36',
@@ -208,6 +262,21 @@ function connect() {
     return;
   }
   ws = socket;
+
+  // Handshake never completed → try the other transport on the next attempt
+  // (so a dead proxy falls back to direct, and a 432'd direct goes back to proxy).
+  let opened = false;
+  let flipped = false;
+  const flipTransport = () => {
+    if (!flipped && !opened && proxyUrl) {
+      flipped = true;
+      preferProxy = !preferProxy;
+    }
+  };
+
+  socket.on('open', () => {
+    opened = true;
+  });
 
   socket.on('message', (raw) => {
     if (ws !== socket) return;
@@ -221,12 +290,14 @@ function connect() {
 
   socket.on('error', (err) => {
     lastError = err.message;
+    flipTransport();
   });
 
   socket.on('close', (code) => {
     if (ws !== socket) return;
     ws = null;
     subscribed = false;
+    flipTransport();
     // 1008 = policy violation (bad/expired JWT) — mint a fresh token next try.
     if (code === 1008) {
       invalidateAccessToken();
@@ -240,6 +311,35 @@ function connect() {
 /** True while the feed is receiving data (used for the UI live dot). */
 function isLive() {
   return Boolean(ws && ws.readyState === WebSocket.OPEN && subscribed && lastMsgAt && Date.now() - lastMsgAt < 60_000);
+}
+
+/** Current egress config (never exposes proxy credentials beyond the URL itself). */
+function proxyInfo() {
+  const url = getProxyUrl();
+  return {
+    url: url || '',
+    enabled: Boolean(url),
+    transport: currentTransport,
+  };
+}
+
+/**
+ * Persist the egress proxy for the FOMO WS and reconnect with it.
+ * `url` = '' clears it (direct). Throws on invalid input (route → 400).
+ */
+export function setFomoProxy(url) {
+  const normalized = normalizeProxy(url); // '' allowed → direct
+  store.set('proxy', normalized);
+  store.set('updated_at', new Date().toISOString());
+  preferProxy = Boolean(normalized); // fresh config → try the proxy first
+  if (running) {
+    if (ws) {
+      try { ws.close(); } catch { /* already closed */ } // close → scheduleReconnect
+    } else {
+      scheduleReconnect(); // no-op if a reconnect is already pending
+    }
+  }
+  return proxyInfo();
 }
 
 export function startFomoWatcher() {
@@ -320,6 +420,7 @@ export function getFomoStatus() {
     authFailures,
     lastMsgAgeMs: lastMsgAt ? Date.now() - lastMsgAt : null,
     lastError,
+    proxy: proxyInfo(),
     auth: fomoAuthStatus(),
   };
 }

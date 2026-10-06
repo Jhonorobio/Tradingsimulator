@@ -164,6 +164,15 @@ export interface FomoAuthStatus {
   tokenExpiresInSeconds: number | null;
 }
 
+/** Egress for the FOMO WS — Cloudflare 432s datacenter IPs, so prod uses a proxy. */
+export interface FomoProxyInfo {
+  /** '' = direct connection. */
+  url: string;
+  enabled: boolean;
+  /** Transport of the current attempt (may differ from `enabled` while falling back). */
+  transport: 'proxy' | 'direct';
+}
+
 export interface FomoStatus {
   running: boolean;
   connected: boolean;
@@ -174,6 +183,7 @@ export interface FomoStatus {
   authFailures: number;
   lastMsgAgeMs: number | null;
   lastError: string | null;
+  proxy?: FomoProxyInfo;
   auth: FomoAuthStatus;
 }
 
@@ -207,6 +217,11 @@ export function getFomoGraduated(filters: FomoFilters, limit?: number) {
 
 export function getFomoStatus() {
   return api.get<FomoStatus>('/api/market/fomo/status');
+}
+
+/** Persist the FOMO WS egress proxy on the server (empty = direct). Reconnects. */
+export function setFomoProxy(proxy: string) {
+  return api.put<{ ok: boolean; proxy: FomoProxyInfo }>('/api/market/fomo/proxy', { proxy });
 }
 
 export function getGmgnStatus() {
