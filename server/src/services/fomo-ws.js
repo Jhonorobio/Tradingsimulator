@@ -51,6 +51,7 @@ import { JsonStore } from '../json-store.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws-server.js';
 import { getKolCount } from './pulse-kol.js';
 import { getAccessToken, invalidateAccessToken, hasCredentials, fomoAuthStatus } from './fomo-auth.js';
+import { setFomoFeeder, noteFomoSnapshot, handleFomoRecord, forgetFomoRecord } from './fomo-notify.js';
 
 const FOMO_WS_URL = 'wss://prod-api.fomo.family/ws';
 const TOPIC_TYPE = 'graduated_tokens';
@@ -84,8 +85,10 @@ const MAX_RANK = Number.MAX_SAFE_INTEGER;
  * One upstream feed (topicType) with its own token map, ack flags and a
  * batched push channel to app clients subscribed to `topic`.
  */
-function makeFeed({ topicType, topic, event, ranked }) {
+function makeFeed({ name, topicType, topic, event, ranked }) {
   return {
+    /** Notification feed id ('graduated' | 'trending') — matches fomo-notify. */
+    name,
     topicType,
     /** App WS topic clients subscribe to. */
     topic,
@@ -107,10 +110,18 @@ function makeFeed({ topicType, topic, event, ranked }) {
   };
 }
 
-const GRAD = makeFeed({ topicType: TOPIC_TYPE, topic: 'fomo', event: 'fomo_updated', ranked: false });
-const TREND = makeFeed({ topicType: TRENDING_TYPE, topic: 'fomo_trending', event: 'fomo_trending_updated', ranked: true });
+const GRAD = makeFeed({ name: 'graduated', topicType: TOPIC_TYPE, topic: 'fomo', event: 'fomo_updated', ranked: false });
+const TREND = makeFeed({ name: 'trending', topicType: TRENDING_TYPE, topic: 'fomo_trending', event: 'fomo_trending_updated', ranked: true });
 const FEEDS = [GRAD, TREND];
 const feedByType = new Map(FEEDS.map((f) => [f.topicType, f]));
+
+// Alert notifications (fomo-notify) evaluate every ingested record against the
+// per-tab filters; it gets the live maps + the shared KOL cache from here
+// instead of importing this module (no import cycle).
+setFomoFeeder({
+  readTokens: (name) => (name === TREND.name ? TREND : GRAD).tokens,
+  resolveKol: (address) => ensureKol(address),
+});
 
 /** Display/push order: trending by rank, graduados by newest graduation. */
 function orderedTokens(feed) {
@@ -343,6 +354,7 @@ function applyFeedData(feed, p) {
     feed.subscribed = true;
     subscribed = true;
     markSnapshot(feed);
+    noteFomoSnapshot(feed.name, feed.tokens);
   } else if (p.kind === 'update' && p.update) {
     const rec = normalize(p.update);
     if (rec) {
@@ -354,6 +366,7 @@ function applyFeedData(feed, p) {
       }
       feed.tokens.set(rec.address, rec);
       queuePush(feed, rec.address);
+      handleFomoRecord(feed.name, rec);
     }
   } else if (p.kind === 'remove' && typeof p.tokenKey === 'string') {
     // tokenKey = `${address}:${networkId}` — addresses themselves never contain ':'.
@@ -361,6 +374,7 @@ function applyFeedData(feed, p) {
     if (feed.tokens.delete(addr)) {
       feed.removed.add(addr);
       queuePush(feed);
+      forgetFomoRecord(feed.name, addr);
     }
   }
 }

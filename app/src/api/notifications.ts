@@ -9,9 +9,12 @@ export function saveNotificationConfig(
   vol_mcap_alerts?: boolean,
   vol_mcap_min_mcap?: number | null,
   vol_mcap_kol?: boolean,
+  fomo_graduated_alerts?: boolean,
+  fomo_trending_alerts?: boolean,
 ) {
   return api.put<{ ok: boolean }>('/api/notifications/config', {
     push_token, categories, filters, tracker_tweets, vol_mcap_alerts, vol_mcap_min_mcap, vol_mcap_kol,
+    fomo_graduated_alerts, fomo_trending_alerts,
   });
 }
 

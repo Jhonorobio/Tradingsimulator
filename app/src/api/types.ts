@@ -113,6 +113,10 @@ export interface NotificationConfig {
   vol_mcap_min_mcap?: number | null;
   /** Require ≥1 KOL holder (GMGN renowned_count) for that alert. */
   vol_mcap_kol?: boolean;
+  /** Push alerts for tokens passing the Graduados tab's FOMO filters. */
+  fomo_graduated_alerts?: boolean;
+  /** Push alerts for tokens passing the Trending tab's FOMO filters. */
+  fomo_trending_alerts?: boolean;
 }
 
 export interface GmgnStatus {
@@ -128,7 +132,7 @@ export interface NotificationHistoryItem {
   symbol: string | null;
   name: string | null;
   category: string;
-  column?: 'new' | 'graduated' | null;
+  column?: 'new' | 'graduated' | 'trending' | null;
   mcap: number | null;
   liq: number | null;
   vol24h: number | null;

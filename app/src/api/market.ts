@@ -269,6 +269,16 @@ export function setFomoProxy(proxy: string) {
   return api.put<{ ok: boolean; proxy: FomoProxyInfo }>('/api/market/fomo/proxy', { proxy });
 }
 
+/**
+ * Per-tab filters the server uses for FOMO alert notifications. Each feed has
+ * its own set (mirrors the per-tab filters in the app); '' = axis off.
+ */
+export type FomoNotifyFilters = Record<'graduated' | 'trending', FomoFilters>;
+
+export function putFomoNotifyFilters(filters: FomoNotifyFilters) {
+  return api.put<{ ok: boolean; filters: FomoNotifyFilters }>('/api/market/fomo/notify', filters);
+}
+
 export function getGmgnStatus() {
   return api.get<GmgnStatus>('/api/market/status');
 }

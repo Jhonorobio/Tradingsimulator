@@ -11,6 +11,7 @@ import { getAllTracksFiltered } from '../services/token-snapshots.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters, findPhotonToken } from '../services/photon-memescope.js';
 import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
 import { getFomoGraduated, getFomoTrending, getFomoStatus, setFomoProxy } from '../services/fomo-ws.js';
+import { getFomoNotifyFilters, setFomoNotifyFilters } from '../services/fomo-notify.js';
 import { setRefreshToken, getRefreshToken, getAccessToken, fomoAuthStatus } from '../services/fomo-auth.js';
 
 const router = Router();
@@ -444,6 +445,37 @@ router.get('/fomo/status', (_req, res) => {
     res.json(getFomoStatus());
   } catch (err) {
     fail(res, err);
+  }
+});
+
+/**
+ * GET /api/market/fomo/notify — the per-tab filters the alert matcher uses.
+ * Values are numbers (bounds are numeric) or null (axis off).
+ */
+router.get('/fomo/notify', (_req, res) => {
+  try {
+    res.json(getFomoNotifyFilters());
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * PUT /api/market/fomo/notify — per-tab filters for FOMO alert notifications.
+ * Body: { graduated?: { ageMaxMin, mcapMin, mcapMax, kolMin },
+ *         trending?:  { ageMaxMin, mcapMin, mcapMax, kolMin } }
+ * Numbers (or ''/absent = axis off); only the provided feeds are replaced.
+ * The matcher reseeds silently, so widening filters never bursts the list.
+ */
+router.put('/fomo/notify', (req, res) => {
+  try {
+    const { graduated, trending } = req.body || {};
+    if (graduated == null && trending == null) {
+      return fail(res, new Error('graduated o trending requerido'), 400);
+    }
+    res.json({ ok: true, filters: setFomoNotifyFilters({ graduated, trending }) });
+  } catch (err) {
+    fail(res, err, err?.status || 500);
   }
 });
 

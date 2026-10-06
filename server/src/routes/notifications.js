@@ -3,6 +3,7 @@ import { notificationConfig, notificationHistory, winners } from '../stores.js';
 import { isValidPushToken } from '../services/push.js';
 import { getSnapshots, getAllTracks, getTracksStatus } from '../services/token-snapshots.js';
 import { resetTweetCondQuota } from '../services/xtracker-watcher.js';
+import { reseedFomoFeed } from '../services/fomo-notify.js';
 
 const router = Router();
 
@@ -77,7 +78,8 @@ function fail(res, err, status = 500) {
 router.put('/config', (req, res) => {
   try {
     const id = deviceId(req);
-    const { push_token, categories, filters, tracker_tweets, vol_mcap_alerts, vol_mcap_min_mcap, vol_mcap_kol } = req.body || {};
+    const { push_token, categories, filters, tracker_tweets, vol_mcap_alerts, vol_mcap_min_mcap, vol_mcap_kol,
+      fomo_graduated_alerts, fomo_trending_alerts } = req.body || {};
 
     if (!isValidPushToken(push_token)) {
       throw Object.assign(new Error('Invalid Expo push token'), { status: 400 });
@@ -132,6 +134,18 @@ router.put('/config', (req, res) => {
       ? !!vol_mcap_kol
       : existing?.vol_mcap_kol === true;
 
+    // Per-feed FOMO alert toggles (off by default, merge-only like vol_mcap):
+    // enabling a feed re-arms fomo-notify's silent pass so the tokens already
+    // matching the filters don't burst on the moment the switch flips on.
+    const fomoGrad = fomo_graduated_alerts !== undefined
+      ? !!fomo_graduated_alerts
+      : existing?.fomo_graduated_alerts === true;
+    const fomoTrend = fomo_trending_alerts !== undefined
+      ? !!fomo_trending_alerts
+      : existing?.fomo_trending_alerts === true;
+    if (fomoGrad && existing?.fomo_graduated_alerts !== true) reseedFomoFeed('graduated');
+    if (fomoTrend && existing?.fomo_trending_alerts !== true) reseedFomoFeed('trending');
+
     notificationConfig.set(id, {
       device_id: id,
       push_token,
@@ -141,6 +155,8 @@ router.put('/config', (req, res) => {
       vol_mcap_alerts: volMcapAlerts,
       vol_mcap_min_mcap: volMcapMinMcap,
       vol_mcap_kol: volMcapKol,
+      fomo_graduated_alerts: fomoGrad,
+      fomo_trending_alerts: fomoTrend,
       updated_at: new Date().toISOString(),
     });
 
@@ -168,6 +184,8 @@ router.get('/config', (req, res) => {
         vol_mcap_alerts: true,
         vol_mcap_min_mcap: null,
         vol_mcap_kol: false,
+        fomo_graduated_alerts: false,
+        fomo_trending_alerts: false,
       });
     }
     const categories = {};
@@ -180,6 +198,8 @@ router.get('/config', (req, res) => {
       vol_mcap_alerts: entry.vol_mcap_alerts !== false,
       vol_mcap_min_mcap: typeof entry.vol_mcap_min_mcap === 'number' ? entry.vol_mcap_min_mcap : null,
       vol_mcap_kol: entry.vol_mcap_kol === true,
+      fomo_graduated_alerts: entry.fomo_graduated_alerts === true,
+      fomo_trending_alerts: entry.fomo_trending_alerts === true,
     });
   } catch (err) {
     fail(res, err);

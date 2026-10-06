@@ -22,6 +22,7 @@ const CATEGORY_OPTIONS = [
   { key: 'x_tracker', label: 'Tracker' },
   { key: 'photon', label: 'Photon' },
   { key: 'vol_mcap', label: 'Vol ≈ MCap' },
+  { key: 'fomo', label: 'FOMO' },
   { key: 'snaps', label: 'Snapshots' },
   { key: 'gain', label: 'Ganancia' },
 ];
@@ -55,6 +56,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   x_tracker: 'Tracker',
   photon: 'Photon',
   vol_mcap: 'Vol ≈ MCap',
+  fomo: 'FOMO',
 };
 
 /** One card per token: every notification of the same mint merged together. */
@@ -67,7 +69,7 @@ interface UnifiedItem {
   /** Newest notification — source for mcap, volume and the stats row. */
   base: NotificationHistoryItem;
     /** Every category/column this token hit, chronological (for the chips). */
-    events: { category: string; column?: 'new' | 'graduated' | null; label: string; notified_at: string }[];
+    events: { category: string; column?: 'new' | 'graduated' | 'trending' | null; label: string; notified_at: string }[];
   /** All snapshots from every notification, sorted oldest → newest. */
   snapshots: TokenSnapshot[];
   /** Snapshots from trenches events (new_creation / completed) — the "Gmgn" toggle. */
@@ -78,9 +80,13 @@ interface UnifiedItem {
   tweetTimes: string[];
 }
 
-function eventLabel(category: string, column?: 'new' | 'graduated' | null): string {
+function eventLabel(category: string, column?: 'new' | 'graduated' | 'trending' | null): string {
   if (category === 'photon') {
     return column ? `Photon · ${column === 'graduated' ? 'Graduated' : 'New'}` : 'Photon';
+  }
+  // FOMO alerts: one category, the column tells the feed (tab) it came from.
+  if (category === 'fomo') {
+    return column ? `FOMO · ${column === 'trending' ? 'Trending' : 'Graduados'}` : 'FOMO';
   }
   return CATEGORY_LABELS[category] || category;
 }
@@ -408,6 +414,7 @@ export default function HistoryScreen() {
       if (categoryFilter === 'x_tracker' && u.tweetTimes.length === 0) return false;
       if (categoryFilter === 'photon' && !u.events.some((e) => e.category === 'photon')) return false;
       if (categoryFilter === 'vol_mcap' && !u.events.some((e) => e.category === 'vol_mcap')) return false;
+      if (categoryFilter === 'fomo' && !u.events.some((e) => e.category === 'fomo')) return false;
       if (searchLower) {
         return (u.symbol?.toLowerCase().includes(searchLower)) || (u.name?.toLowerCase().includes(searchLower));
       }

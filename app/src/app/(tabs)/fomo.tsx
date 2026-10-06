@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -7,6 +8,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   TextInput,
   View,
 } from 'react-native';
@@ -18,16 +20,29 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
-import { getFomoGraduated, getFomoTrending, setFomoProxy } from '@/api/market';
+import { getFomoGraduated, getFomoTrending, setFomoProxy, putFomoNotifyFilters } from '@/api/market';
 import type { FomoFeedResponse, FomoFilters, FomoPushData, FomoToken } from '@/api/market';
+import { getNotificationConfig, saveNotificationConfig } from '@/api/notifications';
+import { ApiError } from '@/api/client';
+import { useSettings } from '@/store/settings';
+import { registerForPushNotificationsAsync, notificationsAvailable } from '@/utils/notifications';
 import { getWsClient } from '@/api/ws-client';
 import { fmtNum, fmtPct, fmtUsd, timeAgo } from '@/utils/format';
 
 const FILTERS_KEY = 'trading-sim/fomo-filters';
 const POLL_MS = 10_000;
 
-/** Default screen: graduated ≤1h ago with $60K–$450K market cap, any KOL count. */
-const FILTER_DEFAULTS: FomoFilters = { ageMaxMin: '60', mcapMin: '60000', mcapMax: '450000', kolMin: '' };
+/** Two feeds from the same FOMO WS — only the origin differs (Solana only). */
+type Feed = 'graduated' | 'trending';
+
+/**
+ * Per-tab default filters. Trending carries no age bound — upstream never
+ * sends `createdAt` there, so the editor doesn't show the field for that tab.
+ */
+const FILTER_DEFAULTS: Record<Feed, FomoFilters> = {
+  graduated: { ageMaxMin: '60', mcapMin: '60000', mcapMax: '450000', kolMin: '' },
+  trending: { ageMaxMin: '', mcapMin: '60000', mcapMax: '450000', kolMin: '' },
+};
 
 interface FilterField {
   key: keyof FomoFilters;
@@ -43,9 +58,7 @@ const FILTER_FIELDS: FilterField[] = [
   { key: 'kolMin', label: 'KOLs mínimo', unit: 'KOL', placeholder: 'sin límite' },
 ];
 
-/** Two feeds from the same FOMO WS — only the origin differs (Solana only). */
-type Feed = 'graduated' | 'trending';
-
+/** Per-feed display + WS topic/event metadata. */
 interface FeedMeta {
   label: string;
   /** Server WS topic + event pushed for this feed. */
@@ -60,14 +73,42 @@ const FEED_META: Record<Feed, FeedMeta> = {
 };
 const FEEDS: Feed[] = ['graduated', 'trending'];
 
-function normalizeFilters(raw: unknown): FomoFilters {
-  const out: FomoFilters = { ...FILTER_DEFAULTS };
+/** Keep only known string fields from a stored object (corruption tolerance). */
+function pickFilters(raw: unknown): Partial<FomoFilters> {
+  const out: Partial<FomoFilters> = {};
   if (raw && typeof raw === 'object') {
-    const o = raw as Partial<FomoFilters>;
+    const o = raw as Record<string, unknown>;
     for (const f of FILTER_FIELDS) {
       const v = o[f.key];
-      if (typeof v === 'string') out[f.key] = v;
+      if (typeof v === 'string') out[f.key] = v as FomoFilters[keyof FomoFilters];
     }
+  }
+  return out;
+}
+
+/**
+ * Per-tab filters: the stored value is Record<Feed, FomoFilters>. The legacy
+ * flat shape (one set shared by both tabs) is applied to BOTH tabs so nothing
+ * changes for the user; corrupted values fall back to the per-tab defaults.
+ */
+function loadStoredFilters(raw: string | null): Record<Feed, FomoFilters> {
+  const out: Record<Feed, FomoFilters> = {
+    graduated: { ...FILTER_DEFAULTS.graduated },
+    trending: { ...FILTER_DEFAULTS.trending },
+  };
+  if (!raw) return out;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && ('graduated' in parsed || 'trending' in parsed)) {
+      const perFeed = parsed as Record<string, unknown>;
+      for (const fd of FEEDS) out[fd] = { ...out[fd], ...pickFilters(perFeed[fd]) };
+    } else {
+      const shared = pickFilters(parsed);
+      out.graduated = { ...out.graduated, ...shared };
+      out.trending = { ...out.trending, ...shared };
+    }
+  } catch {
+    // corrupted value → keep defaults
   }
   return out;
 }
@@ -220,9 +261,13 @@ function FomoRow({ token, showRank = false }: { token: FomoToken; showRank?: boo
 
 export default function FomoScreen() {
   const theme = useTheme();
-  /** Active sub-feed — same filters for both; only the origin differs. */
+  const pushToken = useSettings((s) => s.pushToken);
+  const setPushToken = useSettings((s) => s.setPushToken);
+  /** Active sub-feed — each tab has its OWN filter set (per pestaña). */
   const [feed, setFeed] = useState<Feed>('graduated');
-  const [filters, setFilters] = useState<FomoFilters>(FILTER_DEFAULTS);
+  /** Filter state per tab; `filters` is the active tab's set. */
+  const [filtersByFeed, setFiltersByFeed] = useState<Record<Feed, FomoFilters>>(FILTER_DEFAULTS);
+  const filters = filtersByFeed[feed];
   /** Live token maps (one per feed): WS pushes (unfiltered) + REST backfill. */
   const [gradMap, setGradMap] = useState<Map<string, FomoToken>>(() => new Map());
   const [trendMap, setTrendMap] = useState<Map<string, FomoToken>>(() => new Map());
@@ -233,24 +278,18 @@ export default function FomoScreen() {
   const [hydrated, setHydrated] = useState(false);
 
   const [editorVisible, setEditorVisible] = useState(false);
-  const [draft, setDraft] = useState<FomoFilters>(FILTER_DEFAULTS);
+  const [draft, setDraft] = useState<FomoFilters>(FILTER_DEFAULTS.graduated);
+  /** Per-feed alert switches, read from the notification config on open. */
+  const [alerts, setAlerts] = useState<Record<Feed, boolean>>({ graduated: false, trending: false });
   /** Proxy draft — persisted on the SERVER (reconnects the FOMO WS). */
   const [proxyDraft, setProxyDraft] = useState('');
-  const [proxyError, setProxyError] = useState<string | null>(null);
-  const [proxySaving, setProxySaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  // Load saved filters once (defaults: edad ≤1h, mcap 60K–450K).
+  // Load the saved per-tab filters once (legacy flat values → both tabs).
   useEffect(() => {
     AsyncStorage.getItem(FILTERS_KEY)
-      .then((raw) => {
-        if (raw) {
-          try {
-            setFilters(normalizeFilters(JSON.parse(raw)));
-          } catch {
-            // corrupted value → keep defaults
-          }
-        }
-      })
+      .then((raw) => setFiltersByFeed(loadStoredFilters(raw)))
       .catch(() => {})
       .finally(() => setHydrated(true));
   }, []);
@@ -327,46 +366,106 @@ export default function FomoScreen() {
   }, [hydrated, filters, feed, load]);
 
   const openFilterEditor = useCallback(() => {
-    setDraft(filters);
+    setDraft({ ...filtersByFeed[feed] });
     setProxyDraft(resp?.status.proxy?.url ?? '');
-    setProxyError(null);
+    setSaveError(null);
     setEditorVisible(true);
-  }, [filters, resp]);
+    // Current per-device alert switches (may have changed since the last open).
+    getNotificationConfig()
+      .then((cfg) => setAlerts({ graduated: cfg.fomo_graduated_alerts === true, trending: cfg.fomo_trending_alerts === true }))
+      .catch(() => {});
+  }, [feed, filtersByFeed, resp]);
 
   const closeFilterEditor = useCallback(() => setEditorVisible(false), []);
 
   const resetDraft = useCallback(() => {
-    setDraft({ ...FILTER_DEFAULTS });
+    setDraft({ ...FILTER_DEFAULTS[feed] });
     setProxyDraft('');
-    setProxyError(null);
-  }, []);
+    setSaveError(null);
+  }, [feed]);
 
   const setDraftValue = useCallback((key: keyof FomoFilters, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
   }, []);
 
   const confirmFilters = useCallback(async () => {
-    const next: FomoFilters = { ...draft };
-    setFilters(next);
-    AsyncStorage.setItem(FILTERS_KEY, JSON.stringify(next)).catch(() => {});
+    const nextAll: Record<Feed, FomoFilters> = { ...filtersByFeed, [feed]: { ...draft } };
+    setFiltersByFeed(nextAll);
+    AsyncStorage.setItem(FILTERS_KEY, JSON.stringify(nextAll)).catch(() => {});
 
     // Proxy lives on the server: PUT only when it actually changed.
     const currentProxy = resp?.status.proxy?.url ?? '';
     const nextProxy = proxyDraft.trim();
     if (nextProxy !== currentProxy) {
-      setProxySaving(true);
+      setSaving(true);
       try {
         await setFomoProxy(nextProxy);
-        setProxyError(null);
+        setSaveError(null);
       } catch (err) {
-        setProxyError(err instanceof Error ? err.message : String(err));
-        setProxySaving(false);
+        setSaveError(`Error al guardar el proxy: ${err instanceof Error ? err.message : String(err)}`);
+        setSaving(false);
         return; // keep the sheet open so the error is visible
       }
-      setProxySaving(false);
     }
+
+    // Push BOTH tabs' filters so the server-side alert matcher evaluates with
+    // exactly what this screen shows (alerts fire per tab with its own set).
+    try {
+      await putFomoNotifyFilters(nextAll);
+    } catch (err) {
+      setSaveError(`Error al sincronizar los filtros de aviso: ${err instanceof Error ? err.message : String(err)}`);
+      setSaving(false);
+      return; // keep the sheet open — alerts would use stale filters
+    }
+    setSaving(false);
     setEditorVisible(false);
-  }, [draft, proxyDraft, resp]);
+  }, [draft, feed, filtersByFeed, proxyDraft, resp]);
+
+  /**
+   * Enable/disable a feed's alert notifications (per device, merge-only flags —
+   * the rest of the notification config is untouched). Enabling first pushes
+   * the current per-tab filters to the server, so the matcher is always up to
+   * date the moment the switch turns on.
+   */
+  const toggleAlert = useCallback(async (fd: Feed, value: boolean) => {
+    setAlerts((prev) => ({ ...prev, [fd]: value })); // optimistic
+    const revert = () => setAlerts((prev) => ({ ...prev, [fd]: !value }));
+    try {
+      const cfg = await getNotificationConfig();
+      let token = cfg.push_token ?? pushToken;
+      if (value && !token) {
+        if (!notificationsAvailable()) {
+          Alert.alert('Push no disponible', 'En Android, expo-notifications ya no funciona dentro de Expo Go (desde SDK 53). Necesitas un development build.');
+          revert();
+          return;
+        }
+        token = await registerForPushNotificationsAsync();
+        if (!token) {
+          Alert.alert('Push no disponible', 'Solo funciona en un dispositivo físico.');
+          revert();
+          return;
+        }
+        setPushToken(token);
+      }
+      if (!token) throw new Error('Sin token de notificaciones');
+      if (value) await putFomoNotifyFilters(filtersByFeed);
+      const other = fd === 'graduated' ? cfg.fomo_trending_alerts === true : cfg.fomo_graduated_alerts === true;
+      await saveNotificationConfig(
+        token,
+        cfg.categories,
+        cfg.filters,
+        cfg.tracker_tweets,
+        cfg.vol_mcap_alerts,
+        cfg.vol_mcap_min_mcap,
+        cfg.vol_mcap_kol,
+        fd === 'graduated' ? value : other,
+        fd === 'trending' ? value : other,
+      );
+    } catch (err) {
+      revert();
+      Alert.alert('Error', err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'No se pudo guardar');
+    }
+  }, [filtersByFeed, pushToken, setPushToken]);
 
   const activeMap = feed === 'trending' ? trendMap : gradMap;
   const tokens = useMemo(() => filterTokens(activeMap, filters, feed), [activeMap, filters, feed]);
@@ -426,7 +525,7 @@ export default function FomoScreen() {
           </View>
         </View>
 
-        {/* Feed switcher: graduados | trending (mismos filtros, distinto origen). */}
+        {/* Feed switcher: graduados | trending (filtros propios de cada pestaña). */}
         <View style={styles.feedTabs}>
           {FEEDS.map((key) => {
             const meta = FEED_META[key];
@@ -485,7 +584,7 @@ export default function FomoScreen() {
             style={styles.sheet}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
-              <ThemedText type="smallBold" style={styles.sheetTitle}>Filtros — FOMO (compartidos)</ThemedText>
+              <ThemedText type="smallBold" style={styles.sheetTitle}>Filtros — {FEED_META[feed].label}</ThemedText>
               <Pressable onPress={resetDraft} hitSlop={8}>
                 <ThemedText type="small" style={styles.resetText}>Restablecer</ThemedText>
               </Pressable>
@@ -495,7 +594,8 @@ export default function FomoScreen() {
               contentContainerStyle={styles.sheetBodyContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled">
-              {FILTER_FIELDS.map((f) => (
+              {/* Trending hides the age field: upstream sends no createdAt. */}
+              {FILTER_FIELDS.filter((f) => feed === 'graduated' || f.key !== 'ageMaxMin').map((f) => (
                 <View key={f.key} style={styles.fieldRow}>
                   <ThemedText type="small" style={[styles.fieldLabel, { color: theme.textSecondary }]}>
                     {f.label}
@@ -516,11 +616,26 @@ export default function FomoScreen() {
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
                 Vacío = sin límite. Los KOLs se resuelven en el servidor (Pulse → GMGN).
               </ThemedText>
-              {feed === 'trending' && (
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  En Trending el filtro de edad no aplica (FOMO no envía fecha de creación).
-                </ThemedText>
-              )}
+
+              <View style={styles.sectionDivider} />
+              <ThemedText type="smallBold" style={{ color: theme.text }}>
+                Notificaciones
+              </ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Aviso push cuando un token pase los filtros de esa pestaña. Se guardan por pestaña.
+              </ThemedText>
+              {FEEDS.map((fd) => (
+                <View key={fd} style={styles.alertRow}>
+                  <ThemedText type="small" style={{ color: theme.text, flex: 1 }}>
+                    Avisos de {FEED_META[fd].label}
+                  </ThemedText>
+                  <Switch
+                    value={alerts[fd]}
+                    onValueChange={(v) => toggleAlert(fd, v)}
+                    trackColor={{ true: theme.accent }}
+                  />
+                </View>
+              ))}
 
               <View style={styles.sectionDivider} />
               <ThemedText type="smallBold" style={{ color: theme.text }}>
@@ -548,9 +663,9 @@ export default function FomoScreen() {
                   : 'Sin proxy — conexión directa.'}
                 {' '}Se guarda en el servidor y reconecta el feed.
               </ThemedText>
-              {proxyError != null && (
+              {saveError != null && (
                 <ThemedText type="small" style={{ color: '#ef4444' }}>
-                  Error al guardar el proxy: {proxyError}
+                  {saveError}
                 </ThemedText>
               )}
             </ScrollView>
@@ -558,9 +673,9 @@ export default function FomoScreen() {
               <Pressable onPress={closeFilterEditor} style={styles.cancelBtn}>
                 <ThemedText type="smallBold" style={{ color: '#ffffff' }}>Cancelar</ThemedText>
               </Pressable>
-              <Pressable onPress={confirmFilters} disabled={proxySaving} style={[styles.confirmBtn, proxySaving && styles.btnDisabled]}>
+              <Pressable onPress={confirmFilters} disabled={saving} style={[styles.confirmBtn, saving && styles.btnDisabled]}>
                 <ThemedText type="smallBold" style={{ color: '#000000' }}>
-                  {proxySaving ? 'Guardando…' : 'Confirmar'}
+                  {saving ? 'Guardando…' : 'Confirmar'}
                 </ThemedText>
               </Pressable>
             </View>
@@ -763,4 +878,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   inputUnit: { fontSize: 12, marginLeft: 6 },
+
+  /* ── Alert notification switches (per feed) ── */
+  alertRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#1c1c1e',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 8,
+  },
 });
