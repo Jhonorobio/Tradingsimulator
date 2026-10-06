@@ -137,6 +137,78 @@ export function getMemescope() {
   return api.get<MemescopeResponse>('/api/market/memescope');
 }
 
+// ── FOMO (fomo.family) graduated-tokens feed (Solana) ──
+
+export interface FomoToken {
+  address: string;
+  networkId: number | null;
+  symbol: string | null;
+  name: string | null;
+  image: string | null;
+  launchpad: string | null;
+  /** unix seconds */
+  createdAt: number | null;
+  mcap: number | null;
+  price: number | null;
+  vol24: number | null;
+  /** FRACTION (0.25 = +25%) — FOMO's own UI renders change24 * 100. */
+  change24: number | null;
+  holders: number | null;
+  updatedAt: number;
+}
+
+export interface FomoAuthStatus {
+  hasRefreshToken: boolean;
+  hasCachedToken: boolean;
+  tokenExpiresAt: number | null;
+  tokenExpiresInSeconds: number | null;
+}
+
+export interface FomoStatus {
+  running: boolean;
+  connected: boolean;
+  subscribed: boolean;
+  live: boolean;
+  count: number;
+  snapshots: number;
+  authFailures: number;
+  lastMsgAgeMs: number | null;
+  lastError: string | null;
+  auth: FomoAuthStatus;
+}
+
+export interface FomoGraduatedResponse {
+  tokens: FomoToken[];
+  /** How many tokens match the filters (before `limit`). */
+  total: number;
+  savedAt: number;
+  status: FomoStatus;
+}
+
+/** Empty string = no bound on that axis (server treats invalid values the same). */
+export interface FomoFilters {
+  ageMaxMin: string;
+  mcapMin: string;
+  mcapMax: string;
+}
+
+export function getFomoGraduated(filters: FomoFilters, limit?: number) {
+  const qs = new URLSearchParams();
+  const age = filters.ageMaxMin?.trim();
+  const lo = filters.mcapMin?.trim();
+  const hi = filters.mcapMax?.trim();
+  if (age) qs.set('ageMaxMin', age);
+  if (lo) qs.set('mcapMin', lo);
+  if (hi) qs.set('mcapMax', hi);
+  if (limit) qs.set('limit', String(limit));
+  const suffix = qs.toString();
+  return api.get<FomoGraduatedResponse>(`/api/market/fomo/graduated${suffix ? `?${suffix}` : ''}`);
+}
+
+export function getFomoStatus() {
+  return api.get<FomoStatus>('/api/market/fomo/status');
+}
+
 export function getGmgnStatus() {
   return api.get<GmgnStatus>('/api/market/status');
 }

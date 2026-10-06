@@ -12,6 +12,7 @@ import { initWebSocket } from './services/ws-server.js';
 import { startSnapshotWorker } from './services/token-snapshots.js';
 import { startXTrackerWatcher } from './services/xtracker-watcher.js';
 import { startGmgnWs } from './services/gmgn-ws.js';
+import { startFomoWatcher } from './services/fomo-ws.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -58,6 +59,9 @@ startXTrackerWatcher({
 
 // GMGN WebSocket real-time token data
 startGmgnWs();
+
+// FOMO (fomo.family) graduated-tokens feed for Solana
+startFomoWatcher();
 
 // Auto-calibrate GMGN clock from Date header, then start refresher
 ensureCalibrated().then(() => {

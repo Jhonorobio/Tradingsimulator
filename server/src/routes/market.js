@@ -10,6 +10,8 @@ import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-heal
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters, findPhotonToken } from '../services/photon-memescope.js';
 import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
+import { getFomoGraduated, getFomoStatus } from '../services/fomo-ws.js';
+import { setRefreshToken, getRefreshToken, getAccessToken, fomoAuthStatus } from '../services/fomo-auth.js';
 
 const router = Router();
 
@@ -395,6 +397,60 @@ router.get('/xtracker/tokens', (req, res) => {
     }));
   } catch (err) {
     fail(res, err);
+  }
+});
+
+/**
+ * GET /api/market/fomo/graduated — FOMO (fomo.family) Solana graduated feed
+ * filtered server-side. Query: ageMaxMin, mcapMin, mcapMax, limit (all optional;
+ * absent = no bound on that axis). Snapshotted + live-merged by fomo-ws.js.
+ */
+router.get('/fomo/graduated', (req, res) => {
+  try {
+    res.json(getFomoGraduated({
+      ageMaxMin: toN(req.query.ageMaxMin),
+      mcapMin: toN(req.query.mcapMin),
+      mcapMax: toN(req.query.mcapMax),
+      limit: toN(req.query.limit),
+    }));
+  } catch (err) {
+    fail(res, err, 502);
+  }
+});
+
+/** GET /api/market/fomo/status — connection/auth diagnostics (never exposes tokens). */
+router.get('/fomo/status', (_req, res) => {
+  try {
+    res.json(getFomoStatus());
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * PUT /api/market/fomo/auth — seed the long-lived Privy refresh token (e.g. on
+ * a fresh deployment without data/fomo-auth.json). Body: { refresh_token }.
+ * Verifies it mints an access token before saving. Never returns the token.
+ */
+router.put('/fomo/auth', async (req, res) => {
+  try {
+    const token = typeof req.body?.refresh_token === 'string' ? req.body.refresh_token.trim() : '';
+    if (!token) {
+      res.status(400).json({ error: 'refresh_token requerido' });
+      return;
+    }
+    const prev = getRefreshToken();
+    setRefreshToken(token);
+    try {
+      await getAccessToken({ force: true }); // throws → 400 if the token is bad
+    } catch (err) {
+      if (prev) setRefreshToken(prev); // don't clobber a working token
+      fail(res, err, 400);
+      return;
+    }
+    res.json({ ok: true, auth: fomoAuthStatus() });
+  } catch (err) {
+    fail(res, err, 400);
   }
 });
 
