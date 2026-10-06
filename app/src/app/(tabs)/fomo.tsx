@@ -18,8 +18,8 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
-import { getFomoGraduated, setFomoProxy } from '@/api/market';
-import type { FomoFilters, FomoGraduatedResponse, FomoPushData, FomoToken } from '@/api/market';
+import { getFomoGraduated, getFomoTrending, setFomoProxy } from '@/api/market';
+import type { FomoFeedResponse, FomoFilters, FomoPushData, FomoToken } from '@/api/market';
 import { getWsClient } from '@/api/ws-client';
 import { fmtNum, fmtPct, fmtUsd, timeAgo } from '@/utils/format';
 
@@ -43,6 +43,23 @@ const FILTER_FIELDS: FilterField[] = [
   { key: 'kolMin', label: 'KOLs mínimo', unit: 'KOL', placeholder: 'sin límite' },
 ];
 
+/** Two feeds from the same FOMO WS — only the origin differs (Solana only). */
+type Feed = 'graduated' | 'trending';
+
+interface FeedMeta {
+  label: string;
+  /** Server WS topic + event pushed for this feed. */
+  topic: string;
+  event: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}
+
+const FEED_META: Record<Feed, FeedMeta> = {
+  graduated: { label: 'Graduados', topic: 'fomo', event: 'fomo_updated', icon: 'ribbon' },
+  trending: { label: 'Trending', topic: 'fomo_trending', event: 'fomo_trending_updated', icon: 'flame' },
+};
+const FEEDS: Feed[] = ['graduated', 'trending'];
+
 function normalizeFilters(raw: unknown): FomoFilters {
   const out: FomoFilters = { ...FILTER_DEFAULTS };
   if (raw && typeof raw === 'object') {
@@ -65,19 +82,22 @@ function toBound(v: string): number | null {
 
 /**
  * Client-side filter over the live map — same semantics as the server's
- * GET /fomo/graduated (WS pushes are unfiltered, so the view filters here).
+ * GET /fomo/{graduated,trending} (WS pushes are unfiltered, so the view filters
+ * here). Trending items carry no createdAt upstream, so the age bound only
+ * applies to graduados; the trending list sorts by rank instead of date.
  * A token without `kolCount` never passes an active KOL filter; the REST poll
  * backfills counts for candidates so the list fills in within one poll.
  */
-function filterTokens(map: Map<string, FomoToken>, f: FomoFilters): FomoToken[] {
+function filterTokens(map: Map<string, FomoToken>, f: FomoFilters, feed: Feed): FomoToken[] {
   const now = Math.floor(Date.now() / 1000);
   const ageMaxMin = toBound(f.ageMaxMin);
   const mcapMin = toBound(f.mcapMin);
   const mcapMax = toBound(f.mcapMax);
   const kolMin = toBound(f.kolMin);
+  const applyAge = feed === 'graduated';
   const out: FomoToken[] = [];
   for (const t of map.values()) {
-    if (ageMaxMin != null && (t.createdAt == null || now - t.createdAt > ageMaxMin * 60)) continue;
+    if (applyAge && ageMaxMin != null && (t.createdAt == null || now - t.createdAt > ageMaxMin * 60)) continue;
     if (
       (mcapMin != null || mcapMax != null) &&
       (t.mcap == null || (mcapMin != null && t.mcap < mcapMin) || (mcapMax != null && t.mcap > mcapMax))
@@ -87,7 +107,11 @@ function filterTokens(map: Map<string, FomoToken>, f: FomoFilters): FomoToken[] 
     if (kolMin != null && (t.kolCount == null || t.kolCount < kolMin)) continue;
     out.push(t);
   }
-  out.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  out.sort(
+    feed === 'trending'
+      ? (a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER)
+      : (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0),
+  );
   return out;
 }
 
@@ -103,13 +127,19 @@ function mergeTokens(next: Map<string, FomoToken>, list: FomoToken[], old: Map<s
   }
 }
 
+/** Apply upstream removals (`removed` in WS pushes) to the map. */
+function removeAddresses(next: Map<string, FomoToken>, removed?: string[]) {
+  if (!removed?.length) return;
+  for (const addr of removed) next.delete(addr);
+}
+
 interface StatItem {
   icon: keyof typeof Ionicons.glyphMap;
   value: string | null;
   color: string;
 }
 
-function FomoRow({ token }: { token: FomoToken }) {
+function FomoRow({ token, showRank = false }: { token: FomoToken; showRank?: boolean }) {
   const theme = useTheme();
 
   // change24 is a FRACTION upstream — ×100 for percent display (FOMO does the same).
@@ -137,6 +167,11 @@ function FomoRow({ token }: { token: FomoToken }) {
         <View style={styles.contentCol}>
           <View style={styles.row}>
             <View style={styles.leftGroup}>
+              {showRank && token.rank != null && (
+                <ThemedText type="smallBold" style={[styles.rankText, { color: '#a855f7' }]}>
+                  #{token.rank + 1}
+                </ThemedText>
+              )}
               <ThemedText type="smallBold" numberOfLines={1} style={[styles.symbolText, { color: theme.text }]}>
                 {token.symbol || '???'}
               </ThemedText>
@@ -185,10 +220,13 @@ function FomoRow({ token }: { token: FomoToken }) {
 
 export default function FomoScreen() {
   const theme = useTheme();
+  /** Active sub-feed — same filters for both; only the origin differs. */
+  const [feed, setFeed] = useState<Feed>('graduated');
   const [filters, setFilters] = useState<FomoFilters>(FILTER_DEFAULTS);
-  /** Live token map: WS pushes (unfiltered) + REST backfill; display filters client-side. */
-  const [map, setMap] = useState<Map<string, FomoToken>>(() => new Map());
-  const [resp, setResp] = useState<FomoGraduatedResponse | null>(null);
+  /** Live token maps (one per feed): WS pushes (unfiltered) + REST backfill. */
+  const [gradMap, setGradMap] = useState<Map<string, FomoToken>>(() => new Map());
+  const [trendMap, setTrendMap] = useState<Map<string, FomoToken>>(() => new Map());
+  const [resp, setResp] = useState<FomoFeedResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   /** True while pushes arrived recently — flipped by the WS handler + a stale timer. */
   const [pushFresh, setPushFresh] = useState(false);
@@ -217,13 +255,15 @@ export default function FomoScreen() {
       .finally(() => setHydrated(true));
   }, []);
 
-  const load = useCallback(async (f: FomoFilters) => {
+  const load = useCallback(async (f: FomoFilters, fd: Feed) => {
     try {
-      const res = await getFomoGraduated(f);
+      const res = fd === 'trending' ? await getFomoTrending(f) : await getFomoGraduated(f);
       setResp(res);
       setFetchError(null);
       // Merge (never replace): WS owns the truth, REST just backfills.
-      setMap((prev) => {
+      // `fd` picks the target map so a late response can't cross feeds.
+      const target = fd === 'trending' ? setTrendMap : setGradMap;
+      target((prev) => {
         const next = new Map(prev);
         mergeTokens(next, res.tokens, prev);
         return next;
@@ -233,50 +273,58 @@ export default function FomoScreen() {
     }
   }, []);
 
-  // Real-time feed: server pushes batched changes (~1/s) on topic `fomo`.
-  // Subscribing also triggers an immediate full snapshot push from the server.
+  // Real-time feed: the server pushes batched changes (~1/s) per feed — topic
+  // `fomo` (graduados) or `fomo_trending`. Only the visible feed stays
+  // subscribed; subscribing triggers an immediate full snapshot push.
   // Freshness is a flag flipped here and expired by a timer — Date.now() in
   // render would break react-hooks/purity.
   useEffect(() => {
+    const meta = FEED_META[feed];
     const client = getWsClient();
-    client.subscribe('fomo');
+    client.subscribe(meta.topic);
     let staleTimer: ReturnType<typeof setTimeout> | null = null;
-    const off = client.on('fomo_updated', (msg) => {
+    const off = client.on(meta.event, (msg) => {
       const data = (msg?.data ?? null) as FomoPushData | null;
-      if (!data?.tokens?.length) return;
+      if (!data) return;
+      const incoming = data.tokens ?? [];
+      if (incoming.length === 0 && !data.removed?.length) return;
       setPushFresh(true);
       if (staleTimer) clearTimeout(staleTimer);
       staleTimer = setTimeout(() => setPushFresh(false), 15_000);
-      setMap((prev) => {
+      const target = feed === 'trending' ? setTrendMap : setGradMap;
+      target((prev) => {
         if (data.snapshot) {
           // Authoritative upstream rebuild — entries missing here are gone.
           const next = new Map<string, FomoToken>();
-          mergeTokens(next, data.tokens, prev);
+          mergeTokens(next, incoming, prev);
+          removeAddresses(next, data.removed);
           return next;
         }
         const next = new Map(prev);
-        mergeTokens(next, data.tokens, prev);
+        mergeTokens(next, incoming, prev);
+        removeAddresses(next, data.removed);
         return next;
       });
     });
     return () => {
       if (staleTimer) clearTimeout(staleTimer);
       off();
-      client.unsubscribe('fomo');
+      client.unsubscribe(meta.topic);
     };
-  }, []);
+  }, [feed]);
 
   // Poll the server-side filtered feed (server holds the live WS connection).
+  // `feed` in the deps refetches the other list right when tabs switch.
   useEffect(() => {
     if (!hydrated) return;
     // Defer the first fetch so setState never runs synchronously in the effect.
-    const first = setTimeout(() => load(filters), 0);
-    const timer = setInterval(() => load(filters), POLL_MS);
+    const first = setTimeout(() => load(filters, feed), 0);
+    const timer = setInterval(() => load(filters, feed), POLL_MS);
     return () => {
       clearTimeout(first);
       clearInterval(timer);
     };
-  }, [hydrated, filters, load]);
+  }, [hydrated, filters, feed, load]);
 
   const openFilterEditor = useCallback(() => {
     setDraft(filters);
@@ -320,25 +368,32 @@ export default function FomoScreen() {
     setEditorVisible(false);
   }, [draft, proxyDraft, resp]);
 
-  const tokens = useMemo(() => filterTokens(map, filters), [map, filters]);
+  const activeMap = feed === 'trending' ? trendMap : gradMap;
+  const tokens = useMemo(() => filterTokens(activeMap, filters, feed), [activeMap, filters, feed]);
   const status = resp?.status;
+  const trendStatus = status?.trending;
+  const feedCount = (feed === 'trending' ? trendStatus?.count : status?.count) ?? activeMap.size;
+  const feedMsgAge = feed === 'trending' ? trendStatus?.lastMsgAgeMs ?? null : status?.lastMsgAgeMs ?? null;
+  const feedConnected = feed === 'trending' ? trendStatus?.subscribed === true : status?.connected === true;
+  const feedLive = feed === 'trending' ? trendStatus?.live === true : status?.live === true;
   // Live = recent WS push (primary) OR upstream feed healthy per REST status.
-  const live = pushFresh || (fetchError == null && status?.live === true);
+  const live = pushFresh || (fetchError == null && feedLive);
 
   const statusText = pushFresh
-    ? `en vivo · ${status?.count ?? map.size} tokens${status?.proxy?.transport === 'proxy' ? ' · px' : ''}`
+    ? `en vivo · ${feedCount} tokens${status?.proxy?.transport === 'proxy' ? ' · px' : ''}`
     : fetchError
       ? fetchError
       : status
-        ? status.connected
-          ? `${status.count} tokens${status.lastMsgAgeMs != null ? ` · ${(status.lastMsgAgeMs / 1000).toFixed(0)}s` : ''}${status.proxy?.transport === 'proxy' ? ' · px' : ''}`
+        ? feedConnected
+          ? `${feedCount} tokens${feedMsgAge != null ? ` · ${(feedMsgAge / 1000).toFixed(0)}s` : ''}${status.proxy?.transport === 'proxy' ? ' · px' : ''}`
           : 'conectando…'
         : 'cargando…';
 
   const filterSummary = useMemo(() => {
     const parts: string[] = [];
     const age = Number(filters.ageMaxMin);
-    if (filters.ageMaxMin && Number.isFinite(age)) parts.push(`≤${age}m`);
+    // The age bound doesn't apply to trending (upstream sends no createdAt).
+    if (feed === 'graduated' && filters.ageMaxMin && Number.isFinite(age)) parts.push(`≤${age}m`);
     const lo = Number(filters.mcapMin);
     const hi = Number(filters.mcapMax);
     if (filters.mcapMin && Number.isFinite(lo)) parts.push(`≥${fmtUsd(lo, { compact: true })}`);
@@ -346,7 +401,7 @@ export default function FomoScreen() {
     const kol = Number(filters.kolMin);
     if (filters.kolMin && Number.isFinite(kol)) parts.push(`≥${kol} KOL`);
     return parts.length > 0 ? parts.join(' · ') : 'sin filtros';
-  }, [filters]);
+  }, [filters, feed]);
 
   return (
     <ThemedView style={styles.container}>
@@ -371,23 +426,42 @@ export default function FomoScreen() {
           </View>
         </View>
 
+        {/* Feed switcher: graduados | trending (mismos filtros, distinto origen). */}
+        <View style={styles.feedTabs}>
+          {FEEDS.map((key) => {
+            const meta = FEED_META[key];
+            const active = feed === key;
+            return (
+              <Pressable
+                key={key}
+                onPress={() => setFeed(key)}
+                style={[styles.feedTab, active && styles.feedTabActive]}>
+                <Ionicons name={meta.icon} size={14} color={active ? '#080808' : theme.textSecondary} />
+                <ThemedText type="smallBold" style={{ color: active ? '#080808' : theme.textSecondary }}>
+                  {meta.label}
+                </ThemedText>
+              </Pressable>
+            );
+          })}
+        </View>
+
         <View style={styles.filterBar}>
           <Ionicons name="options-outline" size={13} color={theme.textSecondary} />
           <ThemedText type="small" style={{ color: theme.textSecondary }}>{filterSummary}</ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>· FOMO graduated</ThemedText>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>· FOMO {FEED_META[feed].label.toLowerCase()}</ThemedText>
         </View>
 
         <FlatList
           data={tokens}
           keyExtractor={(item) => `fomo-${item.address}`}
-          renderItem={({ item }) => <FomoRow token={item} />}
+          renderItem={({ item }) => <FomoRow token={item} showRank={feed === 'trending'} />}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
             <View style={styles.emptyCard}>
               <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>
-                {fetchError && map.size === 0
+                {fetchError && activeMap.size === 0
                   ? `Error: ${fetchError}`
-                  : map.size === 0 && (!hydrated || !resp)
+                  : activeMap.size === 0 && (!hydrated || !resp)
                     ? 'Conectando con el feed de FOMO…'
                     : 'Ningún token coincide con estos filtros.'}
               </ThemedText>
@@ -397,7 +471,7 @@ export default function FomoScreen() {
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Graduados Solana · tiempo real (push ~1s · respaldo 10s) · fomo.family
+            Graduados y trending Solana · tiempo real (push ~1s · respaldo 10s) · fomo.family
           </ThemedText>
         </View>
       </SafeAreaView>
@@ -411,7 +485,7 @@ export default function FomoScreen() {
             style={styles.sheet}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
-              <ThemedText type="smallBold" style={styles.sheetTitle}>Filtros — graduados FOMO</ThemedText>
+              <ThemedText type="smallBold" style={styles.sheetTitle}>Filtros — FOMO (compartidos)</ThemedText>
               <Pressable onPress={resetDraft} hitSlop={8}>
                 <ThemedText type="small" style={styles.resetText}>Restablecer</ThemedText>
               </Pressable>
@@ -442,6 +516,11 @@ export default function FomoScreen() {
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
                 Vacío = sin límite. Los KOLs se resuelven en el servidor (Pulse → GMGN).
               </ThemedText>
+              {feed === 'trending' && (
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  En Trending el filtro de edad no aplica (FOMO no envía fecha de creación).
+                </ThemedText>
+              )}
 
               <View style={styles.sectionDivider} />
               <ThemedText type="smallBold" style={{ color: theme.text }}>
@@ -528,6 +607,31 @@ const styles = StyleSheet.create({
     borderBottomColor: '#333',
   },
 
+  /* ── Feed switcher (graduados | trending) ── */
+  feedTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 2,
+  },
+  feedTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#333',
+    backgroundColor: '#111111',
+  },
+  feedTabActive: {
+    backgroundColor: '#a855f7',
+    borderColor: '#a855f7',
+  },
+
   list: { padding: 10, gap: 8, paddingBottom: 40 },
   emptyCard: {
     backgroundColor: '#111111',
@@ -560,6 +664,7 @@ const styles = StyleSheet.create({
   leftGroup: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
   rightGroup: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 0 },
   symbolText: { fontSize: 17, fontWeight: '600' },
+  rankText: { fontSize: 13, fontWeight: '700' },
   nameText: { fontSize: 13, maxWidth: 150 },
   ageText: { fontSize: 13 },
   valueLabel: { fontSize: 11 },

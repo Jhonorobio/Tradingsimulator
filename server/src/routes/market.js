@@ -10,7 +10,7 @@ import { testProxy, getAllStatus, checkAllProxies } from '../services/proxy-heal
 import { getAllTracksFiltered } from '../services/token-snapshots.js';
 import { getMemescope, getMemescopeStatus, getPhotonFilters, setPhotonFilters, findPhotonToken } from '../services/photon-memescope.js';
 import { getXTrackerStatus, getXTrackerTokens } from '../services/xtracker-watcher.js';
-import { getFomoGraduated, getFomoStatus, setFomoProxy } from '../services/fomo-ws.js';
+import { getFomoGraduated, getFomoTrending, getFomoStatus, setFomoProxy } from '../services/fomo-ws.js';
 import { setRefreshToken, getRefreshToken, getAccessToken, fomoAuthStatus } from '../services/fomo-auth.js';
 
 const router = Router();
@@ -400,6 +400,17 @@ router.get('/xtracker/tokens', (req, res) => {
   }
 });
 
+/** Shared query parsing for both FOMO feeds (absent/invalid = no bound). */
+function fomoFeedQuery(req) {
+  return {
+    ageMaxMin: toN(req.query.ageMaxMin),
+    mcapMin: toN(req.query.mcapMin),
+    mcapMax: toN(req.query.mcapMax),
+    kolMin: toN(req.query.kolMin),
+    limit: toN(req.query.limit),
+  };
+}
+
 /**
  * GET /api/market/fomo/graduated — FOMO (fomo.family) Solana graduated feed
  * filtered server-side. Query: ageMaxMin, mcapMin, mcapMax, kolMin, limit (all
@@ -408,13 +419,20 @@ router.get('/xtracker/tokens', (req, res) => {
  */
 router.get('/fomo/graduated', async (req, res) => {
   try {
-    res.json(await getFomoGraduated({
-      ageMaxMin: toN(req.query.ageMaxMin),
-      mcapMin: toN(req.query.mcapMin),
-      mcapMax: toN(req.query.mcapMax),
-      kolMin: toN(req.query.kolMin),
-      limit: toN(req.query.limit),
-    }));
+    res.json(await getFomoGraduated(fomoFeedQuery(req)));
+  } catch (err) {
+    fail(res, err, 502);
+  }
+});
+
+/**
+ * GET /api/market/fomo/trending — same filters over FOMO's trending feed
+ * (same WS connection/topicId, only Solana). Note: upstream sends no
+ * `createdAt` for trending tokens, so ageMaxMin is ignored there.
+ */
+router.get('/fomo/trending', async (req, res) => {
+  try {
+    res.json(await getFomoTrending(fomoFeedQuery(req)));
   } catch (err) {
     fail(res, err, 502);
   }

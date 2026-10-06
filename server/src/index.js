@@ -60,7 +60,7 @@ startXTrackerWatcher({
 // GMGN WebSocket real-time token data
 startGmgnWs();
 
-// FOMO (fomo.family) graduated-tokens feed for Solana
+// FOMO (fomo.family) feeds for Solana: graduated + trending
 startFomoWatcher();
 
 // Auto-calibrate GMGN clock from Date header, then start refresher

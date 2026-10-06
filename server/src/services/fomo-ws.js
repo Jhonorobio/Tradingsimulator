@@ -1,5 +1,5 @@
 /**
- * FOMO (fomo.family) graduated-tokens feed for Solana.
+ * FOMO (fomo.family) feeds for Solana: graduated + trending.
  *
  * Single connection to wss://prod-api.fomo.family/ws — the server challenges
  * on connect and expects a Privy customer access token (see fomo-auth.js).
@@ -9,28 +9,34 @@
  *   → { type: 'challengeResponse', jwt }
  *   ← { type: 'challengeAccepted' }
  *   → { type: 'subscribe', topicType: 'graduated_tokens', topicId: '1399811149' }
- *   ← { type: 'subscribed' }
+ *   → { type: 'subscribe', topicType: 'trending_tokens',    topicId: '1399811149' }
+ *   ← { type: 'subscribed', topicType, topicId }
  *
- * Messages on the topic (all `type: 'data'`):
+ * Messages carry `topicType`/`topicId` at the top level, so both subscriptions
+ * are demultiplexed on the one socket (all `type: 'data'`):
  *
- *   { payload: { kind: 'snapshot', tokens: [ { change24, createdAt, marketCap,
- *       priceUSD, token: { address, networkId, name, symbol, info, launchpad },
- *       volume24, holders } ] } }            — full list, on subscribe
- *   { payload: { kind: 'update', update: <same item>, tokenKey, index } } — delta
+ *   { topicType, payload: { kind: 'snapshot', tokens: [ { change24, createdAt,
+ *       marketCap, priceUSD, token: { address, networkId, name, symbol, info,
+ *       launchpad }, volume24, holders } ] } }   — full list, on subscribe
+ *   { topicType, payload: { kind: 'update', update: <same item>, tokenKey,
+ *       index } }                                — delta (index = rank)
+ *   { topicType, payload: { kind: 'remove', tokenKey } } — token left the list
  *
  * Numeric fields arrive as strings. `topicId` 1399811149 is Solana (FOMO's
- * chains bundle: 1=ETH, 56=BSC, 8453=Base, …).
+ * chains bundle: 1=ETH, 56=BSC, 8453=Base, …). Trending items never carry
+ * `createdAt` (the age filter only applies to graduados) but do carry `index`
+ * — the ranking the app sorts the trending feed by.
  *
- * The token list lives in memory (≈100 entries — FOMO's own list is small),
- * snapshotted on every (re)subscribe and merged with incoming updates, then
- * read by GET /api/market/fomo/graduated with per-query filters (age/mcap/
+ * Each feed keeps its own token map in memory, snapshotted on every
+ * (re)subscribe and merged with updates/removes, read by
+ * GET /api/market/fomo/{graduated,trending} with per-query filters (age/mcap/
  * KOL — the KOL count comes from Trenchers' Pulse with a GMGN fallback).
  *
- * Real-time push: changes are batched (PUSH_MS window) and broadcast to app
- * clients subscribed to WS topic `fomo` as `fomo_updated`
- * ({ tokens, savedAt, snapshot? }) — `snapshot: true` means "replace your
- * map" (authoritative upstream rebuild), otherwise merge. The app fills its
- * initial state over REST and keeps the 10s poll as fallback.
+ * Real-time push: changes are batched (PUSH_MS window) and broadcast per feed —
+ * WS topics `fomo`/`fomo_trending`, events `fomo_updated`/`fomo_trending_updated`
+ * ({ tokens, removed?, savedAt, snapshot? }) — `snapshot: true` means "replace
+ * your map", otherwise merge (and drop the `removed` addresses). The app fills
+ * its initial state over REST and keeps the 10s poll as fallback.
  *
  * Egress: FOMO (Cloudflare) rejects datacenter IPs with HTTP 432 during the
  * upgrade, so the connection supports an HTTP/SOCKS proxy — persisted via
@@ -48,6 +54,7 @@ import { getAccessToken, invalidateAccessToken, hasCredentials, fomoAuthStatus }
 
 const FOMO_WS_URL = 'wss://prod-api.fomo.family/ws';
 const TOPIC_TYPE = 'graduated_tokens';
+const TRENDING_TYPE = 'trending_tokens';
 const SOLANA_TOPIC_ID = '1399811149';
 const RECONNECT_MS = 3_000;
 const PING_MS = 30_000;
@@ -65,63 +72,116 @@ const num = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
-// ── Real-time push to app clients (WS topic `fomo`) ──
-const FOMO_TOPIC = 'fomo';
-/** Upstream sends ~100 msgs/s — batch them into one push per window. */
-const PUSH_MS = 1_000;
-/** Addresses changed since the last flush. */
-const dirty = new Set();
+// ── Feeds: one upstream socket, two subscriptions (graduados + trending) ──
 /** Initial push on subscribe: newest N tokens (REST backfills older ones). */
 const PUSH_TOP_N = 250;
-let pushTimer = null;
-let snapshotPending = false;
+/** Upstream sends ~100 msgs/s — batch them into one push per window. */
+const PUSH_MS = 1_000;
+/** Rank fallback for ordered reads (unknown rank sorts last). */
+const MAX_RANK = Number.MAX_SAFE_INTEGER;
 
-function flushPush() {
-  pushTimer = null;
-  if (dirty.size === 0 && !snapshotPending) return;
+/**
+ * One upstream feed (topicType) with its own token map, ack flags and a
+ * batched push channel to app clients subscribed to `topic`.
+ */
+function makeFeed({ topicType, topic, event, ranked }) {
+  return {
+    topicType,
+    /** App WS topic clients subscribe to. */
+    topic,
+    /** App WS event name used for pushes. */
+    event,
+    /** Ranking-based feed (trending) — sorts by rank, skips the age filter. */
+    ranked,
+    /** address → normalized record. */
+    tokens: new Map(),
+    subscribed: false,
+    snapshots: 0,
+    /** Last data message for THIS feed (per-feed liveness in status). */
+    lastMsgAt: 0,
+    /** Addresses changed / removed since the last flush. */
+    dirty: new Set(),
+    removed: new Set(),
+    pushTimer: null,
+    snapshotPending: false,
+  };
+}
+
+const GRAD = makeFeed({ topicType: TOPIC_TYPE, topic: 'fomo', event: 'fomo_updated', ranked: false });
+const TREND = makeFeed({ topicType: TRENDING_TYPE, topic: 'fomo_trending', event: 'fomo_trending_updated', ranked: true });
+const FEEDS = [GRAD, TREND];
+const feedByType = new Map(FEEDS.map((f) => [f.topicType, f]));
+
+/** Display/push order: trending by rank, graduados by newest graduation. */
+function orderedTokens(feed) {
+  const list = [...feed.tokens.values()];
+  return feed.ranked
+    ? list.sort((a, b) => (a.rank ?? MAX_RANK) - (b.rank ?? MAX_RANK))
+    : list.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+}
+
+function flushPush(feed) {
+  feed.pushTimer = null;
+  if (feed.dirty.size === 0 && feed.removed.size === 0 && !feed.snapshotPending) return;
   // Nobody listening → skip (the 10s REST poll keeps laggards in sync).
-  if (!getSubscriptions().has(FOMO_TOPIC)) {
-    dirty.clear();
-    snapshotPending = false;
+  if (!getSubscriptions().has(feed.topic)) {
+    feed.dirty.clear();
+    feed.removed.clear();
+    feed.snapshotPending = false;
     return;
   }
-  const full = snapshotPending;
+  const full = feed.snapshotPending;
   let list;
   if (full) {
-    list = [...tokens.values()];
+    list = orderedTokens(feed);
   } else {
     list = [];
-    for (const addr of dirty) {
-      const rec = tokens.get(addr);
+    for (const addr of feed.dirty) {
+      const rec = feed.tokens.get(addr);
       if (rec) list.push(rec);
     }
   }
-  dirty.clear();
-  snapshotPending = false;
-  if (list.length === 0) return;
-  broadcast(FOMO_TOPIC, {
-    event: 'fomo_updated',
-    data: { tokens: list, savedAt: Date.now(), ...(full ? { snapshot: true } : {}) },
+  const removed = full ? [] : [...feed.removed];
+  feed.dirty.clear();
+  feed.removed.clear();
+  feed.snapshotPending = false;
+  if (list.length === 0 && removed.length === 0) return;
+  broadcast(feed.topic, {
+    event: feed.event,
+    data: {
+      tokens: list,
+      savedAt: Date.now(),
+      ...(removed.length ? { removed } : {}),
+      ...(full ? { snapshot: true } : {}),
+    },
   });
 }
 
 /** Queue a push — batched: one broadcast per PUSH_MS window at most. */
-function queuePush(addr = null) {
-  if (addr) dirty.add(addr);
-  if (pushTimer) return;
-  pushTimer = setTimeout(flushPush, PUSH_MS);
+function queuePush(feed, addr = null) {
+  if (addr) feed.dirty.add(addr);
+  if (feed.pushTimer) return;
+  feed.pushTimer = setTimeout(() => flushPush(feed), PUSH_MS);
 }
 
-// A client subscribing to `fomo` gets a full initial list immediately (no REST
-// hop). Capped to the newest PUSH_TOP_N — the REST poll backfills older entries
-// if a wide age filter needs them.
-registerTopicProvider(FOMO_TOPIC, () => {
-  if (tokens.size === 0) return null;
-  const list = [...tokens.values()]
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
-    .slice(0, PUSH_TOP_N);
-  return { event: 'fomo_updated', data: { tokens: list, savedAt: Date.now(), snapshot: true } };
-});
+/** Snapshot pending → the next flush tells clients to REPLACE their map. */
+function markSnapshot(feed) {
+  feed.snapshotPending = true;
+  queuePush(feed);
+}
+
+// A client subscribing to a feed topic gets a full initial list immediately
+// (no REST hop). Capped to the newest PUSH_TOP_N — the REST poll backfills
+// older entries if a wide age filter needs them.
+for (const feed of FEEDS) {
+  registerTopicProvider(feed.topic, () => {
+    if (feed.tokens.size === 0) return null;
+    return {
+      event: feed.event,
+      data: { tokens: orderedTokens(feed).slice(0, PUSH_TOP_N), savedAt: Date.now(), snapshot: true },
+    };
+  });
+}
 
 const store = new JsonStore('fomo-ws');
 const PROXY_PROTOCOLS = ['http:', 'https:', 'socks:', 'socks4:', 'socks5:'];
@@ -158,9 +218,6 @@ function makeAgent(url) {
   return url.startsWith('socks') ? new SocksProxyAgent(url) : new HttpsProxyAgent(url);
 }
 
-/** address → normalized token record. */
-const tokens = new Map();
-
 let ws = null;
 let running = false;
 let reconnectTimer = null;
@@ -169,10 +226,10 @@ let watchdogTimer = null;
 let lastMsgAt = 0;
 let lastPongAt = 0;
 let challengeAt = 0;
+/** Handshake-level flag: at least one feed acked `subscribed` this connection. */
 let subscribed = false;
 let authFailures = 0;
 let lastError = null;
-let snapshotCount = 0;
 /** With a proxy configured, prefer it; flip to direct only if its handshake fails. */
 let preferProxy = true;
 /** Transport of the current/last attempt ('proxy' | 'direct') — surfaced in status. */
@@ -227,13 +284,21 @@ function handleMessage(raw, socket) {
 
     case 'challengeAccepted':
       challengeAt = 0;
-      socket.send(JSON.stringify({ type: 'subscribe', topicType: TOPIC_TYPE, topicId: SOLANA_TOPIC_ID }));
+      for (const feed of FEEDS) {
+        socket.send(JSON.stringify({ type: 'subscribe', topicType: feed.topicType, topicId: SOLANA_TOPIC_ID }));
+      }
       break;
 
-    case 'subscribed':
+    case 'subscribed': {
+      const feed = feedByType.get(msg.topicType);
+      if (feed) {
+        feed.subscribed = true;
+        feed.lastMsgAt = Date.now();
+      }
       subscribed = true;
       lastError = null;
       break;
+    }
 
     case 'error':
       lastError = typeof msg.message === 'string' ? msg.message : JSON.stringify(msg).slice(0, 300);
@@ -241,29 +306,9 @@ function handleMessage(raw, socket) {
       break;
 
     case 'data': {
-      const p = msg.payload;
-      if (!p) break;
-      if (p.kind === 'snapshot' && Array.isArray(p.tokens)) {
-        // Authoritative list on every (re)subscribe: rebuild from it — entries
-        // missing here were graduated out of FOMO's list, so drop them too.
-        const next = new Map();
-        for (const item of p.tokens) {
-          const rec = normalize(item);
-          if (rec) next.set(rec.address, rec);
-        }
-        tokens.clear();
-        for (const [addr, rec] of next) tokens.set(addr, rec);
-        snapshotCount++;
-        subscribed = true;
-        snapshotPending = true; // push tells clients to REPLACE their map
-        queuePush();
-      } else if (p.kind === 'update' && p.update) {
-        const rec = normalize(p.update);
-        if (rec) {
-          tokens.set(rec.address, rec);
-          queuePush(rec.address);
-        }
-      }
+      // Demux by topicType (absent → graduados, the pre-trending behavior).
+      const feed = feedByType.get(msg.topicType) ?? GRAD;
+      applyFeedData(feed, msg.payload);
       break;
     }
 
@@ -272,26 +317,81 @@ function handleMessage(raw, socket) {
   }
 }
 
-function prune() {
+/**
+ * Apply one payload to its feed: a snapshot rebuilds the map (entries missing
+ * there left FOMO's list), an update merges in place — preserving kolCount and
+ * rank the raw record doesn't repeat — and a remove drops the token and pushes
+ * the deletion so clients delete it too.
+ */
+function applyFeedData(feed, p) {
+  if (!p) return;
+  feed.lastMsgAt = Date.now();
+
+  if (p.kind === 'snapshot' && Array.isArray(p.tokens)) {
+    const next = new Map();
+    p.tokens.forEach((item, i) => {
+      const rec = normalize(item);
+      if (!rec) return;
+      if (feed.ranked) rec.rank = i; // trending snapshot order IS the ranking
+      const prev = feed.tokens.get(rec.address);
+      if (prev?.kolCount != null && rec.kolCount == null) rec.kolCount = prev.kolCount;
+      next.set(rec.address, rec);
+    });
+    feed.tokens.clear();
+    for (const [addr, rec] of next) feed.tokens.set(addr, rec);
+    feed.snapshots++;
+    feed.subscribed = true;
+    subscribed = true;
+    markSnapshot(feed);
+  } else if (p.kind === 'update' && p.update) {
+    const rec = normalize(p.update);
+    if (rec) {
+      if (typeof p.index === 'number') rec.rank = p.index;
+      const prev = feed.tokens.get(rec.address);
+      if (prev) {
+        if (rec.rank == null) rec.rank = prev.rank;
+        if (prev.kolCount != null && rec.kolCount == null) rec.kolCount = prev.kolCount;
+      }
+      feed.tokens.set(rec.address, rec);
+      queuePush(feed, rec.address);
+    }
+  } else if (p.kind === 'remove' && typeof p.tokenKey === 'string') {
+    // tokenKey = `${address}:${networkId}` — addresses themselves never contain ':'.
+    const addr = p.tokenKey.split(':')[0];
+    if (feed.tokens.delete(addr)) {
+      feed.removed.add(addr);
+      queuePush(feed);
+    }
+  }
+}
+
+function pruneFeed(feed) {
   const cutoff = Date.now() - MAX_AGE_MS;
   let removed = 0;
-  for (const [addr, rec] of tokens) {
+  for (const [addr, rec] of feed.tokens) {
+    // Trending items carry no createdAt — only graduados age out here.
     if (rec.createdAt != null && rec.createdAt * 1000 < cutoff) {
-      tokens.delete(addr);
+      feed.tokens.delete(addr);
       removed++;
     }
   }
-  if (tokens.size > MAX_TOKENS) {
+  if (feed.tokens.size > MAX_TOKENS) {
     // Evict the oldest graduations first.
-    const sorted = [...tokens.values()].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-    for (const rec of sorted.slice(0, tokens.size - MAX_TOKENS)) {
-      tokens.delete(rec.address);
+    const sorted = [...feed.tokens.values()].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+    for (const rec of sorted.slice(0, feed.tokens.size - MAX_TOKENS)) {
+      feed.tokens.delete(rec.address);
       removed++;
     }
   }
-  // Drop KOL memos for tokens that no longer exist.
+  return removed;
+}
+
+function prune() {
+  let removed = 0;
+  for (const feed of FEEDS) removed += pruneFeed(feed);
+  // Drop KOL memos for tokens that no longer exist in any feed.
   for (const addr of kolLocal.keys()) {
-    if (!tokens.has(addr)) kolLocal.delete(addr);
+    if (FEEDS.every((feed) => !feed.tokens.has(addr))) kolLocal.delete(addr);
   }
   return removed;
 }
@@ -314,6 +414,7 @@ function connect() {
   }
 
   subscribed = false;
+  for (const feed of FEEDS) feed.subscribed = false;
   challengeAt = 0;
   lastPongAt = Date.now();
   lastMsgAt = Date.now();
@@ -373,6 +474,7 @@ function connect() {
     if (ws !== socket) return;
     ws = null;
     subscribed = false;
+    for (const feed of FEEDS) feed.subscribed = false;
     flipTransport();
     // 1008 = policy violation (bad/expired JWT) — mint a fresh token next try.
     if (code === 1008) {
@@ -424,7 +526,7 @@ export function startFomoWatcher() {
   connect();
   pruneTimer = setInterval(() => {
     const removed = prune();
-    if (removed) console.log(`[fomo-ws] pruned ${removed} stale tokens (${tokens.size} kept)`);
+    if (removed) console.log(`[fomo-ws] pruned ${removed} stale tokens (${GRAD.tokens.size}+${TREND.tokens.size} kept)`);
   }, PRUNE_MS);
 
   // Protocol ping + watchdogs (mirrors azura-ws.js): pong silence or data
@@ -445,7 +547,7 @@ export function startFomoWatcher() {
     try { ws.ping(); } catch { /* closing */ }
   }, PING_MS);
 
-  console.log(`[fomo-ws] started (Solana topic ${SOLANA_TOPIC_ID})`);
+  console.log(`[fomo-ws] started (Solana topic ${SOLANA_TOPIC_ID}: graduados + trending)`);
 }
 
 export function stopFomoWatcher() {
@@ -453,9 +555,13 @@ export function stopFomoWatcher() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (pruneTimer) { clearInterval(pruneTimer); pruneTimer = null; }
   if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
-  if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
-  dirty.clear();
-  snapshotPending = false;
+  for (const feed of FEEDS) {
+    if (feed.pushTimer) { clearTimeout(feed.pushTimer); feed.pushTimer = null; }
+    feed.dirty.clear();
+    feed.removed.clear();
+    feed.snapshotPending = false;
+    feed.subscribed = false;
+  }
   subscribed = false;
   try { ws?.close(); } catch { /* already closed */ }
   ws = null;
@@ -496,23 +602,27 @@ async function enrichKol(targets) {
 }
 
 /**
- * Filtered read for GET /api/market/fomo/graduated.
+ * Filtered read shared by GET /api/market/fomo/graduated and /fomo/trending.
  * All filters optional; empty string/absent = no bound on that axis.
- * When `kolMin` is set, candidates get a KOL count (Trenchers Pulse → GMGN
- * fallback via pulse-kol.js) attached before filtering — see ensureKol().
+ * The age bound is skipped for the trending feed — upstream never sends
+ * `createdAt` there. When `kolMin` is set, candidates get a KOL count
+ * (Trenchers Pulse → GMGN fallback via pulse-kol.js) attached before
+ * filtering — see ensureKol().
  */
-export async function getFomoGraduated({ ageMaxMin, mcapMin, mcapMax, kolMin, limit } = {}) {
+async function readFeed(feed, { ageMaxMin, mcapMin, mcapMax, kolMin, limit } = {}) {
   const now = Math.floor(Date.now() / 1000);
   const maxAgeSec = ageMaxMin != null ? ageMaxMin * 60 : null;
 
-  let list = [...tokens.values()];
-  if (maxAgeSec != null) {
+  let list = [...feed.tokens.values()];
+  if (maxAgeSec != null && !feed.ranked) {
     list = list.filter((t) => t.createdAt != null && now - t.createdAt <= maxAgeSec);
   }
   if (mcapMin != null || mcapMax != null) {
     list = list.filter((t) => t.mcap != null && (mcapMin == null || t.mcap >= mcapMin) && (mcapMax == null || t.mcap <= mcapMax));
   }
-  list.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  list.sort(feed.ranked
+    ? (a, b) => (a.rank ?? MAX_RANK) - (b.rank ?? MAX_RANK)
+    : (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 
   if (kolMin != null) {
     await enrichKol(list.slice(0, KOL_ENRICH_CAP));
@@ -529,18 +639,37 @@ export async function getFomoGraduated({ ageMaxMin, mcapMin, mcapMax, kolMin, li
   };
 }
 
+export async function getFomoGraduated(filters) {
+  return readFeed(GRAD, filters);
+}
+
+export async function getFomoTrending(filters) {
+  return readFeed(TREND, filters);
+}
+
 export function getFomoStatus() {
+  const open = Boolean(ws && ws.readyState === WebSocket.OPEN);
+  const feedLive = (feed) =>
+    Boolean(open && feed.subscribed && feed.lastMsgAt && Date.now() - feed.lastMsgAt < 60_000);
   return {
     running,
-    connected: Boolean(ws && ws.readyState === WebSocket.OPEN),
+    connected: open,
     subscribed,
     live: isLive(),
-    count: tokens.size,
-    snapshots: snapshotCount,
+    count: GRAD.tokens.size,
+    snapshots: GRAD.snapshots,
     authFailures,
     lastMsgAgeMs: lastMsgAt ? Date.now() - lastMsgAt : null,
     lastError,
     proxy: proxyInfo(),
     auth: fomoAuthStatus(),
+    // Per-feed diagnostics for the trending tab (graduados = the top-level fields).
+    trending: {
+      subscribed: TREND.subscribed,
+      count: TREND.tokens.size,
+      snapshots: TREND.snapshots,
+      lastMsgAgeMs: TREND.lastMsgAt ? Date.now() - TREND.lastMsgAt : null,
+      live: feedLive(TREND),
+    },
   };
 }

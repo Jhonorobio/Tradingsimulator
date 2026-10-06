@@ -155,6 +155,8 @@ export interface FomoToken {
   change24: number | null;
   holders: number | null;
   updatedAt: number;
+  /** Trending rank (0-based, from upstream's `index`) — trending feed only. */
+  rank?: number;
   /**
    * KOL holders (Trenchers Pulse → GMGN fallback). Attached by the server when
    * the kolMin filter is used; WS pushes carry it only once a record was
@@ -179,6 +181,15 @@ export interface FomoProxyInfo {
   transport: 'proxy' | 'direct';
 }
 
+/** Per-feed diagnostics of the trending feed (graduados = the top-level fields). */
+export interface FomoTrendStatus {
+  subscribed: boolean;
+  count: number;
+  snapshots: number;
+  lastMsgAgeMs: number | null;
+  live: boolean;
+}
+
 export interface FomoStatus {
   running: boolean;
   connected: boolean;
@@ -191,9 +202,11 @@ export interface FomoStatus {
   lastError: string | null;
   proxy?: FomoProxyInfo;
   auth: FomoAuthStatus;
+  trending?: FomoTrendStatus;
 }
 
-export interface FomoGraduatedResponse {
+/** Response of GET /fomo/graduated and GET /fomo/trending (shared shape). */
+export interface FomoFeedResponse {
   tokens: FomoToken[];
   /** How many tokens match the filters (before `limit`). */
   total: number;
@@ -210,15 +223,20 @@ export interface FomoFilters {
   kolMin: string;
 }
 
-/** WS push payload on topic `fomo` (event `fomo_updated`), batched ~1/s. */
+/**
+ * WS push payload (batched ~1/s). Topics/events: `fomo`/`fomo_updated` for
+ * graduados and `fomo_trending`/`fomo_trending_updated` for trending.
+ */
 export interface FomoPushData {
   tokens: FomoToken[];
   savedAt: number;
   /** Upstream authoritative rebuild — replace the local map instead of merging. */
   snapshot?: boolean;
+  /** Addresses upstream dropped from the list — delete them from the map. */
+  removed?: string[];
 }
 
-export function getFomoGraduated(filters: FomoFilters, limit?: number) {
+function fomoFeedPath(path: string, filters: FomoFilters, limit?: number) {
   const qs = new URLSearchParams();
   const age = filters.ageMaxMin?.trim();
   const lo = filters.mcapMin?.trim();
@@ -230,7 +248,16 @@ export function getFomoGraduated(filters: FomoFilters, limit?: number) {
   if (kol) qs.set('kolMin', kol);
   if (limit) qs.set('limit', String(limit));
   const suffix = qs.toString();
-  return api.get<FomoGraduatedResponse>(`/api/market/fomo/graduated${suffix ? `?${suffix}` : ''}`);
+  return `${path}${suffix ? `?${suffix}` : ''}`;
+}
+
+export function getFomoGraduated(filters: FomoFilters, limit?: number) {
+  return api.get<FomoFeedResponse>(fomoFeedPath('/api/market/fomo/graduated', filters, limit));
+}
+
+/** FOMO's trending feed — same filters (age is ignored: no createdAt upstream). */
+export function getFomoTrending(filters: FomoFilters, limit?: number) {
+  return api.get<FomoFeedResponse>(fomoFeedPath('/api/market/fomo/trending', filters, limit));
 }
 
 export function getFomoStatus() {
