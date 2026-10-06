@@ -155,6 +155,12 @@ export interface FomoToken {
   change24: number | null;
   holders: number | null;
   updatedAt: number;
+  /**
+   * KOL holders (Trenchers Pulse → GMGN fallback). Attached by the server when
+   * the kolMin filter is used; WS pushes carry it only once a record was
+   * enriched.
+   */
+  kolCount?: number | null;
 }
 
 export interface FomoAuthStatus {
@@ -200,6 +206,8 @@ export interface FomoFilters {
   ageMaxMin: string;
   mcapMin: string;
   mcapMax: string;
+  /** Minimum KOL count (Trenchers Pulse); '' = off (no Pulse lookups). */
+  kolMin: string;
 }
 
 /** WS push payload on topic `fomo` (event `fomo_updated`), batched ~1/s. */
@@ -215,9 +223,11 @@ export function getFomoGraduated(filters: FomoFilters, limit?: number) {
   const age = filters.ageMaxMin?.trim();
   const lo = filters.mcapMin?.trim();
   const hi = filters.mcapMax?.trim();
+  const kol = filters.kolMin?.trim();
   if (age) qs.set('ageMaxMin', age);
   if (lo) qs.set('mcapMin', lo);
   if (hi) qs.set('mcapMax', hi);
+  if (kol) qs.set('kolMin', kol);
   if (limit) qs.set('limit', String(limit));
   const suffix = qs.toString();
   return api.get<FomoGraduatedResponse>(`/api/market/fomo/graduated${suffix ? `?${suffix}` : ''}`);

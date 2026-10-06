@@ -23,7 +23,8 @@
  *
  * The token list lives in memory (≈100 entries — FOMO's own list is small),
  * snapshotted on every (re)subscribe and merged with incoming updates, then
- * read by GET /api/market/fomo/graduated with per-query filters.
+ * read by GET /api/market/fomo/graduated with per-query filters (age/mcap/
+ * KOL — the KOL count comes from Trenchers' Pulse with a GMGN fallback).
  *
  * Real-time push: changes are batched (PUSH_MS window) and broadcast to app
  * clients subscribed to WS topic `fomo` as `fomo_updated`
@@ -42,6 +43,7 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { JsonStore } from '../json-store.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws-server.js';
+import { getKolCount } from './pulse-kol.js';
 import { getAccessToken, invalidateAccessToken, hasCredentials, fomoAuthStatus } from './fomo-auth.js';
 
 const FOMO_WS_URL = 'wss://prod-api.fomo.family/ws';
@@ -287,6 +289,10 @@ function prune() {
       removed++;
     }
   }
+  // Drop KOL memos for tokens that no longer exist.
+  for (const addr of kolLocal.keys()) {
+    if (!tokens.has(addr)) kolLocal.delete(addr);
+  }
   return removed;
 }
 
@@ -455,11 +461,47 @@ export function stopFomoWatcher() {
   ws = null;
 }
 
+// ── KOL enrichment for the kolMin filter (Trenchers Pulse → GMGN) ──
+/** Solid counts move slowly — refetch a token at most every 5 min. */
+const KOL_FRESH_MS = 300_000;
+/** null (no data / both APIs down) → retry sooner than a real count. */
+const KOL_RETRY_MS = 60_000;
+/** Only the newest N candidates are enriched (bounded Pulse load per call). */
+const KOL_ENRICH_CAP = 500;
+const KOL_CONCURRENCY = 25;
+const kolLocal = new Map(); // address -> { count: number|null, at }
+
+async function ensureKol(address) {
+  const hit = kolLocal.get(address);
+  const ttl = hit && hit.count == null ? KOL_RETRY_MS : KOL_FRESH_MS;
+  if (hit && Date.now() - hit.at < ttl) return hit.count;
+  // getKolCount dedupes concurrent callers itself (inflight map + 10s memo).
+  const count = await getKolCount(address);
+  kolLocal.set(address, { count, at: Date.now() });
+  return count;
+}
+
+/**
+ * Attach `kolCount` to the newest candidates (mutates the stored records, so
+ * live WS pushes carry it too) in bounded-concurrency batches.
+ */
+async function enrichKol(targets) {
+  for (let i = 0; i < targets.length; i += KOL_CONCURRENCY) {
+    await Promise.all(
+      targets.slice(i, i + KOL_CONCURRENCY).map(async (t) => {
+        t.kolCount = await ensureKol(t.address);
+      }),
+    );
+  }
+}
+
 /**
  * Filtered read for GET /api/market/fomo/graduated.
  * All filters optional; empty string/absent = no bound on that axis.
+ * When `kolMin` is set, candidates get a KOL count (Trenchers Pulse → GMGN
+ * fallback via pulse-kol.js) attached before filtering — see ensureKol().
  */
-export function getFomoGraduated({ ageMaxMin, mcapMin, mcapMax, limit } = {}) {
+export async function getFomoGraduated({ ageMaxMin, mcapMin, mcapMax, kolMin, limit } = {}) {
   const now = Math.floor(Date.now() / 1000);
   const maxAgeSec = ageMaxMin != null ? ageMaxMin * 60 : null;
 
@@ -471,6 +513,11 @@ export function getFomoGraduated({ ageMaxMin, mcapMin, mcapMax, limit } = {}) {
     list = list.filter((t) => t.mcap != null && (mcapMin == null || t.mcap >= mcapMin) && (mcapMax == null || t.mcap <= mcapMax));
   }
   list.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+
+  if (kolMin != null) {
+    await enrichKol(list.slice(0, KOL_ENRICH_CAP));
+    list = list.filter((t) => t.kolCount != null && t.kolCount >= kolMin);
+  }
 
   const total = list.length;
   const cap = Math.min(Math.max(Math.floor(limit ?? 200), 1), 1000);

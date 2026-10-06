@@ -26,8 +26,8 @@ import { fmtNum, fmtPct, fmtUsd, timeAgo } from '@/utils/format';
 const FILTERS_KEY = 'trading-sim/fomo-filters';
 const POLL_MS = 10_000;
 
-/** Default screen: graduated ≤1h ago with $60K–$450K market cap. */
-const FILTER_DEFAULTS: FomoFilters = { ageMaxMin: '60', mcapMin: '60000', mcapMax: '450000' };
+/** Default screen: graduated ≤1h ago with $60K–$450K market cap, any KOL count. */
+const FILTER_DEFAULTS: FomoFilters = { ageMaxMin: '60', mcapMin: '60000', mcapMax: '450000', kolMin: '' };
 
 interface FilterField {
   key: keyof FomoFilters;
@@ -40,6 +40,7 @@ const FILTER_FIELDS: FilterField[] = [
   { key: 'ageMaxMin', label: 'Edad máxima', unit: 'm', placeholder: 'sin límite' },
   { key: 'mcapMin', label: 'Market cap mínimo', unit: '$', placeholder: 'sin límite' },
   { key: 'mcapMax', label: 'Market cap máximo', unit: '$', placeholder: 'sin límite' },
+  { key: 'kolMin', label: 'KOLs mínimo', unit: 'KOL', placeholder: 'sin límite' },
 ];
 
 function normalizeFilters(raw: unknown): FomoFilters {
@@ -65,12 +66,15 @@ function toBound(v: string): number | null {
 /**
  * Client-side filter over the live map — same semantics as the server's
  * GET /fomo/graduated (WS pushes are unfiltered, so the view filters here).
+ * A token without `kolCount` never passes an active KOL filter; the REST poll
+ * backfills counts for candidates so the list fills in within one poll.
  */
 function filterTokens(map: Map<string, FomoToken>, f: FomoFilters): FomoToken[] {
   const now = Math.floor(Date.now() / 1000);
   const ageMaxMin = toBound(f.ageMaxMin);
   const mcapMin = toBound(f.mcapMin);
   const mcapMax = toBound(f.mcapMax);
+  const kolMin = toBound(f.kolMin);
   const out: FomoToken[] = [];
   for (const t of map.values()) {
     if (ageMaxMin != null && (t.createdAt == null || now - t.createdAt > ageMaxMin * 60)) continue;
@@ -80,10 +84,23 @@ function filterTokens(map: Map<string, FomoToken>, f: FomoFilters): FomoToken[] 
     ) {
       continue;
     }
+    if (kolMin != null && (t.kolCount == null || t.kolCount < kolMin)) continue;
     out.push(t);
   }
   out.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
   return out;
+}
+
+/**
+ * Merge tokens into the map. WS payloads (and snapshot rebuilds) drop
+ * `kolCount` when the record wasn't enriched server-side — keep the value we
+ * already know instead of letting every push erase it.
+ */
+function mergeTokens(next: Map<string, FomoToken>, list: FomoToken[], old: Map<string, FomoToken>) {
+  for (const t of list) {
+    const prev = old.get(t.address);
+    next.set(t.address, t.kolCount != null || prev?.kolCount == null ? t : { ...t, kolCount: prev.kolCount });
+  }
 }
 
 interface StatItem {
@@ -105,6 +122,8 @@ function FomoRow({ token }: { token: FomoToken }) {
     { icon: 'bar-chart', value: token.vol24 != null ? fmtUsd(token.vol24, { compact: true }) : null, color: theme.textSecondary },
     { icon: 'trending-up', value: fmtPct(changePct), color: changeColor },
     { icon: 'pricetag', value: token.price != null ? fmtUsd(token.price) : null, color: theme.textSecondary },
+    // KOL count (Pulse) — only present once the server enriched the record.
+    { icon: 'star', value: token.kolCount != null ? `${fmtNum(token.kolCount)} KOL` : null, color: '#a855f7' },
   ];
   const visible = stats.filter((s) => s.value != null && s.value !== '—');
 
@@ -206,7 +225,7 @@ export default function FomoScreen() {
       // Merge (never replace): WS owns the truth, REST just backfills.
       setMap((prev) => {
         const next = new Map(prev);
-        for (const t of res.tokens) next.set(t.address, t);
+        mergeTokens(next, res.tokens, prev);
         return next;
       });
     } catch (err) {
@@ -232,11 +251,11 @@ export default function FomoScreen() {
         if (data.snapshot) {
           // Authoritative upstream rebuild — entries missing here are gone.
           const next = new Map<string, FomoToken>();
-          for (const t of data.tokens) next.set(t.address, t);
+          mergeTokens(next, data.tokens, prev);
           return next;
         }
         const next = new Map(prev);
-        for (const t of data.tokens) next.set(t.address, t);
+        mergeTokens(next, data.tokens, prev);
         return next;
       });
     });
@@ -324,6 +343,8 @@ export default function FomoScreen() {
     const hi = Number(filters.mcapMax);
     if (filters.mcapMin && Number.isFinite(lo)) parts.push(`≥${fmtUsd(lo, { compact: true })}`);
     if (filters.mcapMax && Number.isFinite(hi)) parts.push(`≤${fmtUsd(hi, { compact: true })}`);
+    const kol = Number(filters.kolMin);
+    if (filters.kolMin && Number.isFinite(kol)) parts.push(`≥${kol} KOL`);
     return parts.length > 0 ? parts.join(' · ') : 'sin filtros';
   }, [filters]);
 
@@ -419,7 +440,7 @@ export default function FomoScreen() {
                 </View>
               ))}
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Vacío = sin límite. El filtro se aplica en el servidor.
+                Vacío = sin límite. Los KOLs se resuelven en el servidor (Pulse → GMGN).
               </ThemedText>
 
               <View style={styles.sectionDivider} />

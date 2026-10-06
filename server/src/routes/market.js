@@ -402,15 +402,17 @@ router.get('/xtracker/tokens', (req, res) => {
 
 /**
  * GET /api/market/fomo/graduated — FOMO (fomo.family) Solana graduated feed
- * filtered server-side. Query: ageMaxMin, mcapMin, mcapMax, limit (all optional;
- * absent = no bound on that axis). Snapshotted + live-merged by fomo-ws.js.
+ * filtered server-side. Query: ageMaxMin, mcapMin, mcapMax, kolMin, limit (all
+ * optional; absent = no bound on that axis). kolMin resolves KOL counts via
+ * Pulse (GMGN fallback) before filtering. Snapshotted + live-merged by fomo-ws.
  */
-router.get('/fomo/graduated', (req, res) => {
+router.get('/fomo/graduated', async (req, res) => {
   try {
-    res.json(getFomoGraduated({
+    res.json(await getFomoGraduated({
       ageMaxMin: toN(req.query.ageMaxMin),
       mcapMin: toN(req.query.mcapMin),
       mcapMax: toN(req.query.mcapMax),
+      kolMin: toN(req.query.kolMin),
       limit: toN(req.query.limit),
     }));
   } catch (err) {
