@@ -25,6 +25,12 @@
  * snapshotted on every (re)subscribe and merged with incoming updates, then
  * read by GET /api/market/fomo/graduated with per-query filters.
  *
+ * Real-time push: changes are batched (PUSH_MS window) and broadcast to app
+ * clients subscribed to WS topic `fomo` as `fomo_updated`
+ * ({ tokens, savedAt, snapshot? }) — `snapshot: true` means "replace your
+ * map" (authoritative upstream rebuild), otherwise merge. The app fills its
+ * initial state over REST and keeps the 10s poll as fallback.
+ *
  * Egress: FOMO (Cloudflare) rejects datacenter IPs with HTTP 432 during the
  * upgrade, so the connection supports an HTTP/SOCKS proxy — persisted via
  * PUT /api/market/fomo/proxy (data/fomo-ws.json), overridable with the
@@ -35,6 +41,7 @@ import WebSocket from 'ws';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { JsonStore } from '../json-store.js';
+import { broadcast, getSubscriptions, registerTopicProvider } from './ws-server.js';
 import { getAccessToken, invalidateAccessToken, hasCredentials, fomoAuthStatus } from './fomo-auth.js';
 
 const FOMO_WS_URL = 'wss://prod-api.fomo.family/ws';
@@ -55,6 +62,64 @@ const num = (v) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : null;
 };
+
+// ── Real-time push to app clients (WS topic `fomo`) ──
+const FOMO_TOPIC = 'fomo';
+/** Upstream sends ~100 msgs/s — batch them into one push per window. */
+const PUSH_MS = 1_000;
+/** Addresses changed since the last flush. */
+const dirty = new Set();
+/** Initial push on subscribe: newest N tokens (REST backfills older ones). */
+const PUSH_TOP_N = 250;
+let pushTimer = null;
+let snapshotPending = false;
+
+function flushPush() {
+  pushTimer = null;
+  if (dirty.size === 0 && !snapshotPending) return;
+  // Nobody listening → skip (the 10s REST poll keeps laggards in sync).
+  if (!getSubscriptions().has(FOMO_TOPIC)) {
+    dirty.clear();
+    snapshotPending = false;
+    return;
+  }
+  const full = snapshotPending;
+  let list;
+  if (full) {
+    list = [...tokens.values()];
+  } else {
+    list = [];
+    for (const addr of dirty) {
+      const rec = tokens.get(addr);
+      if (rec) list.push(rec);
+    }
+  }
+  dirty.clear();
+  snapshotPending = false;
+  if (list.length === 0) return;
+  broadcast(FOMO_TOPIC, {
+    event: 'fomo_updated',
+    data: { tokens: list, savedAt: Date.now(), ...(full ? { snapshot: true } : {}) },
+  });
+}
+
+/** Queue a push — batched: one broadcast per PUSH_MS window at most. */
+function queuePush(addr = null) {
+  if (addr) dirty.add(addr);
+  if (pushTimer) return;
+  pushTimer = setTimeout(flushPush, PUSH_MS);
+}
+
+// A client subscribing to `fomo` gets a full initial list immediately (no REST
+// hop). Capped to the newest PUSH_TOP_N — the REST poll backfills older entries
+// if a wide age filter needs them.
+registerTopicProvider(FOMO_TOPIC, () => {
+  if (tokens.size === 0) return null;
+  const list = [...tokens.values()]
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .slice(0, PUSH_TOP_N);
+  return { event: 'fomo_updated', data: { tokens: list, savedAt: Date.now(), snapshot: true } };
+});
 
 const store = new JsonStore('fomo-ws');
 const PROXY_PROTOCOLS = ['http:', 'https:', 'socks:', 'socks4:', 'socks5:'];
@@ -188,9 +253,14 @@ function handleMessage(raw, socket) {
         for (const [addr, rec] of next) tokens.set(addr, rec);
         snapshotCount++;
         subscribed = true;
+        snapshotPending = true; // push tells clients to REPLACE their map
+        queuePush();
       } else if (p.kind === 'update' && p.update) {
         const rec = normalize(p.update);
-        if (rec) tokens.set(rec.address, rec);
+        if (rec) {
+          tokens.set(rec.address, rec);
+          queuePush(rec.address);
+        }
       }
       break;
     }
@@ -377,6 +447,9 @@ export function stopFomoWatcher() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (pruneTimer) { clearInterval(pruneTimer); pruneTimer = null; }
   if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+  if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+  dirty.clear();
+  snapshotPending = false;
   subscribed = false;
   try { ws?.close(); } catch { /* already closed */ }
   ws = null;

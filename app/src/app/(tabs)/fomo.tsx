@@ -19,7 +19,8 @@ import { ThemedView } from '@/components/themed-view';
 import { TokenAvatar } from '@/components/token-avatar';
 import { useTheme } from '@/hooks/use-theme';
 import { getFomoGraduated, setFomoProxy } from '@/api/market';
-import type { FomoFilters, FomoGraduatedResponse, FomoToken } from '@/api/market';
+import type { FomoFilters, FomoGraduatedResponse, FomoPushData, FomoToken } from '@/api/market';
+import { getWsClient } from '@/api/ws-client';
 import { fmtNum, fmtPct, fmtUsd, timeAgo } from '@/utils/format';
 
 const FILTERS_KEY = 'trading-sim/fomo-filters';
@@ -50,6 +51,38 @@ function normalizeFilters(raw: unknown): FomoFilters {
       if (typeof v === 'string') out[f.key] = v;
     }
   }
+  return out;
+}
+
+/** ''/junk → null (no bound) — mirrors the server's toN(). */
+function toBound(v: string): number | null {
+  const t = v.trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Client-side filter over the live map — same semantics as the server's
+ * GET /fomo/graduated (WS pushes are unfiltered, so the view filters here).
+ */
+function filterTokens(map: Map<string, FomoToken>, f: FomoFilters): FomoToken[] {
+  const now = Math.floor(Date.now() / 1000);
+  const ageMaxMin = toBound(f.ageMaxMin);
+  const mcapMin = toBound(f.mcapMin);
+  const mcapMax = toBound(f.mcapMax);
+  const out: FomoToken[] = [];
+  for (const t of map.values()) {
+    if (ageMaxMin != null && (t.createdAt == null || now - t.createdAt > ageMaxMin * 60)) continue;
+    if (
+      (mcapMin != null || mcapMax != null) &&
+      (t.mcap == null || (mcapMin != null && t.mcap < mcapMin) || (mcapMax != null && t.mcap > mcapMax))
+    ) {
+      continue;
+    }
+    out.push(t);
+  }
+  out.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
   return out;
 }
 
@@ -134,8 +167,12 @@ function FomoRow({ token }: { token: FomoToken }) {
 export default function FomoScreen() {
   const theme = useTheme();
   const [filters, setFilters] = useState<FomoFilters>(FILTER_DEFAULTS);
+  /** Live token map: WS pushes (unfiltered) + REST backfill; display filters client-side. */
+  const [map, setMap] = useState<Map<string, FomoToken>>(() => new Map());
   const [resp, setResp] = useState<FomoGraduatedResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  /** True while pushes arrived recently — flipped by the WS handler + a stale timer. */
+  const [pushFresh, setPushFresh] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   const [editorVisible, setEditorVisible] = useState(false);
@@ -166,9 +203,48 @@ export default function FomoScreen() {
       const res = await getFomoGraduated(f);
       setResp(res);
       setFetchError(null);
+      // Merge (never replace): WS owns the truth, REST just backfills.
+      setMap((prev) => {
+        const next = new Map(prev);
+        for (const t of res.tokens) next.set(t.address, t);
+        return next;
+      });
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : String(err));
     }
+  }, []);
+
+  // Real-time feed: server pushes batched changes (~1/s) on topic `fomo`.
+  // Subscribing also triggers an immediate full snapshot push from the server.
+  // Freshness is a flag flipped here and expired by a timer — Date.now() in
+  // render would break react-hooks/purity.
+  useEffect(() => {
+    const client = getWsClient();
+    client.subscribe('fomo');
+    let staleTimer: ReturnType<typeof setTimeout> | null = null;
+    const off = client.on('fomo_updated', (msg) => {
+      const data = (msg?.data ?? null) as FomoPushData | null;
+      if (!data?.tokens?.length) return;
+      setPushFresh(true);
+      if (staleTimer) clearTimeout(staleTimer);
+      staleTimer = setTimeout(() => setPushFresh(false), 15_000);
+      setMap((prev) => {
+        if (data.snapshot) {
+          // Authoritative upstream rebuild — entries missing here are gone.
+          const next = new Map<string, FomoToken>();
+          for (const t of data.tokens) next.set(t.address, t);
+          return next;
+        }
+        const next = new Map(prev);
+        for (const t of data.tokens) next.set(t.address, t);
+        return next;
+      });
+    });
+    return () => {
+      if (staleTimer) clearTimeout(staleTimer);
+      off();
+      client.unsubscribe('fomo');
+    };
   }, []);
 
   // Poll the server-side filtered feed (server holds the live WS connection).
@@ -225,17 +301,20 @@ export default function FomoScreen() {
     setEditorVisible(false);
   }, [draft, proxyDraft, resp]);
 
-  const tokens = useMemo(() => resp?.tokens ?? [], [resp]);
+  const tokens = useMemo(() => filterTokens(map, filters), [map, filters]);
   const status = resp?.status;
-  const live = fetchError == null && status?.live === true;
+  // Live = recent WS push (primary) OR upstream feed healthy per REST status.
+  const live = pushFresh || (fetchError == null && status?.live === true);
 
-  const statusText = fetchError
-    ? fetchError
-    : status
-      ? status.connected
-        ? `${status.count} tokens${status.lastMsgAgeMs != null ? ` · ${(status.lastMsgAgeMs / 1000).toFixed(0)}s` : ''}${status.proxy?.transport === 'proxy' ? ' · px' : ''}`
-        : 'conectando…'
-      : 'cargando…';
+  const statusText = pushFresh
+    ? `en vivo · ${status?.count ?? map.size} tokens${status?.proxy?.transport === 'proxy' ? ' · px' : ''}`
+    : fetchError
+      ? fetchError
+      : status
+        ? status.connected
+          ? `${status.count} tokens${status.lastMsgAgeMs != null ? ` · ${(status.lastMsgAgeMs / 1000).toFixed(0)}s` : ''}${status.proxy?.transport === 'proxy' ? ' · px' : ''}`
+          : 'conectando…'
+        : 'cargando…';
 
   const filterSummary = useMemo(() => {
     const parts: string[] = [];
@@ -266,7 +345,7 @@ export default function FomoScreen() {
               <Ionicons name="funnel" size={16} color={theme.textSecondary} />
             </Pressable>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {resp?.total ?? tokens.length}
+              {tokens.length}
             </ThemedText>
           </View>
         </View>
@@ -285,9 +364,9 @@ export default function FomoScreen() {
           ListEmptyComponent={
             <View style={styles.emptyCard}>
               <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>
-                {fetchError
+                {fetchError && map.size === 0
                   ? `Error: ${fetchError}`
-                  : !hydrated || !resp
+                  : map.size === 0 && (!hydrated || !resp)
                     ? 'Conectando con el feed de FOMO…'
                     : 'Ningún token coincide con estos filtros.'}
               </ThemedText>
@@ -297,7 +376,7 @@ export default function FomoScreen() {
 
         <View style={styles.footer}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Graduados Solana · servidor 10s · fomo.family
+            Graduados Solana · tiempo real (push ~1s · respaldo 10s) · fomo.family
           </ThemedText>
         </View>
       </SafeAreaView>

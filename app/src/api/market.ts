@@ -202,6 +202,14 @@ export interface FomoFilters {
   mcapMax: string;
 }
 
+/** WS push payload on topic `fomo` (event `fomo_updated`), batched ~1/s. */
+export interface FomoPushData {
+  tokens: FomoToken[];
+  savedAt: number;
+  /** Upstream authoritative rebuild — replace the local map instead of merging. */
+  snapshot?: boolean;
+}
+
 export function getFomoGraduated(filters: FomoFilters, limit?: number) {
   const qs = new URLSearchParams();
   const age = filters.ageMaxMin?.trim();

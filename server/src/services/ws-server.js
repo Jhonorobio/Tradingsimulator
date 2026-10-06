@@ -32,6 +32,17 @@ import { ensureWorkers, connectionForTab } from './trenches-refresher.js';
 
 let wss = null;
 const clients = new Set(); // Set of { ws, subscriptions: Set<string> }
+/** topic → () => payload|null: pushed to a client the moment it subscribes. */
+const topicProviders = new Map();
+
+/**
+ * Register the initial payload for a topic (called by the owning service at
+ * import time). Subscribing clients receive it immediately, without an HTTP
+ * round-trip. Return null to send nothing (e.g. empty cache).
+ */
+export function registerTopicProvider(topic, provider) {
+  topicProviders.set(topic, provider);
+}
 
 export function initWebSocket(server) {
   wss = new WebSocketServer({ server, path: '/ws' });
@@ -73,6 +84,16 @@ function handleMessage(client, msg) {
       const tab = msg.topic.replace('trenches:', '');
       const data = getCurrentData(tab);
       sendTo(client, { event: 'trenches_updated', tab, data });
+    } else {
+      const provider = topicProviders.get(msg.topic);
+      if (provider) {
+        try {
+          const payload = provider();
+          if (payload) sendTo(client, payload);
+        } catch (err) {
+          console.error(`[ws] topic provider ${msg.topic} failed:`, err.message);
+        }
+      }
     }
   } else if (msg.action === 'unsubscribe' && typeof msg.topic === 'string') {
     client.subscriptions.delete(msg.topic);
