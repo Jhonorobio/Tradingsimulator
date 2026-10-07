@@ -19,10 +19,12 @@
  *    the filter set (new token, mcap crossing the band) notifies exactly once;
  *    a per-feed+address cooldown absorbs oscillations around a bound.
  *  - The KOL bound (kolMin) resolves counts through fomo-ws's shared cache
- *    (setFomoFeeder) — async, only for records that pass every other bound.
+ *    (setFomoFeeder) and the age bound (ageMaxMin) resolves `createdAt` for
+ *    trending records upstream never sends — both async, only for records
+ *    that pass every other bound.
  *
  * No import cycle: fomo-ws imports this module and injects the live token
- * maps + KOL resolver via setFomoFeeder().
+ * maps + the KOL/age resolvers via setFomoFeeder().
  */
 import { JsonStore } from '../json-store.js';
 import { notificationConfig, notificationHistory, pushSubscriptions } from '../stores.js';
@@ -44,13 +46,15 @@ const EMPTY_FILTERS = Object.freeze({
   kolMin: null,
 });
 
-/** Injected by fomo-ws: live token map per feed + shared KOL cache. */
+/** Injected by fomo-ws: live token map per feed + KOL/age resolvers. */
 let readTokens = () => new Map();
 let resolveKol = async () => null;
+let resolveAge = async () => null;
 
-export function setFomoFeeder({ readTokens: read, resolveKol: kol } = {}) {
+export function setFomoFeeder({ readTokens: read, resolveKol: kol, resolveAge: age } = {}) {
   if (read) readTokens = read;
   if (kol) resolveKol = kol;
+  if (age) resolveAge = age;
 }
 
 function toBound(v) {
@@ -101,6 +105,8 @@ const lastNotified = new Map();
 const seeded = { graduated: false, trending: false };
 /** KOL lookups in flight (`${feed}:${address}`). */
 const kolInflight = new Set();
+/** Age (creation time) lookups in flight — trending records have none. */
+const ageInflight = new Set();
 
 /** Filters changed or the toggle was just enabled → silent pass next. */
 export function reseedFomoFeed(feed) {
@@ -125,11 +131,16 @@ function feedActive(feed) {
   return store.has(`filters_${feed}`) && enabledDevices(feed).length > 0;
 }
 
-/** Bounds that decide without the network (age applies to graduados only). */
+/**
+ * Bounds that decide without the network. The age bound is only checked when
+ * the creation time is known — records without one (trending) are resolved
+ * asynchronously in evaluate(); a failed resolve excludes them (same
+ * semantics as a token without KOL data).
+ */
 function boundsOk(feed, rec, f) {
-  if (feed === 'graduated' && f.ageMaxMin != null) {
+  if (f.ageMaxMin != null && rec.createdAt != null) {
     const age = Math.floor(Date.now() / 1000) - rec.createdAt;
-    if (rec.createdAt == null || age > f.ageMaxMin * 60) return false;
+    if (age > f.ageMaxMin * 60) return false;
   }
   if (f.mcapMin != null || f.mcapMax != null) {
     if (rec.mcap == null) return false;
@@ -159,6 +170,27 @@ function evaluate(feed, rec, silent) {
   const f = store.get(`filters_${feed}`) ?? EMPTY_FILTERS;
   if (!boundsOk(feed, rec, f)) {
     decide(feed, rec, false, silent);
+    return;
+  }
+  if (f.ageMaxMin != null && rec.createdAt == null) {
+    // Creation time unknown (trending never has one upstream) — Pulse
+    // resolves it, then this record re-enters evaluation. No resolve →
+    // excluded; a later update retries (token-age memoizes failures for 60s,
+    // so retries are cached, never a burst).
+    const key = `age:${feed}:${rec.address}`;
+    if (ageInflight.has(key)) return;
+    ageInflight.add(key);
+    resolveAge(rec.address)
+      .then((ts) => {
+        ageInflight.delete(key);
+        if (ts == null) {
+          decide(feed, rec, false, silent);
+          return;
+        }
+        rec.createdAt = ts;
+        evaluate(feed, rec, silent);
+      })
+      .catch(() => ageInflight.delete(key));
     return;
   }
   if (f.kolMin == null) {

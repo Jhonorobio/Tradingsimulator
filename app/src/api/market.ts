@@ -255,7 +255,7 @@ export function getFomoGraduated(filters: FomoFilters, limit?: number) {
   return api.get<FomoFeedResponse>(fomoFeedPath('/api/market/fomo/graduated', filters, limit));
 }
 
-/** FOMO's trending feed — same filters (age is ignored: no createdAt upstream). */
+/** FOMO's trending feed — same filters (age resolved via Pulse upstream sends no createdAt). */
 export function getFomoTrending(filters: FomoFilters, limit?: number) {
   return api.get<FomoFeedResponse>(fomoFeedPath('/api/market/fomo/trending', filters, limit));
 }

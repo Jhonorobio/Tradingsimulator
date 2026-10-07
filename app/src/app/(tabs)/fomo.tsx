@@ -36,8 +36,9 @@ const POLL_MS = 10_000;
 type Feed = 'graduated' | 'trending';
 
 /**
- * Per-tab default filters. Trending carries no age bound — upstream never
- * sends `createdAt` there, so the editor doesn't show the field for that tab.
+ * Per-tab default filters. Trending's age is off by default but fully
+ * supported: upstream sends no `createdAt` there, so the server resolves it
+ * per token via Pulse's `created_at` when the bound is set.
  */
 const FILTER_DEFAULTS: Record<Feed, FomoFilters> = {
   graduated: { ageMaxMin: '60', mcapMin: '60000', mcapMax: '450000', kolMin: '' },
@@ -124,10 +125,11 @@ function toBound(v: string): number | null {
 /**
  * Client-side filter over the live map — same semantics as the server's
  * GET /fomo/{graduated,trending} (WS pushes are unfiltered, so the view filters
- * here). Trending items carry no createdAt upstream, so the age bound only
- * applies to graduados; the trending list sorts by rank instead of date.
- * A token without `kolCount` never passes an active KOL filter; the REST poll
- * backfills counts for candidates so the list fills in within one poll.
+ * here). The age bound applies to both tabs: trending records get their
+ * `createdAt` resolved server-side via Pulse when the bound is set (the REST
+ * poll backfills it within ~10s, like the KOL count). The trending list sorts
+ * by rank instead of date. A token without `kolCount` never passes an active
+ * KOL filter; the REST poll also backfills counts for candidates.
  */
 function filterTokens(map: Map<string, FomoToken>, f: FomoFilters, feed: Feed): FomoToken[] {
   const now = Math.floor(Date.now() / 1000);
@@ -135,10 +137,9 @@ function filterTokens(map: Map<string, FomoToken>, f: FomoFilters, feed: Feed): 
   const mcapMin = toBound(f.mcapMin);
   const mcapMax = toBound(f.mcapMax);
   const kolMin = toBound(f.kolMin);
-  const applyAge = feed === 'graduated';
   const out: FomoToken[] = [];
   for (const t of map.values()) {
-    if (applyAge && ageMaxMin != null && (t.createdAt == null || now - t.createdAt > ageMaxMin * 60)) continue;
+    if (ageMaxMin != null && (t.createdAt == null || now - t.createdAt > ageMaxMin * 60)) continue;
     if (
       (mcapMin != null || mcapMax != null) &&
       (t.mcap == null || (mcapMin != null && t.mcap < mcapMin) || (mcapMax != null && t.mcap > mcapMax))
@@ -157,14 +158,21 @@ function filterTokens(map: Map<string, FomoToken>, f: FomoFilters, feed: Feed): 
 }
 
 /**
- * Merge tokens into the map. WS payloads (and snapshot rebuilds) drop
- * `kolCount` when the record wasn't enriched server-side — keep the value we
- * already know instead of letting every push erase it.
+ * Merge tokens into the map. WS pushes (and snapshot rebuilds) drop fields
+ * the upstream record doesn't repeat — `kolCount` (enriched server-side) and
+ * the Pulse-resolved `createdAt` that trending items never carry — so keep
+ * the values we already know instead of letting every push erase them.
  */
 function mergeTokens(next: Map<string, FomoToken>, list: FomoToken[], old: Map<string, FomoToken>) {
   for (const t of list) {
     const prev = old.get(t.address);
-    next.set(t.address, t.kolCount != null || prev?.kolCount == null ? t : { ...t, kolCount: prev.kolCount });
+    let rec = t;
+    if (prev) {
+      const kolCount = t.kolCount != null ? t.kolCount : prev.kolCount;
+      const createdAt = t.createdAt != null ? t.createdAt : prev.createdAt;
+      if (kolCount !== t.kolCount || createdAt !== t.createdAt) rec = { ...t, kolCount, createdAt };
+    }
+    next.set(t.address, rec);
   }
 }
 
@@ -491,8 +499,7 @@ export default function FomoScreen() {
   const filterSummary = useMemo(() => {
     const parts: string[] = [];
     const age = Number(filters.ageMaxMin);
-    // The age bound doesn't apply to trending (upstream sends no createdAt).
-    if (feed === 'graduated' && filters.ageMaxMin && Number.isFinite(age)) parts.push(`≤${age}m`);
+    if (filters.ageMaxMin && Number.isFinite(age)) parts.push(`≤${age}m`);
     const lo = Number(filters.mcapMin);
     const hi = Number(filters.mcapMax);
     if (filters.mcapMin && Number.isFinite(lo)) parts.push(`≥${fmtUsd(lo, { compact: true })}`);
@@ -500,7 +507,7 @@ export default function FomoScreen() {
     const kol = Number(filters.kolMin);
     if (filters.kolMin && Number.isFinite(kol)) parts.push(`≥${kol} KOL`);
     return parts.length > 0 ? parts.join(' · ') : 'sin filtros';
-  }, [filters, feed]);
+  }, [filters]);
 
   return (
     <ThemedView style={styles.container}>
@@ -594,8 +601,7 @@ export default function FomoScreen() {
               contentContainerStyle={styles.sheetBodyContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled">
-              {/* Trending hides the age field: upstream sends no createdAt. */}
-              {FILTER_FIELDS.filter((f) => feed === 'graduated' || f.key !== 'ageMaxMin').map((f) => (
+              {FILTER_FIELDS.map((f) => (
                 <View key={f.key} style={styles.fieldRow}>
                   <ThemedText type="small" style={[styles.fieldLabel, { color: theme.textSecondary }]}>
                     {f.label}
@@ -616,6 +622,11 @@ export default function FomoScreen() {
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
                 Vacío = sin límite. Los KOLs se resuelven en el servidor (Pulse → GMGN).
               </ThemedText>
+              {feed === 'trending' && (
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  En Trending la edad se resuelve con Pulse (~10s en rellenar la lista).
+                </ThemedText>
+              )}
 
               <View style={styles.sectionDivider} />
               <ThemedText type="smallBold" style={{ color: theme.text }}>

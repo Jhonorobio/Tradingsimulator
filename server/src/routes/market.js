@@ -429,7 +429,8 @@ router.get('/fomo/graduated', async (req, res) => {
 /**
  * GET /api/market/fomo/trending — same filters over FOMO's trending feed
  * (same WS connection/topicId, only Solana). Note: upstream sends no
- * `createdAt` for trending tokens, so ageMaxMin is ignored there.
+ * `createdAt` for trending tokens — ageMaxMin resolves it per token via
+ * Pulse (`created_at`, token-age.js) before filtering.
  */
 router.get('/fomo/trending', async (req, res) => {
   try {

@@ -24,8 +24,9 @@
  *
  * Numeric fields arrive as strings. `topicId` 1399811149 is Solana (FOMO's
  * chains bundle: 1=ETH, 56=BSC, 8453=Base, …). Trending items never carry
- * `createdAt` (the age filter only applies to graduados) but do carry `index`
- * — the ranking the app sorts the trending feed by.
+ * `createdAt` — when the age filter is active it is resolved per token via
+ * Pulse (`created_at`, see token-age.js) and kept through snapshot merges.
+ * Trending items do carry `index` — the ranking the app sorts them by.
  *
  * Each feed keeps its own token map in memory, snapshotted on every
  * (re)subscribe and merged with updates/removes, read by
@@ -50,6 +51,7 @@ import { SocksProxyAgent } from 'socks-proxy-agent';
 import { JsonStore } from '../json-store.js';
 import { broadcast, getSubscriptions, registerTopicProvider } from './ws-server.js';
 import { getKolCount } from './pulse-kol.js';
+import { getCreatedAt } from './token-age.js';
 import { getAccessToken, invalidateAccessToken, hasCredentials, fomoAuthStatus } from './fomo-auth.js';
 import { setFomoFeeder, noteFomoSnapshot, handleFomoRecord, forgetFomoRecord } from './fomo-notify.js';
 
@@ -121,6 +123,7 @@ const feedByType = new Map(FEEDS.map((f) => [f.topicType, f]));
 setFomoFeeder({
   readTokens: (name) => (name === TREND.name ? TREND : GRAD).tokens,
   resolveKol: (address) => ensureKol(address),
+  resolveAge: (address) => getCreatedAt(address),
 });
 
 /** Display/push order: trending by rank, graduados by newest graduation. */
@@ -346,6 +349,8 @@ function applyFeedData(feed, p) {
       if (feed.ranked) rec.rank = i; // trending snapshot order IS the ranking
       const prev = feed.tokens.get(rec.address);
       if (prev?.kolCount != null && rec.kolCount == null) rec.kolCount = prev.kolCount;
+      // Pulse-resolved age (trending) — upstream never repeats it.
+      if (prev?.createdAt != null && rec.createdAt == null) rec.createdAt = prev.createdAt;
       next.set(rec.address, rec);
     });
     feed.tokens.clear();
@@ -363,6 +368,7 @@ function applyFeedData(feed, p) {
       if (prev) {
         if (rec.rank == null) rec.rank = prev.rank;
         if (prev.kolCount != null && rec.kolCount == null) rec.kolCount = prev.kolCount;
+        if (prev.createdAt != null && rec.createdAt == null) rec.createdAt = prev.createdAt;
       }
       feed.tokens.set(rec.address, rec);
       queuePush(feed, rec.address);
@@ -589,6 +595,8 @@ const KOL_RETRY_MS = 60_000;
 /** Only the newest N candidates are enriched (bounded Pulse load per call). */
 const KOL_ENRICH_CAP = 500;
 const KOL_CONCURRENCY = 25;
+/** Cap for age resolution (Pulse) per read — same bounded-load idea. */
+const AGE_ENRICH_CAP = 300;
 const kolLocal = new Map(); // address -> { count: number|null, at }
 
 async function ensureKol(address) {
@@ -616,23 +624,46 @@ async function enrichKol(targets) {
 }
 
 /**
+ * Attach `createdAt` to records upstream doesn't carry (trending) via Pulse's
+ * `created_at` — bounded-concurrency batch; the value sticks to the record
+ * (preserved through snapshot merges), so each token resolves once per boot.
+ */
+async function enrichAge(targets) {
+  const missing = targets.filter((t) => t.createdAt == null);
+  for (let i = 0; i < missing.length; i += KOL_CONCURRENCY) {
+    await Promise.all(
+      missing.slice(i, i + KOL_CONCURRENCY).map(async (t) => {
+        const ts = await getCreatedAt(t.address);
+        if (ts != null) t.createdAt = ts;
+      }),
+    );
+  }
+}
+
+/**
  * Filtered read shared by GET /api/market/fomo/graduated and /fomo/trending.
  * All filters optional; empty string/absent = no bound on that axis.
- * The age bound is skipped for the trending feed — upstream never sends
- * `createdAt` there. When `kolMin` is set, candidates get a KOL count
- * (Trenchers Pulse → GMGN fallback via pulse-kol.js) attached before
- * filtering — see ensureKol().
+ * When `ageMaxMin` is set, records without `createdAt` (trending) get it
+ * resolved via Pulse (token-age.js) first — bounded batch, ranked candidates
+ * first, and the resolved value sticks to the record. When `kolMin` is set,
+ * candidates get a KOL count (Trenchers Pulse → GMGN fallback via
+ * pulse-kol.js) attached before filtering — see ensureKol().
  */
 async function readFeed(feed, { ageMaxMin, mcapMin, mcapMax, kolMin, limit } = {}) {
   const now = Math.floor(Date.now() / 1000);
   const maxAgeSec = ageMaxMin != null ? ageMaxMin * 60 : null;
 
   let list = [...feed.tokens.values()];
-  if (maxAgeSec != null && !feed.ranked) {
-    list = list.filter((t) => t.createdAt != null && now - t.createdAt <= maxAgeSec);
-  }
+  // Cheap bounds first, so enrichment only runs over actual candidates.
   if (mcapMin != null || mcapMax != null) {
     list = list.filter((t) => t.mcap != null && (mcapMin == null || t.mcap >= mcapMin) && (mcapMax == null || t.mcap <= mcapMax));
+  }
+  if (maxAgeSec != null) {
+    const candidates = feed.ranked
+      ? [...list].sort((a, b) => (a.rank ?? MAX_RANK) - (b.rank ?? MAX_RANK)).slice(0, AGE_ENRICH_CAP)
+      : list.slice(0, AGE_ENRICH_CAP);
+    await enrichAge(candidates);
+    list = list.filter((t) => t.createdAt != null && now - t.createdAt <= maxAgeSec);
   }
   list.sort(feed.ranked
     ? (a, b) => (a.rank ?? MAX_RANK) - (b.rank ?? MAX_RANK)
