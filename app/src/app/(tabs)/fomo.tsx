@@ -3,6 +3,7 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -182,6 +183,11 @@ function removeAddresses(next: Map<string, FomoToken>, removed?: string[]) {
   for (const addr of removed) next.delete(addr);
 }
 
+/** GMGN token page — every FOMO feed is Solana-only. */
+function gmgnUrl(address: string): string {
+  return `https://gmgn.ai/sol/token/${address}`;
+}
+
 interface StatItem {
   icon: keyof typeof Ionicons.glyphMap;
   value: string | null;
@@ -263,6 +269,20 @@ function FomoRow({ token, showRank = false }: { token: FomoToken; showRank?: boo
           ))}
         </View>
       )}
+
+      {/* Full mint + GMGN shortcut (same footer pattern as History cards). */}
+      <View style={styles.addrRow}>
+        <ThemedText style={[styles.addrText, { color: theme.textSecondary }]} numberOfLines={1}>
+          {token.address}
+        </ThemedText>
+        <Pressable
+          onPress={() => Linking.openURL(gmgnUrl(token.address)).catch(() => {})}
+          hitSlop={8}
+          style={[styles.gmgnBtn, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+          <Ionicons name="open-outline" size={12} color={theme.accent} />
+          <ThemedText type="small" style={{ color: theme.accent }}>Gmgn</ThemedText>
+        </Pressable>
+      </View>
     </Pressable>
   );
 }
@@ -808,6 +828,23 @@ const styles = StyleSheet.create({
   },
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 1 },
   statValue: { fontSize: 12, fontWeight: '500' },
+
+  /* ── Card footer: full mint + GMGN link ── */
+  addrRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  addrText: { flex: 1, fontSize: 11 },
+  gmgnBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
 
   /* ── Sheets (filter editor) ── */
   modalBackdrop: {
