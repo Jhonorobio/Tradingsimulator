@@ -642,15 +642,17 @@ async function enrichAge(targets) {
 
 /**
  * Filtered read shared by GET /api/market/fomo/graduated and /fomo/trending.
- * All filters optional; empty string/absent = no bound on that axis.
- * When `ageMaxMin` is set, records without `createdAt` (trending) get it
- * resolved via Pulse (token-age.js) first — bounded batch, ranked candidates
- * first, and the resolved value sticks to the record. When `kolMin` is set,
+ * All filters optional; empty string/absent = no bound on that side of the
+ * axis (min and max independently per axis: age, mcap, KOL). When either age
+ * bound is set, records without `createdAt` (trending) get it resolved via
+ * Pulse (token-age.js) first — bounded batch, ranked candidates first, and
+ * the resolved value sticks to the record. When either KOL bound is set,
  * candidates get a KOL count (Trenchers Pulse → GMGN fallback via
  * pulse-kol.js) attached before filtering — see ensureKol().
  */
-async function readFeed(feed, { ageMaxMin, mcapMin, mcapMax, kolMin, limit } = {}) {
+async function readFeed(feed, { ageMinMin, ageMaxMin, mcapMin, mcapMax, kolMin, kolMax, limit } = {}) {
   const now = Math.floor(Date.now() / 1000);
+  const minAgeSec = ageMinMin != null ? ageMinMin * 60 : null;
   const maxAgeSec = ageMaxMin != null ? ageMaxMin * 60 : null;
 
   let list = [...feed.tokens.values()];
@@ -658,20 +660,24 @@ async function readFeed(feed, { ageMaxMin, mcapMin, mcapMax, kolMin, limit } = {
   if (mcapMin != null || mcapMax != null) {
     list = list.filter((t) => t.mcap != null && (mcapMin == null || t.mcap >= mcapMin) && (mcapMax == null || t.mcap <= mcapMax));
   }
-  if (maxAgeSec != null) {
+  if (minAgeSec != null || maxAgeSec != null) {
     const candidates = feed.ranked
       ? [...list].sort((a, b) => (a.rank ?? MAX_RANK) - (b.rank ?? MAX_RANK)).slice(0, AGE_ENRICH_CAP)
       : list.slice(0, AGE_ENRICH_CAP);
     await enrichAge(candidates);
-    list = list.filter((t) => t.createdAt != null && now - t.createdAt <= maxAgeSec);
+    list = list.filter((t) => t.createdAt != null
+      && (minAgeSec == null || now - t.createdAt >= minAgeSec)
+      && (maxAgeSec == null || now - t.createdAt <= maxAgeSec));
   }
   list.sort(feed.ranked
     ? (a, b) => (a.rank ?? MAX_RANK) - (b.rank ?? MAX_RANK)
     : (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 
-  if (kolMin != null) {
+  if (kolMin != null || kolMax != null) {
     await enrichKol(list.slice(0, KOL_ENRICH_CAP));
-    list = list.filter((t) => t.kolCount != null && t.kolCount >= kolMin);
+    list = list.filter((t) => t.kolCount != null
+      && (kolMin == null || t.kolCount >= kolMin)
+      && (kolMax == null || t.kolCount <= kolMax));
   }
 
   const total = list.length;

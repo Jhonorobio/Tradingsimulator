@@ -159,7 +159,7 @@ export interface FomoToken {
   rank?: number;
   /**
    * KOL holders (Trenchers Pulse → GMGN fallback). Attached by the server when
-   * the kolMin filter is used; WS pushes carry it only once a record was
+   * the kolMin/kolMax filter is used; WS pushes carry it only once a record was
    * enriched.
    */
   kolCount?: number | null;
@@ -214,13 +214,16 @@ export interface FomoFeedResponse {
   status: FomoStatus;
 }
 
-/** Empty string = no bound on that axis (server treats invalid values the same). */
+/** Empty string = no bound on that side of the axis (server treats invalid values the same). */
 export interface FomoFilters {
+  /** Minimum token age in minutes ('' = off) — e.g. filter out brand-new tokens. */
+  ageMinMin: string;
   ageMaxMin: string;
   mcapMin: string;
   mcapMax: string;
-  /** Minimum KOL count (Trenchers Pulse); '' = off (no Pulse lookups). */
+  /** KOL count bounds (Trenchers Pulse); '' = off (no Pulse lookups). */
   kolMin: string;
+  kolMax: string;
 }
 
 /**
@@ -238,14 +241,18 @@ export interface FomoPushData {
 
 function fomoFeedPath(path: string, filters: FomoFilters, limit?: number) {
   const qs = new URLSearchParams();
-  const age = filters.ageMaxMin?.trim();
+  const ageLo = filters.ageMinMin?.trim();
+  const ageHi = filters.ageMaxMin?.trim();
   const lo = filters.mcapMin?.trim();
   const hi = filters.mcapMax?.trim();
-  const kol = filters.kolMin?.trim();
-  if (age) qs.set('ageMaxMin', age);
+  const kolLo = filters.kolMin?.trim();
+  const kolHi = filters.kolMax?.trim();
+  if (ageLo) qs.set('ageMinMin', ageLo);
+  if (ageHi) qs.set('ageMaxMin', ageHi);
   if (lo) qs.set('mcapMin', lo);
   if (hi) qs.set('mcapMax', hi);
-  if (kol) qs.set('kolMin', kol);
+  if (kolLo) qs.set('kolMin', kolLo);
+  if (kolHi) qs.set('kolMax', kolHi);
   if (limit) qs.set('limit', String(limit));
   const suffix = qs.toString();
   return `${path}${suffix ? `?${suffix}` : ''}`;

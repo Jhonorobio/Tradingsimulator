@@ -404,19 +404,22 @@ router.get('/xtracker/tokens', (req, res) => {
 /** Shared query parsing for both FOMO feeds (absent/invalid = no bound). */
 function fomoFeedQuery(req) {
   return {
+    ageMinMin: toN(req.query.ageMinMin),
     ageMaxMin: toN(req.query.ageMaxMin),
     mcapMin: toN(req.query.mcapMin),
     mcapMax: toN(req.query.mcapMax),
     kolMin: toN(req.query.kolMin),
+    kolMax: toN(req.query.kolMax),
     limit: toN(req.query.limit),
   };
 }
 
 /**
  * GET /api/market/fomo/graduated — FOMO (fomo.family) Solana graduated feed
- * filtered server-side. Query: ageMaxMin, mcapMin, mcapMax, kolMin, limit (all
- * optional; absent = no bound on that axis). kolMin resolves KOL counts via
- * Pulse (GMGN fallback) before filtering. Snapshotted + live-merged by fomo-ws.
+ * filtered server-side. Query: ageMinMin, ageMaxMin, mcapMin, mcapMax, kolMin,
+ * kolMax, limit (all optional; absent = no bound on that side of the axis).
+ * Either KOL bound resolves KOL counts via Pulse (GMGN fallback) before
+ * filtering. Snapshotted + live-merged by fomo-ws.
  */
 router.get('/fomo/graduated', async (req, res) => {
   try {
@@ -429,8 +432,8 @@ router.get('/fomo/graduated', async (req, res) => {
 /**
  * GET /api/market/fomo/trending — same filters over FOMO's trending feed
  * (same WS connection/topicId, only Solana). Note: upstream sends no
- * `createdAt` for trending tokens — ageMaxMin resolves it per token via
- * Pulse (`created_at`, token-age.js) before filtering.
+ * `createdAt` for trending tokens — either age bound resolves it per token
+ * via Pulse (`created_at`, token-age.js) before filtering.
  */
 router.get('/fomo/trending', async (req, res) => {
   try {
@@ -463,9 +466,9 @@ router.get('/fomo/notify', (_req, res) => {
 
 /**
  * PUT /api/market/fomo/notify — per-tab filters for FOMO alert notifications.
- * Body: { graduated?: { ageMaxMin, mcapMin, mcapMax, kolMin },
- *         trending?:  { ageMaxMin, mcapMin, mcapMax, kolMin } }
- * Numbers (or ''/absent = axis off); only the provided feeds are replaced.
+ * Body: { graduated?: { ageMinMin, ageMaxMin, mcapMin, mcapMax, kolMin, kolMax },
+ *         trending?:  { ageMinMin, ageMaxMin, mcapMin, mcapMax, kolMin, kolMax } }
+ * Numbers (or ''/absent = axis side off); only the provided feeds are replaced.
  * The matcher reseeds silently, so widening filters never bursts the list.
  */
 router.put('/fomo/notify', (req, res) => {

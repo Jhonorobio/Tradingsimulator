@@ -37,13 +37,14 @@ const POLL_MS = 10_000;
 type Feed = 'graduated' | 'trending';
 
 /**
- * Per-tab default filters. Trending's age is off by default but fully
+ * Per-tab default filters. Every axis has an independent min and max (empty
+ * string = that side off). Trending's age is off by default but fully
  * supported: upstream sends no `createdAt` there, so the server resolves it
- * per token via Pulse's `created_at` when the bound is set.
+ * per token via Pulse's `created_at` when either age bound is set.
  */
 const FILTER_DEFAULTS: Record<Feed, FomoFilters> = {
-  graduated: { ageMaxMin: '60', mcapMin: '60000', mcapMax: '450000', kolMin: '' },
-  trending: { ageMaxMin: '', mcapMin: '60000', mcapMax: '450000', kolMin: '' },
+  graduated: { ageMinMin: '', ageMaxMin: '60', mcapMin: '60000', mcapMax: '450000', kolMin: '', kolMax: '' },
+  trending: { ageMinMin: '', ageMaxMin: '', mcapMin: '60000', mcapMax: '450000', kolMin: '', kolMax: '' },
 };
 
 interface FilterField {
@@ -53,12 +54,24 @@ interface FilterField {
   placeholder: string;
 }
 
-const FILTER_FIELDS: FilterField[] = [
-  { key: 'ageMaxMin', label: 'Edad máxima', unit: 'm', placeholder: 'sin límite' },
-  { key: 'mcapMin', label: 'Market cap mínimo', unit: '$', placeholder: 'sin límite' },
-  { key: 'mcapMax', label: 'Market cap máximo', unit: '$', placeholder: 'sin límite' },
-  { key: 'kolMin', label: 'KOLs mínimo', unit: 'KOL', placeholder: 'sin límite' },
+/** Editor layout: min/max pairs side by side, one row per axis. */
+const FILTER_ROWS: FilterField[][] = [
+  [
+    { key: 'ageMinMin', label: 'Edad mín', unit: 'm', placeholder: 'sin límite' },
+    { key: 'ageMaxMin', label: 'Edad máx', unit: 'm', placeholder: 'sin límite' },
+  ],
+  [
+    { key: 'mcapMin', label: 'Mcap mínimo', unit: '$', placeholder: 'sin límite' },
+    { key: 'mcapMax', label: 'Mcap máximo', unit: '$', placeholder: 'sin límite' },
+  ],
+  [
+    { key: 'kolMin', label: 'KOLs mínimo', unit: 'KOL', placeholder: 'sin límite' },
+    { key: 'kolMax', label: 'KOLs máximo', unit: 'KOL', placeholder: 'sin límite' },
+  ],
 ];
+
+/** Flat list of every editable key — the storage migration iterates it. */
+const FILTER_FIELDS: FilterField[] = FILTER_ROWS.flat();
 
 /** Per-feed display + WS topic/event metadata. */
 interface FeedMeta {
@@ -126,28 +139,42 @@ function toBound(v: string): number | null {
 /**
  * Client-side filter over the live map — same semantics as the server's
  * GET /fomo/{graduated,trending} (WS pushes are unfiltered, so the view filters
- * here). The age bound applies to both tabs: trending records get their
- * `createdAt` resolved server-side via Pulse when the bound is set (the REST
- * poll backfills it within ~10s, like the KOL count). The trending list sorts
- * by rank instead of date. A token without `kolCount` never passes an active
- * KOL filter; the REST poll also backfills counts for candidates.
+ * here). The age bounds apply to both tabs: trending records get their
+ * `createdAt` resolved server-side via Pulse when either age bound is set (the
+ * REST poll backfills it within ~10s, like the KOL count). The trending list
+ * sorts by rank instead of date. A token without `kolCount` never passes an
+ * active KOL filter; the REST poll also backfills counts for candidates.
  */
 function filterTokens(map: Map<string, FomoToken>, f: FomoFilters, feed: Feed): FomoToken[] {
   const now = Math.floor(Date.now() / 1000);
+  const ageMinMin = toBound(f.ageMinMin);
   const ageMaxMin = toBound(f.ageMaxMin);
   const mcapMin = toBound(f.mcapMin);
   const mcapMax = toBound(f.mcapMax);
   const kolMin = toBound(f.kolMin);
+  const kolMax = toBound(f.kolMax);
   const out: FomoToken[] = [];
   for (const t of map.values()) {
-    if (ageMaxMin != null && (t.createdAt == null || now - t.createdAt > ageMaxMin * 60)) continue;
+    if (
+      (ageMinMin != null || ageMaxMin != null) &&
+      (t.createdAt == null ||
+        (ageMinMin != null && now - t.createdAt < ageMinMin * 60) ||
+        (ageMaxMin != null && now - t.createdAt > ageMaxMin * 60))
+    ) {
+      continue;
+    }
     if (
       (mcapMin != null || mcapMax != null) &&
       (t.mcap == null || (mcapMin != null && t.mcap < mcapMin) || (mcapMax != null && t.mcap > mcapMax))
     ) {
       continue;
     }
-    if (kolMin != null && (t.kolCount == null || t.kolCount < kolMin)) continue;
+    if (
+      (kolMin != null || kolMax != null) &&
+      (t.kolCount == null || (kolMin != null && t.kolCount < kolMin) || (kolMax != null && t.kolCount > kolMax))
+    ) {
+      continue;
+    }
     out.push(t);
   }
   out.sort(
@@ -534,14 +561,18 @@ export default function FomoScreen() {
 
   const filterSummary = useMemo(() => {
     const parts: string[] = [];
-    const age = Number(filters.ageMaxMin);
-    if (filters.ageMaxMin && Number.isFinite(age)) parts.push(`≤${age}m`);
+    const ageLo = Number(filters.ageMinMin);
+    if (filters.ageMinMin && Number.isFinite(ageLo)) parts.push(`≥${ageLo}m`);
+    const ageHi = Number(filters.ageMaxMin);
+    if (filters.ageMaxMin && Number.isFinite(ageHi)) parts.push(`≤${ageHi}m`);
     const lo = Number(filters.mcapMin);
     const hi = Number(filters.mcapMax);
     if (filters.mcapMin && Number.isFinite(lo)) parts.push(`≥${fmtUsd(lo, { compact: true })}`);
     if (filters.mcapMax && Number.isFinite(hi)) parts.push(`≤${fmtUsd(hi, { compact: true })}`);
-    const kol = Number(filters.kolMin);
-    if (filters.kolMin && Number.isFinite(kol)) parts.push(`≥${kol} KOL`);
+    const kolLo = Number(filters.kolMin);
+    if (filters.kolMin && Number.isFinite(kolLo)) parts.push(`≥${kolLo} KOL`);
+    const kolHi = Number(filters.kolMax);
+    if (filters.kolMax && Number.isFinite(kolHi)) parts.push(`≤${kolHi} KOL`);
     return parts.length > 0 ? parts.join(' · ') : 'sin filtros';
   }, [filters]);
 
@@ -637,22 +668,26 @@ export default function FomoScreen() {
               contentContainerStyle={styles.sheetBodyContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled">
-              {FILTER_FIELDS.map((f) => (
-                <View key={f.key} style={styles.fieldRow}>
-                  <ThemedText type="small" style={[styles.fieldLabel, { color: theme.textSecondary }]}>
-                    {f.label}
-                  </ThemedText>
-                  <View style={styles.inputGroup}>
-                    <TextInput
-                      value={draft[f.key]}
-                      onChangeText={(v) => setDraftValue(f.key, v)}
-                      placeholder={f.placeholder}
-                      placeholderTextColor={theme.textSecondary}
-                      keyboardType="numeric"
-                      style={[styles.fieldInput, { color: theme.text }]}
-                    />
-                    <ThemedText style={[styles.inputUnit, { color: theme.textSecondary }]}>{f.unit}</ThemedText>
-                  </View>
+              {FILTER_ROWS.map((pair) => (
+                <View key={pair[0].key} style={styles.fieldPair}>
+                  {pair.map((f) => (
+                    <View key={f.key} style={styles.fieldHalf}>
+                      <ThemedText type="small" style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+                        {f.label}
+                      </ThemedText>
+                      <View style={styles.inputGroup}>
+                        <TextInput
+                          value={draft[f.key]}
+                          onChangeText={(v) => setDraftValue(f.key, v)}
+                          placeholder={f.placeholder}
+                          placeholderTextColor={theme.textSecondary}
+                          keyboardType="numeric"
+                          style={[styles.fieldInput, { color: theme.text }]}
+                        />
+                        <ThemedText style={[styles.inputUnit, { color: theme.textSecondary }]}>{f.unit}</ThemedText>
+                      </View>
+                    </View>
+                  ))}
                 </View>
               ))}
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
@@ -921,6 +956,8 @@ const styles = StyleSheet.create({
 
   /* ── Filter fields ── */
   fieldRow: { marginBottom: 14 },
+  fieldPair: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  fieldHalf: { flex: 1 },
   fieldLabel: { fontSize: 12, marginBottom: 6 },
   sectionDivider: {
     height: StyleSheet.hairlineWidth,

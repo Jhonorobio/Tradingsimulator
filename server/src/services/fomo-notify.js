@@ -18,10 +18,10 @@
  *  - `matched` tracks which addresses currently match, so a transition into
  *    the filter set (new token, mcap crossing the band) notifies exactly once;
  *    a per-feed+address cooldown absorbs oscillations around a bound.
- *  - The KOL bound (kolMin) resolves counts through fomo-ws's shared cache
- *    (setFomoFeeder) and the age bound (ageMaxMin) resolves `createdAt` for
- *    trending records upstream never sends — both async, only for records
- *    that pass every other bound.
+ *  - The KOL bounds (kolMin/kolMax) resolve counts through fomo-ws's shared
+ *    cache (setFomoFeeder) and the age bounds (ageMinMin/ageMaxMin) resolve
+ *    `createdAt` for trending records upstream never sends — both async, only
+ *    for records that pass every other bound.
  *
  * No import cycle: fomo-ws imports this module and injects the live token
  * maps + the KOL/age resolvers via setFomoFeeder().
@@ -40,10 +40,12 @@ const NOTIFY_MEM_CAP = 5_000;
 const store = new JsonStore('fomo-notify');
 
 const EMPTY_FILTERS = Object.freeze({
+  ageMinMin: null,
   ageMaxMin: null,
   mcapMin: null,
   mcapMax: null,
   kolMin: null,
+  kolMax: null,
 });
 
 /** Injected by fomo-ws: live token map per feed + KOL/age resolvers. */
@@ -66,10 +68,12 @@ function toBound(v) {
 function sanitizeFilters(raw) {
   if (!raw || typeof raw !== 'object') return null;
   return {
+    ageMinMin: toBound(raw.ageMinMin),
     ageMaxMin: toBound(raw.ageMaxMin),
     mcapMin: toBound(raw.mcapMin),
     mcapMax: toBound(raw.mcapMax),
     kolMin: toBound(raw.kolMin),
+    kolMax: toBound(raw.kolMax),
   };
 }
 
@@ -132,15 +136,16 @@ function feedActive(feed) {
 }
 
 /**
- * Bounds that decide without the network. The age bound is only checked when
- * the creation time is known — records without one (trending) are resolved
- * asynchronously in evaluate(); a failed resolve excludes them (same
+ * Bounds that decide without the network. The age bounds are only checked
+ * when the creation time is known — records without one (trending) are
+ * resolved asynchronously in evaluate(); a failed resolve excludes them (same
  * semantics as a token without KOL data).
  */
 function boundsOk(feed, rec, f) {
-  if (f.ageMaxMin != null && rec.createdAt != null) {
+  if ((f.ageMinMin != null || f.ageMaxMin != null) && rec.createdAt != null) {
     const age = Math.floor(Date.now() / 1000) - rec.createdAt;
-    if (age > f.ageMaxMin * 60) return false;
+    if (f.ageMinMin != null && age < f.ageMinMin * 60) return false;
+    if (f.ageMaxMin != null && age > f.ageMaxMin * 60) return false;
   }
   if (f.mcapMin != null || f.mcapMax != null) {
     if (rec.mcap == null) return false;
@@ -172,7 +177,7 @@ function evaluate(feed, rec, silent) {
     decide(feed, rec, false, silent);
     return;
   }
-  if (f.ageMaxMin != null && rec.createdAt == null) {
+  if ((f.ageMinMin != null || f.ageMaxMin != null) && rec.createdAt == null) {
     // Creation time unknown (trending never has one upstream) — Pulse
     // resolves it, then this record re-enters evaluation. No resolve →
     // excluded; a later update retries (token-age memoizes failures for 60s,
@@ -193,12 +198,13 @@ function evaluate(feed, rec, silent) {
       .catch(() => ageInflight.delete(key));
     return;
   }
-  if (f.kolMin == null) {
+  if (f.kolMin == null && f.kolMax == null) {
     decide(feed, rec, true, silent);
     return;
   }
+  const kolOk = (k) => (f.kolMin == null || k >= f.kolMin) && (f.kolMax == null || k <= f.kolMax);
   if (rec.kolCount != null) {
-    decide(feed, rec, rec.kolCount >= f.kolMin, silent);
+    decide(feed, rec, kolOk(rec.kolCount), silent);
     return;
   }
   // KOL bound needs the network — resolve once, then decide like the sync path.
@@ -210,7 +216,7 @@ function evaluate(feed, rec, silent) {
       kolInflight.delete(key);
       if (count != null) rec.kolCount = count; // cache on the record for reads
       if (count == null) return; // no data yet → the next update retries
-      decide(feed, rec, count >= f.kolMin, silent);
+      decide(feed, rec, kolOk(count), silent);
     })
     .catch(() => kolInflight.delete(key));
 }
