@@ -47,31 +47,68 @@ const FILTER_DEFAULTS: Record<Feed, FomoFilters> = {
   trending: { ageMinMin: '', ageMaxMin: '', mcapMin: '60000', mcapMax: '450000', kolMin: '', kolMax: '' },
 };
 
-interface FilterField {
-  key: keyof FomoFilters;
+interface FilterAxis {
   label: string;
+  /** `FomoFilters` key holding the minimum bound of the axis. */
+  min: keyof FomoFilters;
+  /** `FomoFilters` key holding the maximum bound of the axis. */
+  max: keyof FomoFilters;
   unit: string;
-  placeholder: string;
 }
 
-/** Editor layout: min/max pairs side by side, one row per axis. */
-const FILTER_ROWS: FilterField[][] = [
-  [
-    { key: 'ageMinMin', label: 'Edad mín', unit: 'm', placeholder: 'sin límite' },
-    { key: 'ageMaxMin', label: 'Edad máx', unit: 'm', placeholder: 'sin límite' },
-  ],
-  [
-    { key: 'mcapMin', label: 'Mcap mínimo', unit: '$', placeholder: 'sin límite' },
-    { key: 'mcapMax', label: 'Mcap máximo', unit: '$', placeholder: 'sin límite' },
-  ],
-  [
-    { key: 'kolMin', label: 'KOLs mínimo', unit: 'KOL', placeholder: 'sin límite' },
-    { key: 'kolMax', label: 'KOLs máximo', unit: 'KOL', placeholder: 'sin límite' },
-  ],
+/** Editor layout: one row per axis, min and max side by side (Photon/Trenches pattern). */
+const FILTER_AXES: FilterAxis[] = [
+  { label: 'Edad', min: 'ageMinMin', max: 'ageMaxMin', unit: 'm' },
+  { label: 'Market cap', min: 'mcapMin', max: 'mcapMax', unit: '$' },
+  { label: 'KOLs', min: 'kolMin', max: 'kolMax', unit: 'KOL' },
 ];
 
-/** Flat list of every editable key — the storage migration iterates it. */
-const FILTER_FIELDS: FilterField[] = FILTER_ROWS.flat();
+/** Every editable key — the storage migration iterates it. */
+const FILTER_KEYS: (keyof FomoFilters)[] = FILTER_AXES.flatMap((a) => [a.min, a.max]);
+
+/**
+ * One axis: label on top, then [input mín unit] — [input máx unit] on the
+ * same line — the exact layout Photon and Trenches use for range filters.
+ */
+function RangeField({
+  axis,
+  values,
+  onChange,
+}: {
+  axis: FilterAxis;
+  values: FomoFilters;
+  onChange: (key: keyof FomoFilters, value: string) => void;
+}) {
+  const theme = useTheme();
+  const side = (which: 'min' | 'max') => {
+    const key = axis[which];
+    return (
+      <View style={[styles.inputGroup, styles.rangeInput]}>
+        <TextInput
+          value={values[key]}
+          onChangeText={(v) => onChange(key, v)}
+          placeholder={which === 'min' ? 'mín' : 'máx'}
+          placeholderTextColor={theme.textSecondary}
+          keyboardType="numeric"
+          style={[styles.fieldInput, { color: theme.text }]}
+        />
+        <ThemedText style={[styles.inputUnit, { color: theme.textSecondary }]}>{axis.unit}</ThemedText>
+      </View>
+    );
+  };
+  return (
+    <View style={styles.fieldRow}>
+      <ThemedText type="small" style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+        {axis.label}
+      </ThemedText>
+      <View style={styles.fieldInputs}>
+        {side('min')}
+        <ThemedText style={[styles.rangeSep, { color: theme.textSecondary }]}>—</ThemedText>
+        {side('max')}
+      </View>
+    </View>
+  );
+}
 
 /** Per-feed display + WS topic/event metadata. */
 interface FeedMeta {
@@ -93,9 +130,9 @@ function pickFilters(raw: unknown): Partial<FomoFilters> {
   const out: Partial<FomoFilters> = {};
   if (raw && typeof raw === 'object') {
     const o = raw as Record<string, unknown>;
-    for (const f of FILTER_FIELDS) {
-      const v = o[f.key];
-      if (typeof v === 'string') out[f.key] = v as FomoFilters[keyof FomoFilters];
+    for (const key of FILTER_KEYS) {
+      const v = o[key];
+      if (typeof v === 'string') out[key] = v as FomoFilters[keyof FomoFilters];
     }
   }
   return out;
@@ -668,27 +705,8 @@ export default function FomoScreen() {
               contentContainerStyle={styles.sheetBodyContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled">
-              {FILTER_ROWS.map((pair) => (
-                <View key={pair[0].key} style={styles.fieldPair}>
-                  {pair.map((f) => (
-                    <View key={f.key} style={styles.fieldHalf}>
-                      <ThemedText type="small" style={[styles.fieldLabel, { color: theme.textSecondary }]}>
-                        {f.label}
-                      </ThemedText>
-                      <View style={styles.inputGroup}>
-                        <TextInput
-                          value={draft[f.key]}
-                          onChangeText={(v) => setDraftValue(f.key, v)}
-                          placeholder={f.placeholder}
-                          placeholderTextColor={theme.textSecondary}
-                          keyboardType="numeric"
-                          style={[styles.fieldInput, { color: theme.text }]}
-                        />
-                        <ThemedText style={[styles.inputUnit, { color: theme.textSecondary }]}>{f.unit}</ThemedText>
-                      </View>
-                    </View>
-                  ))}
-                </View>
+              {FILTER_AXES.map((axis) => (
+                <RangeField key={axis.min} axis={axis} values={draft} onChange={setDraftValue} />
               ))}
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
                 Vacío = sin límite. Los KOLs se resuelven en el servidor (Pulse → GMGN).
@@ -956,9 +974,14 @@ const styles = StyleSheet.create({
 
   /* ── Filter fields ── */
   fieldRow: { marginBottom: 14 },
-  fieldPair: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-  fieldHalf: { flex: 1 },
   fieldLabel: { fontSize: 12, marginBottom: 6 },
+  fieldInputs: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rangeInput: { flex: 1 },
+  rangeSep: { fontSize: 13 },
   sectionDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: '#333333',
