@@ -188,6 +188,15 @@ function gmgnUrl(address: string): string {
   return `https://gmgn.ai/sol/token/${address}`;
 }
 
+/**
+ * FOMO's own token page — their React Router manifest defines the SEO route
+ * `tokens/:chain/:tokenAddress` with chain slug `solana` (confirmed against
+ * their /assets/manifest-*.js and AASA "SEO-friendly token pages").
+ */
+function fomoUrl(address: string): string {
+  return `https://fomo.family/tokens/solana/${address}`;
+}
+
 interface StatItem {
   icon: keyof typeof Ionicons.glyphMap;
   value: string | null;
@@ -270,15 +279,22 @@ function FomoRow({ token, showRank = false }: { token: FomoToken; showRank?: boo
         </View>
       )}
 
-      {/* Full mint + GMGN shortcut (same footer pattern as History cards). */}
+      {/* Full mint + FOMO/GMGN shortcuts (footer pattern matches History cards). */}
       <View style={styles.addrRow}>
         <ThemedText style={[styles.addrText, { color: theme.textSecondary }]} numberOfLines={1}>
           {token.address}
         </ThemedText>
         <Pressable
+          onPress={() => Linking.openURL(fomoUrl(token.address)).catch(() => {})}
+          hitSlop={8}
+          style={[styles.linkBtn, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+          <Ionicons name="flame-outline" size={12} color={theme.accent} />
+          <ThemedText type="small" style={{ color: theme.accent }}>Fomo</ThemedText>
+        </Pressable>
+        <Pressable
           onPress={() => Linking.openURL(gmgnUrl(token.address)).catch(() => {})}
           hitSlop={8}
-          style={[styles.gmgnBtn, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+          style={[styles.linkBtn, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
           <Ionicons name="open-outline" size={12} color={theme.accent} />
           <ThemedText type="small" style={{ color: theme.accent }}>Gmgn</ThemedText>
         </Pressable>
@@ -829,14 +845,14 @@ const styles = StyleSheet.create({
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 1 },
   statValue: { fontSize: 12, fontWeight: '500' },
 
-  /* ── Card footer: full mint + GMGN link ── */
+  /* ── Card footer: full mint + FOMO/GMGN links ── */
   addrRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   addrText: { flex: 1, fontSize: 11 },
-  gmgnBtn: {
+  linkBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
